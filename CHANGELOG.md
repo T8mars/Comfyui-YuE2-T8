@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.2 - 2026-09-10
+
+- Use the current `comfy node install yue2-t8` CLI command in the README.
+
 ## 1.0.1 - 2026-09-10
 
 - Pin the installer to the verified `t8star/YuE2-Comfy` model bundle commit.

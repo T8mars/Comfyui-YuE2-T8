@@ -21,7 +21,7 @@ YuE2 Music T8 把 YuE2-3B 完整歌曲生成接入 ComfyUI，并提供一个可�
 通过 ComfyUI Registry/Manager 安装：
 
 ```bash
-comfy node registry-install yue2-t8
+comfy node install yue2-t8
 ```
 
 也可以手动安装：
@@ -75,7 +75,7 @@ ComfyUI/custom_nodes/yue2-t8/models/SheetSage2/render_assets/
 
 YuE2 Music T8 integrates YuE2-3B full-song generation with ComfyUI and includes a standalone local WebUI. Its local scheduler runs models in isolated Python workers, so installing the node does not replace ComfyUI's Torch packages.
 
-Install it with `comfy node registry-install yue2-t8`, then run `install_runtime.bat` once from the node directory and restart ComfyUI. Models are downloaded from [t8star/YuE2-Comfy](https://huggingface.co/t8star/YuE2-Comfy) into `<node-directory>/models`; keep all four model subdirectories and their configuration files. Windows and an NVIDIA GPU are required, with 24GB VRAM recommended.
+Install it with `comfy node install yue2-t8`, then run `install_runtime.bat` once from the node directory and restart ComfyUI. Models are downloaded from [t8star/YuE2-Comfy](https://huggingface.co/t8star/YuE2-Comfy) into `<node-directory>/models`; keep all four model subdirectories and their configuration files. Windows and an NVIDIA GPU are required, with 24GB VRAM recommended.
 
 The node pack supports Chinese and English lyrics, editable ABC plans, multi-candidate generation, SheetSage2 transcription, cover generation, staged inference, cancellation, history, and artifact export. Example workflows are in `workflows`.
 
