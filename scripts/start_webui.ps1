@@ -28,7 +28,20 @@ if ($Health -and $Health.ok -eq $true) {
     $Running = $true
 }
 if (-not $Running) {
-    New-Item -ItemType Directory -Force (Join-Path $KitRoot 'logs') | Out-Null
+    $LogDirectory = Join-Path $KitRoot 'logs'
+    New-Item -ItemType Directory -Force $LogDirectory | Out-Null
+    foreach ($Name in @('server.stdout.log','server.stderr.log')) {
+        $LogPath = Join-Path $LogDirectory $Name
+        if ((Test-Path -LiteralPath $LogPath) -and (Get-Item -LiteralPath $LogPath).Length -ge 20MB) {
+            $Oldest = "$LogPath.3"
+            if (Test-Path -LiteralPath $Oldest) { Remove-Item -LiteralPath $Oldest -Force }
+            for ($Index = 2; $Index -ge 1; $Index--) {
+                $Source = "$LogPath.$Index"
+                if (Test-Path -LiteralPath $Source) { Move-Item -LiteralPath $Source -Destination "$LogPath.$($Index + 1)" -Force }
+            }
+            Move-Item -LiteralPath $LogPath -Destination "$LogPath.1" -Force
+        }
+    }
     $Process = Start-Process -FilePath $Python -ArgumentList '-X','utf8','-m','app.yue2_app.service','--host','127.0.0.1','--port','8189' `
         -WorkingDirectory $KitRoot -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput (Join-Path $KitRoot 'logs\server.stdout.log') `

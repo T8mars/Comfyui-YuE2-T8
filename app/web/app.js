@@ -161,12 +161,29 @@ async function loadHistory() {
   } catch(error){ $('#history-list').innerHTML=`<p class="status-failed">${escapeHtml(error.message)}</p>`; }
 }
 
+async function loadRetention() {
+  try {
+    const data=await api('/api/retention');
+    const total=['jobs','uploads','logs'].reduce((sum,key)=>sum+(data.usage[key]?.gib||0),0);
+    $('#storage-usage').textContent=`受管存储 ${total.toFixed(2)} GiB · 导出永久保留`;
+  } catch(error) { $('#storage-usage').textContent=`存储状态失败：${error.message}`; }
+}
+
+async function cleanupStorage() {
+  try {
+    const report=await api('/api/retention/cleanup',{method:'POST'});
+    const deleted=Object.values(report.deleted||{}).reduce((sum,items)=>sum+items.length,0);
+    alert(`清理完成：删除 ${deleted} 项；重要作品请保存在 exports`);
+    await Promise.all([loadHistory(),loadRetention()]);
+  } catch(error) { alert(error.message); }
+}
+
 async function cancelActive(force=false){
   if(!activeJob)return;
   try { await api(`/api/jobs/${activeJob}/cancel`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({force})}); }
   catch(error) { alert(error.message); }
 }
-$('#drawer-cancel').onclick=()=>cancelActive(false); $('#cancel-active').onclick=()=>cancelActive(false); $('#refresh-history').onclick=loadHistory;
+$('#drawer-cancel').onclick=()=>cancelActive(false); $('#cancel-active').onclick=()=>cancelActive(false); $('#refresh-history').onclick=()=>{loadHistory();loadRetention();}; $('#cleanup-storage').onclick=cleanupStorage;
 $('#doctor-button').onclick=async()=>{ try{const job=await submit('doctor',{verify_hashes:true},null); alert(`自检通过\nGPU: ${job.result.gpu}\nTorch: ${job.result.versions.torch}\nCUDA: ${job.result.torch_cuda}`);}catch(error){alert(error.message);} };
 
-health(); loadHistory(); setInterval(health,5000);
+health(); loadHistory(); loadRetention(); setInterval(health,5000);

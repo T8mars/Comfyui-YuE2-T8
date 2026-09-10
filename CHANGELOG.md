@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.4 - 2026-09-11
+
+- Add independent semantic, latent, and decode manifests with file hashes, pinned model sources, runtime weight identities, and stage-to-stage lineage verification.
+- Add configurable automatic retention for terminal jobs, uploads, and logs, plus manual cleanup and storage reporting in the WebUI.
+- Rotate service logs and keep exported artifacts outside automatic retention.
+- Re-run full song generation, transcription, and staged semantic/synthesis/decode validation on the current release.
+
 ## 1.0.3 - 2026-09-10
 
 - Block job-ID path traversal in file and artifact export APIs.

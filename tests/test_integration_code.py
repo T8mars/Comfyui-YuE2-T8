@@ -1,15 +1,23 @@
 import hashlib
 import json
+import os
 import tempfile
 import threading
 import unittest
 from pathlib import Path
 from unittest import mock
 
+from app.yue2_app.artifacts import (
+    assert_provenance,
+    generation_provenance,
+    verify_artifact_manifest,
+    write_artifact_manifest,
+)
 from app.yue2_app.config import ROOT, model_paths
 from app.yue2_app.core_worker import generation_kwargs, generation_result, run_generate
 from app.yue2_app.io import atomic_json, public_job, within
 from app.yue2_app.model_verify import REQUIRED_FILES, verify_bundle
+from app.yue2_app.retention import RetentionManager
 from app.yue2_app.service import job_directory
 from app.yue2_app.worker_common import Cancelled, JobContext
 
@@ -117,6 +125,107 @@ class IntegrationCodeTests(unittest.TestCase):
             (models / "YuE2-3B" / "model.safetensors").write_bytes(b"changed")
             with self.assertRaises(ValueError):
                 verify_bundle(root, progress=False)
+
+    def test_staged_manifest_verifies_hashes_and_model_provenance(self):
+        with tempfile.TemporaryDirectory(dir=ROOT) as directory:
+            root = Path(directory)
+            models = root / "models"
+            models.mkdir()
+            mot_hash = "1" * 64
+            vae_hash = "2" * 64
+            atomic_json(models / "MODEL_MANIFEST.json", {
+                "bundle": "t8star/YuE2-Comfy",
+                "models": {
+                    "YuE2-3B": {"source": "source/mot", "revision": "a", "file": "mot", "size": 1,
+                                 "sha256": mot_hash},
+                    "YuE2-Vae": {"source": "source/vae", "revision": "b", "file": "vae", "size": 1,
+                                 "sha256": vae_hash},
+                },
+            })
+            weights = {
+                "mot": {"files": {"model.safetensors": {"sha256": mot_hash, "bytes": 1}}},
+                "vae": {"files": {"model.safetensors": {"sha256": vae_hash, "bytes": 1}}},
+            }
+            provenance = generation_provenance(root, weights)
+            artifact = root / "artifact"
+            artifact.mkdir()
+            (artifact / "semantic.npy").write_bytes(b"tokens")
+            (artifact / "semantic.json").write_text("{}", encoding="utf-8")
+            (artifact / "plan_manifest.json").write_text("{}", encoding="utf-8")
+            semantic_manifest_path, _ = write_artifact_manifest(
+                artifact, "semantic_manifest.json", "yue2-semantic-v1",
+                ["semantic.npy", "semantic.json", "plan_manifest.json"], models=provenance,
+            )
+            manifest = verify_artifact_manifest(
+                artifact, "semantic_manifest.json", "yue2-semantic-v1",
+                {"semantic.npy", "semantic.json", "plan_manifest.json"},
+            )
+            assert_provenance(manifest, root, weights)
+            wrong_weights = json.loads(json.dumps(weights))
+            wrong_weights["mot"]["files"]["model.safetensors"]["sha256"] = "3" * 64
+            with self.assertRaises(ValueError):
+                assert_provenance(manifest, root, wrong_weights)
+            (artifact / "latent.npy").write_bytes(b"latents")
+            write_artifact_manifest(
+                artifact, "latent_manifest.json", "yue2-latent-v1",
+                ["latent.npy", "semantic_manifest.json"], models=provenance,
+            )
+            verify_artifact_manifest(
+                artifact, "latent_manifest.json", "yue2-latent-v1",
+                {"latent.npy", "semantic_manifest.json"},
+            )
+            original_semantic_manifest = semantic_manifest_path.read_text(encoding="utf-8")
+            semantic_manifest_path.write_text(original_semantic_manifest + " ", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                verify_artifact_manifest(
+                    artifact, "latent_manifest.json", "yue2-latent-v1",
+                    {"latent.npy", "semantic_manifest.json"},
+                )
+            semantic_manifest_path.write_text(original_semantic_manifest, encoding="utf-8")
+            (artifact / "semantic.npy").write_bytes(b"changed")
+            with self.assertRaises(ValueError):
+                verify_artifact_manifest(
+                    artifact, "semantic_manifest.json", "yue2-semantic-v1",
+                    {"semantic.npy", "semantic.json", "plan_manifest.json"},
+                )
+
+    def test_retention_prunes_terminal_jobs_and_keeps_exports(self):
+        with tempfile.TemporaryDirectory(dir=ROOT) as directory:
+            root = Path(directory)
+            for relative in ("outputs/jobs", "uploads", "logs", "exports"):
+                (root / relative).mkdir(parents=True)
+            policy = {
+                "enabled": True,
+                "cleanup_interval_hours": 6,
+                "jobs": {"max_age_days": 0, "max_count": 1, "max_bytes_gib": 0},
+                "uploads": {"max_age_days": 0, "max_bytes_gib": 2 / 2**30},
+                "logs": {"max_age_days": 0, "max_bytes_gib": 2 / 2**30},
+            }
+            atomic_json(root / "retention.json", policy)
+            job_ids = ["20260910-120000-00000001", "20260910-120001-00000002"]
+            for index, job_id in enumerate(job_ids):
+                job = root / "outputs" / "jobs" / job_id
+                job.mkdir()
+                atomic_json(job / "status.json", {"id": job_id, "status": "complete",
+                                                    "finished_at": index + 1})
+                (job / "data.bin").write_bytes(b"x")
+            running_id = "20260910-120002-00000003"
+            running = root / "outputs" / "jobs" / running_id
+            running.mkdir()
+            atomic_json(running / "status.json", {"id": running_id, "status": "running"})
+            for folder, names in (("uploads", ("old.wav", "new.wav")), ("logs", ("old.log", "new.log"))):
+                for index, name in enumerate(names):
+                    path = root / folder / name
+                    path.write_bytes(b"xx")
+                    os.utime(path, (index + 1, index + 1))
+            (root / "exports" / "keep.flac").write_bytes(b"permanent")
+            report = RetentionManager(root).cleanup(current_job=running_id, force=True)
+            self.assertFalse((root / "outputs" / "jobs" / job_ids[0]).exists())
+            self.assertTrue((root / "outputs" / "jobs" / job_ids[1]).exists())
+            self.assertTrue(running.exists())
+            self.assertEqual(len(report["deleted"]["uploads"]), 1)
+            self.assertEqual(len(report["deleted"]["logs"]), 1)
+            self.assertTrue((root / "exports" / "keep.flac").is_file())
 
     def test_workflows_are_well_formed(self):
         workflows = list((ROOT / "workflows").glob("*.json"))

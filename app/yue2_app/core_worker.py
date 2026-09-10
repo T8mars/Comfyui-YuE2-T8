@@ -8,6 +8,13 @@ from pathlib import Path
 
 import numpy as np
 
+from .artifacts import (
+    assert_provenance,
+    generation_provenance,
+    manifest_reference,
+    verify_artifact_manifest,
+    write_artifact_manifest,
+)
 from .config import model_paths, upstream_path
 from .io import atomic_json, within
 from .worker_common import JobContext, configure_environment
@@ -173,19 +180,39 @@ def load_semantic(source: Path):
     from yue2 import SymbolicPlan
     from yue2.pipeline import SemanticResult
 
+    manifest_path = source / "semantic_manifest.json"
+    manifest = verify_artifact_manifest(
+        source, manifest_path.name, "yue2-semantic-v1",
+        {"semantic.npy", "semantic.json", "plan_manifest.json"},
+    )
     plan = SymbolicPlan.load(source)
     info = json.loads((source / "semantic.json").read_text(encoding="utf-8"))
     array = np.load(source / "semantic.npy", allow_pickle=False)
     if array.ndim != 1 or array.dtype.kind not in "iu":
         raise ValueError("无效的 semantic.npy")
-    return SemanticResult(plan, [int(value) for value in array], info.get("timing", {}), bool(info.get("truncated")))
+    semantic = SemanticResult(plan, [int(value) for value in array], info.get("timing", {}),
+                              bool(info.get("truncated")))
+    return semantic, manifest, manifest_path
 
 
-def save_semantic(destination: Path, semantic) -> None:
+def save_semantic(destination: Path, semantic, *, models: dict,
+                  semantic_sampling: dict | None = None,
+                  source: dict | None = None) -> Path:
     destination.mkdir(parents=True, exist_ok=True)
     semantic.plan.save(destination)
     np.save(destination / "semantic.npy", np.asarray(semantic.tokens, dtype=np.int32))
-    atomic_json(destination / "semantic.json", {"timing": semantic.timing, "truncated": semantic.truncated})
+    atomic_json(destination / "semantic.json", {
+        "timing": semantic.timing,
+        "truncated": semantic.truncated,
+        "semantic_sampling": semantic_sampling,
+    })
+    path, _ = write_artifact_manifest(
+        destination, "semantic_manifest.json", "yue2-semantic-v1",
+        ["semantic.npy", "semantic.json", "plan_manifest.json"],
+        models=models, source=source,
+        config={"semantic_sampling": semantic_sampling},
+    )
+    return path
 
 
 def run_semantic(root: Path, ctx: JobContext, request: dict) -> dict:
@@ -200,27 +227,47 @@ def run_semantic(root: Path, ctx: JobContext, request: dict) -> dict:
         semantic = pipe.generate_semantic(plan, sampling=request.get("semantic_sampling"),
                                           cancelled=ctx.cancelled, on_token=ctx.token)
         ctx.check_cancelled()
-        save_semantic(destination, semantic)
+        manifest = save_semantic(
+            destination, semantic,
+            models=generation_provenance(root, pipe.weights),
+            semantic_sampling=request.get("semantic_sampling"),
+            source={"plan_manifest": manifest_reference(plan_path / "plan_manifest.json")},
+        )
         return {"semantic_dir": str(destination), "truncated": bool(semantic.truncated),
-                "tokens": len(semantic.tokens)}
+                "tokens": len(semantic.tokens), "manifest": str(manifest)}
     finally:
         pipe.close()
 
 
 def run_synthesize(root: Path, ctx: JobContext, request: dict) -> dict:
     source = within(root / "outputs" / "jobs", Path(request["semantic_dir"]))
-    semantic = load_semantic(source)
+    semantic, semantic_manifest, semantic_manifest_path = load_semantic(source)
     destination = ctx.job_dir / "artifacts" / "synthesis"
     destination.mkdir(parents=True, exist_ok=True)
     pipe = create_pipe(root, request)
     try:
+        assert_provenance(semantic_manifest, root, pipe.weights)
         ctx.update("synthesis")
         latents = pipe.synthesize(semantic, cancelled=ctx.cancelled)
         ctx.check_cancelled()
         np.save(destination / "latent.npy", np.asarray(latents, dtype=np.float32))
-        save_semantic(destination, semantic)
+        provenance = generation_provenance(root, pipe.weights)
+        local_semantic_manifest = save_semantic(
+            destination, semantic, models=provenance,
+            semantic_sampling=semantic_manifest.get("config", {}).get("semantic_sampling"),
+            source={"input_semantic_manifest": manifest_reference(semantic_manifest_path)},
+        )
+        latent_manifest, _ = write_artifact_manifest(
+            destination, "latent_manifest.json", "yue2-latent-v1",
+            ["latent.npy", "semantic_manifest.json"], models=provenance,
+            source={"semantic_manifest": manifest_reference(local_semantic_manifest)},
+            config={"effective_generation": pipe.effective_config(
+                semantic.plan.request, None,
+                semantic_manifest.get("config", {}).get("semantic_sampling"),
+            )},
+        )
         return {"latent_dir": str(destination), "latent": str(destination / "latent.npy"),
-                "frames": int(latents.shape[0])}
+                "frames": int(latents.shape[0]), "manifest": str(latent_manifest)}
     finally:
         pipe.close()
 
@@ -230,19 +277,32 @@ def run_decode(root: Path, ctx: JobContext, request: dict) -> dict:
 
     source = within(root / "outputs" / "jobs",
                     Path(request.get("latent") or Path(request["latent_dir"]) / "latent.npy"))
+    latent_manifest_path = source.parent / "latent_manifest.json"
+    latent_manifest = verify_artifact_manifest(
+        source.parent, latent_manifest_path.name, "yue2-latent-v1",
+        {"latent.npy", "semantic_manifest.json"},
+    )
     latents = np.load(source, allow_pickle=False)
     destination = ctx.job_dir / "artifacts" / "decode"
     destination.mkdir(parents=True, exist_ok=True)
     pipe = create_pipe(root, request)
     try:
+        assert_provenance(latent_manifest, root, pipe.weights)
         ctx.update("decoding")
         audio = pipe.decode(latents)
         ctx.check_cancelled()
         path = destination / "audio.flac"
         sf.write(path, audio, 48000, subtype="PCM_24")
         ctx.check_cancelled()
+        decode_manifest, _ = write_artifact_manifest(
+            destination, "decode_manifest.json", "yue2-decode-v1",
+            ["audio.flac"], models=generation_provenance(root, pipe.weights),
+            source={"latent_manifest": manifest_reference(latent_manifest_path)},
+            config={"sample_rate": 48000, "vae_decode": "halo_crop"},
+        )
         return {"audio": str(path), "artifact_dir": str(destination),
-                "sample_rate": 48000, "audio_seconds": len(audio) / 48000}
+                "sample_rate": 48000, "audio_seconds": len(audio) / 48000,
+                "manifest": str(decode_manifest)}
     finally:
         pipe.close()
 

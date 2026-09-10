@@ -30,11 +30,15 @@ from .config import (
     runtime_ready,
 )
 from .io import atomic_json, public_job, within
+from .retention import RetentionManager
 
 TERMINAL = {"complete", "failed", "cancelled"}
 CORE_KINDS = {"generate", "plan", "render_plan", "semantic", "synthesize", "decode", "doctor"}
 TRANSCRIBE_KINDS = {"transcribe"}
 JOB_ID_PATTERN = re.compile(r"\d{8}-\d{6}-[0-9a-f]{8}")
+_LOG_LOCK = threading.Lock()
+SERVER_LOG_MAX_BYTES = 20 * 1024 * 1024
+SERVER_LOG_BACKUPS = 3
 
 
 def job_directory(job_id: str) -> Path:
@@ -85,7 +89,9 @@ class JobStore:
         self.current_id: str | None = None
         self.current_process: subprocess.Popen | None = None
         self.stopping = threading.Event()
+        self.retention = RetentionManager(ROOT)
         self._restore()
+        self.cleanup_retention(force=True)
         self.thread = threading.Thread(target=self._scheduler, name="yue2-scheduler", daemon=True)
         self.thread.start()
 
@@ -142,7 +148,13 @@ class JobStore:
     def list(self, limit: int = 100) -> list[dict]:
         with self.lock:
             ids = sorted(self.jobs, key=lambda value: self.jobs[value].get("created_at", 0), reverse=True)
-        return [self.get(job_id) for job_id in ids[:max(1, min(limit, 500))]]
+        result = []
+        for job_id in ids[:max(1, min(limit, 500))]:
+            try:
+                result.append(self.get(job_id))
+            except KeyError:
+                continue
+        return result
 
     def cancel(self, job_id: str, force: bool = False) -> dict:
         status = self.get(job_id)
@@ -164,6 +176,17 @@ class JobStore:
             current = self.current_id
             queued = self.pending.qsize()
         return {"current_job": current, "queued": queued}
+
+    def cleanup_retention(self, *, force: bool = False) -> dict:
+        with self.lock:
+            current = self.current_id
+        report = self.retention.cleanup(current, force=force)
+        deleted = {item["id"] for item in report.get("deleted", {}).get("jobs", [])}
+        if deleted:
+            with self.lock:
+                for job_id in deleted:
+                    self.jobs.pop(job_id, None)
+        return report
 
     def stop(self) -> None:
         self.stopping.set()
@@ -192,6 +215,11 @@ class JobStore:
             try:
                 job_id = self.pending.get(timeout=0.25)
             except queue.Empty:
+                try:
+                    self.cleanup_retention()
+                except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+                    with (LOGS / "retention.log").open("a", encoding="utf-8") as stream:
+                        stream.write(f"{time.time()} {type(exc).__name__}: {exc}\n")
                 continue
             process = None
             log = None
@@ -255,6 +283,18 @@ class JobStore:
                 self.pending.task_done()
 
 
+def rotate_server_log(path: Path) -> None:
+    if not path.is_file() or path.stat().st_size < SERVER_LOG_MAX_BYTES:
+        return
+    oldest = path.with_name(path.name + f".{SERVER_LOG_BACKUPS}")
+    oldest.unlink(missing_ok=True)
+    for index in range(SERVER_LOG_BACKUPS - 1, 0, -1):
+        source = path.with_name(path.name + f".{index}")
+        if source.exists():
+            source.replace(path.with_name(path.name + f".{index + 1}"))
+    path.replace(path.with_name(path.name + ".1"))
+
+
 STORE: JobStore | None = None
 WEB_ROOT = ROOT / "app" / "web"
 
@@ -264,8 +304,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, format, *args):
         line = f"{self.log_date_time_string()} {self.client_address[0]} {format % args}\n"
-        with (LOGS / "server.log").open("a", encoding="utf-8") as stream:
-            stream.write(line)
+        with _LOG_LOCK:
+            path = LOGS / "server.log"
+            rotate_server_log(path)
+            with path.open("a", encoding="utf-8") as stream:
+                stream.write(line)
 
     def _json(self, status: int, value: object):
         body = json.dumps(value, ensure_ascii=False, allow_nan=False).encode("utf-8")
@@ -311,6 +354,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/jobs":
                 limit = int(urllib.parse.parse_qs(parsed.query).get("limit", ["100"])[0])
                 return self._json(200, {"jobs": STORE.list(limit)})
+            if path == "/api/retention":
+                return self._json(200, STORE.retention.status())
             if path.startswith("/api/jobs/"):
                 return self._json(200, STORE.get(path.split("/")[3]))
             if path.startswith("/api/files/"):
@@ -345,6 +390,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/jobs":
                 data = self._body_json()
                 return self._json(202, STORE.create(data.get("kind", "generate"), data.get("request", {})))
+            if path == "/api/retention/cleanup":
+                return self._json(200, STORE.cleanup_retention(force=True))
             if path.startswith("/api/jobs/") and path.endswith("/cancel"):
                 job_id = path.split("/")[3]
                 data = self._body_json(1024) if int(self.headers.get("Content-Length", "0")) else {}
