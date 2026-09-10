@@ -12,6 +12,15 @@
       <p class="eyebrow">YUЕ2 · LOCAL MUSIC STUDIO</p>
       <h1>把旋律写清楚，再让声音发生。</h1>
       <p class="lead">本地歌词作曲、ABC 乐谱编辑、翻唱转谱与版本对比。所有推理都在你的 NVIDIA GPU 上完成。</p>
+      <div class="project-meta" aria-label="项目与作者链接">
+        <a class="creator-credit" href="https://space.bilibili.com/385085361" target="_blank" rel="noreferrer">制作者 By B站UP主：T8star-Aix</a>
+        <span class="project-links">
+          <a href="https://github.com/T8mars/Comfyui-YuE2-T8" target="_blank" rel="noreferrer">GitHub</a>
+          <a href="https://huggingface.co/t8star/YuE2-Comfy" target="_blank" rel="noreferrer">Hugging Face 模型</a>
+          <a href="https://space.bilibili.com/385085361" target="_blank" rel="noreferrer">B站</a>
+          <a href="https://www.youtube.com/@T8star-Aix/" target="_blank" rel="noreferrer">YouTube</a>
+        </span>
+      </div>
     </div>
     <div class="status-card">
       <span id="health-dot" class="dot"></span>
@@ -29,6 +38,22 @@
   </nav>
 
   <main>
+    <section id="task-center" class="task-center hidden" aria-live="polite" aria-label="任务进度">
+      <header class="task-center-head">
+        <div><span class="task-center-label">任务进度</span><h2>正在处理你的音乐</h2></div>
+        <button id="open-history" class="ghost compact" type="button">查看任务记录</button>
+      </header>
+      <div class="task-center-body">
+        <section id="running-section" class="task-group hidden">
+          <div id="running-job"></div>
+        </section>
+        <section id="queue-section" class="task-group hidden">
+          <div class="task-group-title"><b id="queue-title">接下来</b><span>按提交顺序自动开始</span></div>
+          <ol id="queue-list" class="queue-list"></ol>
+        </section>
+      </div>
+    </section>
+
     <section id="create" class="panel active">
       <div class="section-title"><div><span>01</span><h2>从歌词生成完整歌曲</h2></div><p>默认先规划旋律与和弦，再合成 48 kHz 双声道音频。</p></div>
       <form id="create-form" class="grid-form">
@@ -55,7 +80,6 @@
         </div></details>
         <button id="create-button" class="primary wide" type="submit" data-idle-label="生成歌曲">生成歌曲</button>
       </form>
-      <div id="create-task-status" class="inline-task hidden" aria-live="polite"></div>
       <div id="create-result" class="results"></div>
     </section>
 
@@ -114,22 +138,7 @@ This melody still waits for you</textarea></label>
     </section>
   </main>
 
-  <aside id="task-center" class="task-center hidden" aria-live="polite" aria-label="任务中心">
-    <header class="task-center-head">
-      <div><span class="eyebrow">TASK CENTER</span><h2>任务中心</h2></div>
-      <button id="open-history" class="ghost compact" type="button">查看记录</button>
-    </header>
-    <section id="running-section" class="task-group hidden">
-      <div class="task-group-title"><b>正在执行</b><span>GPU 一次处理一项任务</span></div>
-      <div id="running-job"></div>
-    </section>
-    <section id="queue-section" class="task-group hidden">
-      <div class="task-group-title"><b id="queue-title">等待队列</b><span>按提交顺序开始</span></div>
-      <ol id="queue-list" class="queue-list"></ol>
-    </section>
-  </aside>
-
-  <footer>YuE2 本地整合包 · 仅绑定 127.0.0.1 · 权重与输出保存在本机</footer>
+  <footer>YuE2 本地整合包 · 制作者 By B站UP主：T8star-Aix · 仅绑定 127.0.0.1 · 权重与输出保存在本机</footer>
   <script src="/static/app.js"></script>
 </body>
 </html>

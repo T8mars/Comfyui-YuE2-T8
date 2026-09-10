@@ -1,6 +1,6 @@
 # YuE2 Music T8 validation
 
-Validation date: 2026-09-11. Host: Windows, NVIDIA GeForce RTX 5090 Laptop GPU. The current service and workers report version 1.0.6.
+Validation date: 2026-09-11. Host: Windows, NVIDIA GeForce RTX 5090 Laptop GPU. The current service and workers report version 1.0.7.
 
 ## Release checks
 
@@ -11,6 +11,12 @@ Validation date: 2026-09-11. Host: Windows, NVIDIA GeForce RTX 5090 Laptop GPU. 
 - A live retention cleanup deleted one expired terminal job, one expired upload, and one expired log while preserving a sentinel in `exports`; the cleanup report contained no errors.
 
 All six validation jobs were exported before cleanup. Local paths and generated media are machine artifacts and are intentionally excluded from the Registry ZIP.
+
+## 1.0.7 page-integrated progress audit
+
+- The live progress UI is part of the document flow directly below navigation and before the active workspace. No fixed task overlay or duplicate creation status card remains.
+- The section appears only while a task is running or queued, shows the current stage and ordered queue, and keeps task-specific cancellation and history access in the same compact region.
+- The creator credit and GitHub, Hugging Face model, Bilibili, and YouTube links are available in the page header and remain readable in the mobile layout.
 
 ## 1.0.6 task-center regression audit
 

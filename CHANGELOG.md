@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.7 - 2026-09-11
+
+- Move live task progress into the page flow above the active workspace and remove the large fixed overlay and duplicate creation status card.
+- Keep the current task, stage steps, queued task order, task summaries, and cancellation controls visible in one compact section.
+- Add the creator credit and direct GitHub, Hugging Face model, Bilibili, and YouTube links to the local WebUI.
+
 ## 1.0.6 - 2026-09-11
 
 - Replace the ambiguous single-job drawer with a live task center that identifies the current task and lists every queued task in execution order.

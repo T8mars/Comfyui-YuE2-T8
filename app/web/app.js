@@ -128,15 +128,9 @@ function updateBoundButtons(jobs, queued) {
   }
 }
 
-function inlineTask(job, position = 0) {
-  const queued = job.status === 'queued';
-  const detail = queued ? `等待队列第 ${position || '—'} 位` : `${stageLabel(job.stage)} · 已运行 ${elapsed(job)}`;
-  return `<div class="inline-task-copy"><span class="eyebrow">本次创作</span><b>${escapeHtml(kindLabel(job.kind))} · ${escapeHtml(detail)}</b><small>${escapeHtml(queued ? '任务会在前面的任务完成后自动开始。' : stageHint(job))}</small></div><div class="inline-task-actions"><button class="danger compact" type="button" data-cancel-job="${escapeHtml(job.id)}">${queued ? '取消排队' : '取消本次创作'}</button><button class="ghost compact" type="button" data-open-task-center>打开任务中心</button></div>`;
-}
-
 function renderRunningJob(job) {
   const summary = job.summary ? `<p class="task-summary">${escapeHtml(job.summary)}</p>` : '';
-  return `<article class="running-job"><div class="task-card-head"><div><span class="task-type">${escapeHtml(kindLabel(job.kind))}</span><b>${escapeHtml(stageLabel(job.stage))}</b></div><button class="danger compact" type="button" data-cancel-job="${escapeHtml(job.id)}" ${job.status === 'cancelling' ? 'disabled' : ''}>${job.status === 'cancelling' ? '正在取消…' : '取消本任务'}</button></div><p class="task-hint">${escapeHtml(stageHint(job))}</p>${summary}${stepsFor(job)}<div class="task-meta"><span>${escapeHtml(sourceLabel(job.source))}</span><span>已运行 ${elapsed(job)}</span><span title="${escapeHtml(job.id)}">任务 ${escapeHtml(shortId(job.id))}</span></div></article>`;
+  return `<article class="running-job"><div class="task-card-head"><div><span class="task-type">当前正在执行 · ${escapeHtml(kindLabel(job.kind))}</span><b>${escapeHtml(stageLabel(job.stage))}</b></div><button class="danger compact" type="button" data-cancel-job="${escapeHtml(job.id)}" ${job.status === 'cancelling' ? 'disabled' : ''}>${job.status === 'cancelling' ? '正在取消…' : '取消本任务'}</button></div><p class="task-hint">${escapeHtml(stageHint(job))}</p>${summary}${stepsFor(job)}<div class="task-meta"><span>${escapeHtml(sourceLabel(job.source))}</span><span>已运行 ${elapsed(job)}</span><span title="${escapeHtml(job.id)}">任务 ${escapeHtml(shortId(job.id))}</span></div></article>`;
 }
 
 function renderQueuedJob(job, index) {
@@ -152,17 +146,12 @@ function renderTaskCenter(healthData, jobs) {
   $('#running-section').classList.toggle('hidden', !current);
   $('#queue-section').classList.toggle('hidden', !queued.length);
   $('#running-job').innerHTML = current ? renderRunningJob(current) : '';
-  $('#queue-title').textContent = `等待队列 · ${queued.length}`;
+  $('#queue-title').textContent = `接下来 · ${queued.length} 个等待任务`;
   $('#queue-list').innerHTML = queued.map(renderQueuedJob).join('');
   const workload = $('#task-center-jump');
   workload.classList.toggle('hidden', !current && !queued.length);
   workload.textContent = current ? `GPU 工作中 · 1 个执行 / ${queued.length} 个等待` : `${queued.length} 个任务等待开始`;
   updateBoundButtons(jobs, queued);
-  const createButton = $('#create-button');
-  const createJob = createButton.dataset.jobId ? jobs.find(job => job.id === createButton.dataset.jobId) : null;
-  const inline = $('#create-task-status');
-  if (createJob && !TERMINAL.has(createJob.status)) { inline.classList.remove('hidden'); inline.innerHTML = inlineTask(createJob, queued.findIndex(job => job.id === createJob.id) + 1); }
-  else if (!createButton.dataset.jobId) inline.classList.add('hidden');
 }
 
 function renderHealth(data) {
@@ -204,12 +193,10 @@ async function waitForJob(id, resultTarget) {
     await refreshWorkspace();
     if (job.status === 'complete') {
       restoreButton(buttonBindings.get(id));
-      if ($('#create-button').dataset.jobId === id || !$('#create-button').dataset.jobId) $('#create-task-status').classList.add('hidden');
       await Promise.all([refreshWorkspace(), loadHistory()]); if (resultTarget) renderJob(job, resultTarget); return job;
     }
     if (job.status === 'failed' || job.status === 'cancelled') {
       restoreButton(buttonBindings.get(id));
-      if ($('#create-button').dataset.jobId === id || !$('#create-button').dataset.jobId) $('#create-task-status').classList.add('hidden');
       await Promise.all([refreshWorkspace(), loadHistory()]); throw new Error(job.error || stageLabel(job.status));
     }
   }
@@ -249,7 +236,6 @@ function openHistory() { $('.tab[data-tab="history"]').click(); $('#history').sc
 function openTaskCenter() { $('#task-center').scrollIntoView({behavior: 'smooth', block: 'nearest'}); }
 document.addEventListener('click', event => {
   const cancel = event.target.closest('[data-cancel-job]'); if (cancel) cancelJob(cancel.dataset.cancelJob, cancel);
-  if (event.target.closest('[data-open-task-center]')) openTaskCenter();
 });
 $('#open-history').onclick = openHistory;
 $('#task-center-jump').onclick = openTaskCenter;

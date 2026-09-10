@@ -80,10 +80,12 @@ YuE2 Music T8 integrates YuE2-3B full-song generation with ComfyUI and includes 
 
 Install it with `comfy node install yue2-t8`, then run `install_runtime.bat` once from the node directory and restart ComfyUI. Models are downloaded from [t8star/YuE2-Comfy](https://huggingface.co/t8star/YuE2-Comfy) into `<node-directory>/models`; keep all four model subdirectories and their configuration files. Windows and an NVIDIA GPU are required, with 24GB VRAM recommended.
 
-The node pack supports Chinese and English lyrics, editable ABC plans, multi-candidate generation, SheetSage2 transcription, cover generation, staged inference, per-task cancellation, history, and artifact export. Its task center identifies the current job and every queued job with stage, source, summary, and queue position. Staged artifacts carry recursively verified file hashes, pinned model provenance, and lineage manifests; transcription artifacts also record output hashes and the source-audio identity. Automatic retention limits terminal jobs, uploads, and logs while protecting active dependencies and leaving `exports` untouched. Interrupted jobs are retained in history and marked failed after a service restart. Example workflows are in `workflows`.
+The node pack supports Chinese and English lyrics, editable ABC plans, multi-candidate generation, SheetSage2 transcription, cover generation, staged inference, per-task cancellation, history, and artifact export. Its page-integrated progress section identifies the current job and every queued job with stage, source, summary, and queue position. Staged artifacts carry recursively verified file hashes, pinned model provenance, and lineage manifests; transcription artifacts also record output hashes and the source-audio identity. Automatic retention limits terminal jobs, uploads, and logs while protecting active dependencies and leaving `exports` untouched. Interrupted jobs are retained in history and marked failed after a service restart. Example workflows are in `workflows`.
 
 ## Links
 
+- Creator: By Bilibili creator T8star-Aix
+- GitHub: https://github.com/T8mars/Comfyui-YuE2-T8
 - Bilibili: https://space.bilibili.com/385085361
 - YouTube: https://www.youtube.com/@T8star-Aix/
 - API: https://api.seedance.nz/sign-up?aff=5f4w
