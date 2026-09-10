@@ -37,7 +37,7 @@ git clone https://github.com/T8mars/Comfyui-YuE2-T8.git
 
 ### 模型放置路径
 
-模型统一发布在 [t8star/YuE2-Comfy](https://huggingface.co/t8star/YuE2-Comfy)。安装脚本会自动放到当前节点目录的 `models` 下。Registry 默认目录名为 `yue2-t8`，完整路径为：
+模型统一发布在 [t8star/YuE2-Comfy](https://huggingface.co/t8star/YuE2-Comfy)。安装脚本固定使用已验证的模型提交 [`553a4778c`](https://huggingface.co/t8star/YuE2-Comfy/commit/553a4778c81403bc15ad2c56fde56894c3a2ed24)，并自动放到当前节点目录的 `models` 下。Registry 默认目录名为 `yue2-t8`，完整路径为：
 
 ```text
 ComfyUI/custom_nodes/yue2-t8/models/YuE2-3B/model.safetensors

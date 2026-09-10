@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.1 - 2026-09-10
+
+- Pin the installer to the verified `t8star/YuE2-Comfy` model bundle commit.
+- Fix Registry links and Windows launcher packaging.
+
 ## 1.0.0 - 2026-09-10
 
 - Initial Comfy Registry release.

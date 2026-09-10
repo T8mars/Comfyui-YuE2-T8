@@ -61,7 +61,7 @@ $CorePython = Join-Path $Core 'python.exe'
 if ($LASTEXITCODE -ne 0) { throw 'YuE2 core dependencies failed' }
 
 Write-Host 'Downloading YuE2 model bundle from Hugging Face'
-& $CorePython -X utf8 -m huggingface_hub.commands.huggingface_cli download t8star/YuE2-Comfy --revision main --local-dir (Join-Path $KitRoot 'models')
+& $CorePython -X utf8 -m huggingface_hub.commands.huggingface_cli download t8star/YuE2-Comfy --revision 553a4778c81403bc15ad2c56fde56894c3a2ed24 --local-dir (Join-Path $KitRoot 'models')
 if ($LASTEXITCODE -ne 0) { throw 'YuE2 model bundle download failed' }
 
 Write-Host 'Configuring SheetSage2 Python 3.11 runtime'
