@@ -14,10 +14,17 @@ async function api(path, options = {}) {
 
 function formObject(form) {
   const data = Object.fromEntries(new FormData(form).entries());
-  for (const key of ['seed','candidates']) if (data[key] !== undefined) data[key] = Number(data[key]);
+  if (data.seed !== undefined) data.seed = safeSeed(data.seed);
+  if (data.candidates !== undefined) data.candidates = Number(data.candidates);
   for (const key of ['cfg_scale','memory_budget_gib']) if (data[key] !== undefined) data[key] = Number(data[key]);
   data.offload_ar = form.querySelector('[name=offload_ar]')?.checked || false;
   return data;
+}
+
+function safeSeed(value) {
+  const seed = Number(value);
+  if (!Number.isSafeInteger(seed) || seed < 0) throw new Error('随机种子必须是 0 到 9007199254740991 之间的整数');
+  return seed;
 }
 
 function stageLabel(stage) {
@@ -48,13 +55,16 @@ function showDrawer(job) {
 async function poll(id, resultTarget) {
   while (true) {
     await new Promise(resolve => setTimeout(resolve, 900));
-    const job = await api(`/api/jobs/${id}`); showDrawer(job);
+    const job = await api(`/api/jobs/${id}`);
+    if (activeJob === id) showDrawer(job);
     if (job.status === 'complete') {
-      $('#job-drawer').classList.add('hidden'); activeJob = null; health(); loadHistory();
+      if (activeJob === id) { $('#job-drawer').classList.add('hidden'); activeJob = null; }
+      health(); loadHistory();
       if (resultTarget) renderJob(job, resultTarget); return job;
     }
     if (job.status === 'failed' || job.status === 'cancelled') {
-      $('#job-drawer').classList.add('hidden'); activeJob = null; health(); loadHistory();
+      if (activeJob === id) { $('#job-drawer').classList.add('hidden'); activeJob = null; }
+      health(); loadHistory();
       throw new Error(job.error || stageLabel(job.status));
     }
   }
@@ -75,7 +85,8 @@ function renderJob(job, target) {
   const result = job.result || {};
   const candidates = result.candidates || (result.audio ? [{seed:'—', audio:result.audio, truncated:result.truncated}] : []);
   if (!candidates.length) { target.innerHTML = `<div class="result-card"><b>任务完成</b><pre class="meta">${escapeHtml(JSON.stringify(result,null,2))}</pre></div>`; return; }
-  target.innerHTML = candidates.map((candidate,index) => {
+  const partial = result.partial ? `<div class="result-card status-failed">已完成 ${result.completed_candidates}/${result.requested_candidates} 个候选；后续候选失败：${escapeHtml(result.failures?.[0]?.error || '未知错误')}</div>` : '';
+  target.innerHTML = partial + candidates.map((candidate,index) => {
     const rel = relativeAudio(job, candidate.audio);
     const truncated = candidate.truncated && Object.values(candidate.truncated).some(Boolean);
     const player = rel ? `<audio controls preload="metadata" src="${audioUrl(job.id,rel)}"></audio>` : '';
@@ -132,7 +143,9 @@ $('#transcribe-button').onclick = async () => {
   finally { $('#transcribe-button').disabled=false; $('#transcribe-button').textContent='上传并转谱'; }
 };
 $('#generate-cover').onclick = async () => {
-  const request={style:$('#cover-style').value,lyrics:$('#cover-lyrics').value,abc:$('#cover-abc').value,cot:'melody',seed:Number($('#cover-seed').value),cfg_scale:1,backend:'torch-eager',memory_budget_gib:23.5,candidates:1};
+  let seed;
+  try { seed=safeSeed($('#cover-seed').value); } catch(error) { return alert(error.message); }
+  const request={style:$('#cover-style').value,lyrics:$('#cover-lyrics').value,abc:$('#cover-abc').value,cot:'melody',seed,cfg_scale:1,backend:'torch-eager',memory_budget_gib:23.5,candidates:1};
   if(!request.lyrics.trim()) return alert('请先填写并核对歌词');
   try { await submit('generate',request,$('#cover-result')); } catch(error){ $('#cover-result').innerHTML=`<div class="result-card status-failed">${escapeHtml(error.message)}</div>`; }
 };
@@ -148,7 +161,11 @@ async function loadHistory() {
   } catch(error){ $('#history-list').innerHTML=`<p class="status-failed">${escapeHtml(error.message)}</p>`; }
 }
 
-async function cancelActive(force=false){ if(!activeJob)return; await api(`/api/jobs/${activeJob}/cancel`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({force})}); }
+async function cancelActive(force=false){
+  if(!activeJob)return;
+  try { await api(`/api/jobs/${activeJob}/cancel`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({force})}); }
+  catch(error) { alert(error.message); }
+}
 $('#drawer-cancel').onclick=()=>cancelActive(false); $('#cancel-active').onclick=()=>cancelActive(false); $('#refresh-history').onclick=loadHistory;
 $('#doctor-button').onclick=async()=>{ try{const job=await submit('doctor',{verify_hashes:true},null); alert(`自检通过\nGPU: ${job.result.gpu}\nTorch: ${job.result.versions.torch}\nCUDA: ${job.result.torch_cuda}`);}catch(error){alert(error.message);} };
 

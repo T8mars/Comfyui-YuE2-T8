@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.3 - 2026-09-10
+
+- Block job-ID path traversal in file and artifact export APIs.
+- Preserve cancellation through VAE decoding and terminate the complete worker process tree when stopping the service.
+- Use collision-free atomic status writes and accurate token counters.
+- Validate model bundle hashes and every installer subprocess; handle missing and per-protocol Windows proxy settings.
+- Detect stale or conflicting local services, preserve successful candidates on a later candidate failure, and fix WebUI multi-job tracking.
+- Validate full model layouts and reject unsupported batched transcription input.
+
 ## 1.0.2 - 2026-09-10
 
 - Use the current `comfy node install yue2-t8` CLI command in the README.

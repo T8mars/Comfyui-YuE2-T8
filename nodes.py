@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import json
-import shutil
 import time
 import uuid
 from pathlib import Path
 
 from . import client
-
 
 CATEGORY = "YuE2 音乐"
 
@@ -147,7 +145,10 @@ class YuE2Transcribe:
         import soundfile as sf
         root = client.find_root(); uploads = root / "uploads"; uploads.mkdir(parents=True, exist_ok=True)
         path = uploads / f"comfy-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}.wav"
-        waveform = audio["waveform"][0].detach().float().cpu().numpy().T
+        batch = audio["waveform"]
+        if int(batch.shape[0]) != 1:
+            raise ValueError("YuE2 音频转谱一次只接受一条 AUDIO；请先拆分批次")
+        waveform = batch[0].detach().float().cpu().numpy().T
         sf.write(path, waveform, int(audio["sample_rate"]), subtype="FLOAT")
         payload = {"source_path": str(path), "melody_only": bool(melody_only), "dtype": "bf16",
                    "preset": "default", "render_score": False if render_score == "none" else render_score}
@@ -210,6 +211,8 @@ class YuE2SaveArtifacts:
             "destination": ("STRING", {"default": ""})}}
     RETURN_TYPES=("STRING",); RETURN_NAMES=("export_directory",); FUNCTION="save"; CATEGORY=CATEGORY
     OUTPUT_NODE = True
+    @classmethod
+    def IS_CHANGED(cls, **_kwargs): return float("nan")
     def save(self, result, destination):
         response=client.request("/api/export",method="POST",data={"job_id":result["job_id"],"destination":destination})
         return (response["destination"],)
@@ -217,11 +220,14 @@ class YuE2SaveArtifacts:
 
 class YuE2Unload:
     @classmethod
-    def INPUT_TYPES(cls): return {"required": {"model": ("YUE2_MODEL",), "cancel_current": ("BOOLEAN", {"default": False})}}
+    def INPUT_TYPES(cls): return {"required": {"model": ("YUE2_MODEL",), "cancel_current": ("BOOLEAN", {"default": False})},
+                                  "optional": {"force_cancel": ("BOOLEAN", {"default": False})}}
     RETURN_TYPES=("STRING",); RETURN_NAMES=("status",); FUNCTION="unload"; CATEGORY=CATEGORY
     OUTPUT_NODE = True
-    def unload(self, model, cancel_current):
-        response=client.request("/api/unload",method="POST",data={"cancel_current":bool(cancel_current),"force":False})
+    @classmethod
+    def IS_CHANGED(cls, **_kwargs): return float("nan")
+    def unload(self, model, cancel_current, force_cancel=False):
+        response=client.request("/api/unload",method="POST",data={"cancel_current":bool(cancel_current),"force":bool(force_cancel)})
         return (json.dumps(response,ensure_ascii=False),)
 
 

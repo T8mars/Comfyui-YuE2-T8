@@ -2,20 +2,19 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import sys
 import time
 from pathlib import Path
 
 import numpy as np
 
-from .config import model_paths
+from .config import model_paths, upstream_path
 from .io import atomic_json, within
 from .worker_common import JobContext, configure_environment
 
 
 def add_upstream(root: Path) -> None:
-    source = root / "vendor"
+    source = upstream_path(root)
     if not (source / "yue2").is_dir():
         raise FileNotFoundError(f"找不到随节点发布的 YuE2 推理源码：{source}")
     sys.path.insert(0, str(source))
@@ -24,7 +23,7 @@ def add_upstream(root: Path) -> None:
 def create_pipe(root: Path, request: dict):
     from yue2 import YuE2Pipeline
 
-    paths = model_paths()
+    paths = model_paths(root)
     backend = request.get("backend", "torch-eager")
     budget = float(request.get("memory_budget_gib", 23.5))
     return YuE2Pipeline.from_pretrained(
@@ -80,6 +79,7 @@ def generate_one(pipe, ctx: JobContext, request: dict, destination: Path, seed: 
     vae_start = time.perf_counter()
     ctx.update("decoding", seed=seed)
     audio = pipe.decode(latents)
+    ctx.check_cancelled()
     timing = {
         "abc": plan.timing,
         "semantic": semantic.timing,
@@ -90,7 +90,23 @@ def generate_one(pipe, ctx: JobContext, request: dict, destination: Path, seed: 
     }
     result = SongResult(audio, 48000, semantic, latents, config, pipe.weights, timing, request_identity)
     receipt = result.save_artifacts(destination)
+    ctx.check_cancelled()
     return receipt, result
+
+
+def generation_result(completed: list[dict], requested: int, failures: list[dict] | None = None) -> dict:
+    failures = failures or []
+    first = completed[0]
+    return {
+        "candidates": completed,
+        "audio": first["audio"],
+        "artifact_dir": first["directory"],
+        "truncated": first["truncated"],
+        "requested_candidates": requested,
+        "completed_candidates": len(completed),
+        "failures": failures,
+        "partial": bool(failures or len(completed) < requested),
+    }
 
 
 def run_generate(root: Path, ctx: JobContext, request: dict) -> dict:
@@ -103,6 +119,7 @@ def run_generate(root: Path, ctx: JobContext, request: dict) -> dict:
         raise ValueError("seeds 数量必须与 candidates 一致")
     pipe = create_pipe(root, request)
     completed = []
+    failures = []
     try:
         for index, seed in enumerate(seeds):
             ctx.check_cancelled()
@@ -121,14 +138,19 @@ def run_generate(root: Path, ctx: JobContext, request: dict) -> dict:
                     "identity": receipt["identity"],
                     "audio_seconds": receipt["audio_seconds"],
                 })
+                ctx.update("candidate", candidate=index + 1, candidates=count, seed=int(seed),
+                           result=generation_result(completed, count, failures))
             except BaseException as exc:
-                atomic_json(destination / "failure.json", {"status": "failed", "type": type(exc).__name__,
-                            "error": str(exc), "seed": int(seed)})
-                raise
+                failure = {"index": index + 1, "status": "failed", "type": type(exc).__name__,
+                           "error": str(exc), "seed": int(seed)}
+                atomic_json(destination / "failure.json", failure)
+                if isinstance(exc, (InterruptedError, KeyboardInterrupt)) or not completed:
+                    raise
+                failures.append(failure)
+                return generation_result(completed, count, failures)
     finally:
         pipe.close()
-    return {"candidates": completed, "audio": completed[0]["audio"],
-            "artifact_dir": completed[0]["directory"], "truncated": completed[0]["truncated"]}
+    return generation_result(completed, count, failures)
 
 
 def run_plan(root: Path, ctx: JobContext, request: dict) -> dict:
@@ -215,8 +237,10 @@ def run_decode(root: Path, ctx: JobContext, request: dict) -> dict:
     try:
         ctx.update("decoding")
         audio = pipe.decode(latents)
+        ctx.check_cancelled()
         path = destination / "audio.flac"
         sf.write(path, audio, 48000, subtype="PCM_24")
+        ctx.check_cancelled()
         return {"audio": str(path), "artifact_dir": str(destination),
                 "sample_rate": 48000, "audio_seconds": len(audio) / 48000}
     finally:
@@ -253,6 +277,7 @@ def run_render_plan(root: Path, ctx: JobContext, request: dict) -> dict:
         ctx.update("decoding")
         start = time.perf_counter()
         audio = pipe.decode(latents)
+        ctx.check_cancelled()
         config = pipe.effective_config(plan.request, None, request.get("semantic_sampling"))
         request_identity = identity({"request": plan.request.to_dict(), "config": config, "weights": pipe.weights})
         result = SongResult(audio, 48000, semantic, latents, config, pipe.weights,
@@ -260,6 +285,7 @@ def run_render_plan(root: Path, ctx: JobContext, request: dict) -> dict:
                              "vae_seconds": time.perf_counter() - start, "load": dict(pipe.load_timing)},
                             request_identity)
         result.save_artifacts(destination)
+        ctx.check_cancelled()
         return {"audio": str(destination / "audio.flac"), "artifact_dir": str(destination),
                 "truncated": result.truncated, "abc": result.abc}
     finally:
@@ -268,11 +294,13 @@ def run_render_plan(root: Path, ctx: JobContext, request: dict) -> dict:
 
 def run_doctor(root: Path, ctx: JobContext, request: dict) -> dict:
     import importlib.metadata
+
     import torch
-    from yue2.storage import model_identity
+
+    from .model_verify import verify_bundle
 
     ctx.update("doctor")
-    paths = model_paths()
+    verified = verify_bundle(root, progress=False)
     packages = {name: importlib.metadata.version(name) for name in
                 ("torch", "transformers", "huggingface-hub", "safetensors", "tiktoken", "soundfile")}
     result = {
@@ -281,8 +309,10 @@ def run_doctor(root: Path, ctx: JobContext, request: dict) -> dict:
         "cuda_available": torch.cuda.is_available(),
         "bf16_supported": torch.cuda.is_available() and torch.cuda.is_bf16_supported(),
         "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
-        "model": model_identity(paths["model"], verify=bool(request.get("verify_hashes", True))),
-        "vae": model_identity(paths["vae"], verify=bool(request.get("verify_hashes", True))),
+        "model": verified["YuE2-3B"],
+        "vae": verified["YuE2-Vae"],
+        "sheetsage": verified["SheetSage2"],
+        "mert": verified["MERT-v2-FullSong"],
     }
     atomic_json(ctx.job_dir / "artifacts" / "doctor.json", result)
     return result
@@ -304,7 +334,8 @@ def main(argv=None) -> int:
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--job-dir", type=Path, required=True)
     args = parser.parse_args(argv)
-    root, job_dir = args.root.resolve(), args.job_dir.resolve()
+    root = args.root.resolve()
+    job_dir = within(root / "outputs" / "jobs", args.job_dir)
     configure_environment(root)
     add_upstream(root)
     ctx = JobContext(job_dir)

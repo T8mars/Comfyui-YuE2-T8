@@ -12,13 +12,13 @@ YuE2 Music T8 把 YuE2-3B 完整歌曲生成接入 ComfyUI，并提供一个可�
 
 - 中文、英文歌词生成 48kHz 双声道歌曲；支持 `full`、`melody`、`off` 三种规划模式。
 - 生成并保存 ABC 旋律/和弦计划，可精确恢复原始计划，也可编辑或导入 ABC 后重新生成。
-- 一次生成 1–8 个连续种子候选，并保留完整请求、配置、tokens、latents 与完整性清单。
+- 一次生成 1–8 个连续种子候选；完整歌曲工件保留请求、配置、tokens、latents 与完整性清单，后续候选失败时仍保留已完成结果。
 - 使用 SheetSage2 + MERT 把 WAV、FLAC、MP3、M4A、OGG、AAC 转为 ABC/MIDI，并生成翻唱。
-- 共享单 GPU 队列、进度、取消、任务恢复、历史、导出，以及语义 token、声学合成、VAE 解码高级节点。
+- 共享单 GPU 队列、进度、取消、任务历史、导出，以及语义 token、声学合成、VAE 解码高级节点；服务重启时会把中断任务明确标为失败。
 
 ### 安装
 
-通过 ComfyUI Registry/Manager 安装：
+Registry 版本审核通过后，可通过 ComfyUI Registry/Manager 安装：
 
 ```bash
 comfy node install yue2-t8
@@ -77,7 +77,7 @@ YuE2 Music T8 integrates YuE2-3B full-song generation with ComfyUI and includes 
 
 Install it with `comfy node install yue2-t8`, then run `install_runtime.bat` once from the node directory and restart ComfyUI. Models are downloaded from [t8star/YuE2-Comfy](https://huggingface.co/t8star/YuE2-Comfy) into `<node-directory>/models`; keep all four model subdirectories and their configuration files. Windows and an NVIDIA GPU are required, with 24GB VRAM recommended.
 
-The node pack supports Chinese and English lyrics, editable ABC plans, multi-candidate generation, SheetSage2 transcription, cover generation, staged inference, cancellation, history, and artifact export. Example workflows are in `workflows`.
+The node pack supports Chinese and English lyrics, editable ABC plans, multi-candidate generation, SheetSage2 transcription, cover generation, staged inference, cancellation, history, and artifact export. Interrupted jobs are retained in history and marked failed after a service restart. Example workflows are in `workflows`.
 
 ## Links
 

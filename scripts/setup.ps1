@@ -11,12 +11,30 @@ $Core = Join-Path $Runtime 'core'
 $Transcribe = Join-Path $Runtime 'transcribe'
 New-Item -ItemType Directory -Force $Downloads,$Runtime,(Join-Path $KitRoot 'cache'),(Join-Path $KitRoot 'logs') | Out-Null
 $Internet = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -ErrorAction SilentlyContinue
-if ($Internet -and $Internet.ProxyEnable -and $Internet.ProxyServer) {
-    $ProxyAddress = [string]$Internet.ProxyServer
-    if ($ProxyAddress -notmatch '^https?://') { $ProxyAddress = "http://$ProxyAddress" }
-    $env:HTTP_PROXY = $ProxyAddress
-    $env:HTTPS_PROXY = $ProxyAddress
-    Write-Host "Using Windows proxy $ProxyAddress"
+$HasProxyEnable = $Internet -and $Internet.PSObject.Properties['ProxyEnable']
+$HasProxyServer = $Internet -and $Internet.PSObject.Properties['ProxyServer']
+if ($HasProxyEnable -and $HasProxyServer -and [bool]$Internet.ProxyEnable -and $Internet.ProxyServer) {
+    $ProxyText = [string]$Internet.ProxyServer
+    $ProxyMap = @{}
+    foreach ($Entry in $ProxyText.Split(';', [System.StringSplitOptions]::RemoveEmptyEntries)) {
+        if ($Entry.Contains('=')) {
+            $Pair = $Entry.Split('=', 2)
+            $ProxyMap[$Pair[0].Trim().ToLowerInvariant()] = $Pair[1].Trim()
+        } else {
+            $ProxyMap['default'] = $Entry.Trim()
+        }
+    }
+    $HttpProxy = if ($ProxyMap['http']) { $ProxyMap['http'] } else { $ProxyMap['default'] }
+    $HttpsProxy = if ($ProxyMap['https']) { $ProxyMap['https'] } elseif ($HttpProxy) { $HttpProxy } else { $ProxyMap['default'] }
+    if ($HttpProxy -and $HttpProxy -notmatch '^https?://') { $HttpProxy = "http://$HttpProxy" }
+    if ($HttpsProxy -and $HttpsProxy -notmatch '^https?://') { $HttpsProxy = "http://$HttpsProxy" }
+    if ($HttpProxy) { $env:HTTP_PROXY = $HttpProxy }
+    if ($HttpsProxy) { $env:HTTPS_PROXY = $HttpsProxy }
+    Write-Host "Using Windows proxy configuration"
+}
+
+function Assert-ExitCode([string]$Step) {
+    if ($LASTEXITCODE -ne 0) { throw "$Step failed with exit code $LASTEXITCODE" }
 }
 
 function Get-Download([string]$Uri, [string]$Destination) {
@@ -36,7 +54,7 @@ function Install-EmbeddedPython([string]$Version, [string]$Directory) {
     $Short = ($Version.Split('.')[0..1] -join '')
     $Archive = Join-Path $Downloads "python-$Version-embed-amd64.zip"
     Get-Download "https://www.python.org/ftp/python/$Version/python-$Version-embed-amd64.zip" $Archive
-    if (-not (Test-Path -LiteralPath (Join-Path $Directory 'python.exe'))) {
+    if ($Force -or -not (Test-Path -LiteralPath (Join-Path $Directory 'python.exe'))) {
         New-Item -ItemType Directory -Force $Directory | Out-Null
         Expand-Archive -LiteralPath $Archive -DestinationPath $Directory -Force
     }
@@ -56,21 +74,27 @@ Write-Host 'Configuring YuE2 Python 3.12 runtime'
 Install-EmbeddedPython '3.12.10' $Core
 $CorePython = Join-Path $Core 'python.exe'
 & $CorePython -m pip install --upgrade pip
+Assert-ExitCode 'Core pip upgrade'
 & $CorePython -m pip install --index-url https://download.pytorch.org/whl/cu128 'torch==2.10.0'
+Assert-ExitCode 'Core Torch install'
 & $CorePython -m pip install -r (Join-Path $KitRoot 'requirements-core.txt')
-if ($LASTEXITCODE -ne 0) { throw 'YuE2 core dependencies failed' }
+Assert-ExitCode 'YuE2 core dependencies install'
 
 Write-Host 'Downloading YuE2 model bundle from Hugging Face'
 & $CorePython -X utf8 -m huggingface_hub.commands.huggingface_cli download t8star/YuE2-Comfy --revision 553a4778c81403bc15ad2c56fde56894c3a2ed24 --local-dir (Join-Path $KitRoot 'models')
-if ($LASTEXITCODE -ne 0) { throw 'YuE2 model bundle download failed' }
+Assert-ExitCode 'YuE2 model bundle download'
+& $CorePython -X utf8 (Join-Path $KitRoot 'scripts\verify_models.py') --root $KitRoot
+Assert-ExitCode 'YuE2 model bundle verification'
 
 Write-Host 'Configuring SheetSage2 Python 3.11 runtime'
 Install-EmbeddedPython '3.11.9' $Transcribe
 $TranscribePython = Join-Path $Transcribe 'python.exe'
 & $TranscribePython -m pip install --upgrade pip
+Assert-ExitCode 'Transcription pip upgrade'
 & $TranscribePython -m pip install --index-url https://download.pytorch.org/whl/cu128 'torch==2.8.0' 'torchaudio==2.8.0'
+Assert-ExitCode 'Transcription Torch install'
 & $TranscribePython -m pip install -r (Join-Path $KitRoot 'requirements-transcribe.txt')
-if ($LASTEXITCODE -ne 0) { throw 'SheetSage2 dependencies failed' }
+Assert-ExitCode 'SheetSage2 dependencies install'
 
 $FfmpegDir = Join-Path $Runtime 'ffmpeg'
 New-Item -ItemType Directory -Force $FfmpegDir | Out-Null
@@ -82,7 +106,7 @@ if (-not $SkipRenderer) {
     Write-Host 'Installing offline score renderer browser'
     $env:PLAYWRIGHT_BROWSERS_PATH = Join-Path $Runtime 'playwright'
     & $TranscribePython -m playwright install --only-shell chromium
-    if ($LASTEXITCODE -ne 0) { throw 'Chromium renderer install failed' }
+    Assert-ExitCode 'Chromium renderer install'
 }
 
 $env:YUE2_HOME = $KitRoot
@@ -91,10 +115,10 @@ $env:PYTHONIOENCODING = 'utf-8'
 $env:PATH = "$FfmpegDir;$env:PATH"
 Write-Host 'Verifying core imports and CUDA'
 & $CorePython -X utf8 -c "import torch,transformers,numpy,soundfile; assert torch.cuda.is_available(); assert torch.cuda.is_bf16_supported(); print('core',torch.__version__,torch.version.cuda,torch.cuda.get_device_name(0))"
-if ($LASTEXITCODE -ne 0) { throw 'Core runtime verification failed' }
+Assert-ExitCode 'Core runtime verification'
 Write-Host 'Verifying transcription imports and CUDA'
 & $TranscribePython -X utf8 -c "import torch,torchaudio,transformers,numpy,pretty_midi,mir_eval; assert torch.cuda.is_available(); print('transcribe',torch.__version__,torchaudio.__version__,torch.version.cuda)"
-if ($LASTEXITCODE -ne 0) { throw 'Transcription runtime verification failed' }
+Assert-ExitCode 'Transcription runtime verification'
 
 $Manifest = [ordered]@{
     installed_at = (Get-Date).ToString('o')

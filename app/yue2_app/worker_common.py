@@ -19,6 +19,8 @@ class JobContext:
         self.cancel_path = self.job_dir / "cancel.requested"
         self.started = time.time()
         self.last_token_update = 0.0
+        self.token_phase: str | None = None
+        self.token_count = 0
 
     def cancelled(self) -> bool:
         return self.cancel_path.exists()
@@ -38,19 +40,17 @@ class JobContext:
         atomic_json(self.status_path, current)
 
     def token(self, phase: str, _token: int) -> None:
+        if phase != self.token_phase:
+            self.token_phase = phase
+            self.token_count = 0
+        self.token_count += 1
         now = time.monotonic()
         if now - self.last_token_update >= 0.5:
             self.last_token_update = now
-            current = {}
-            try:
-                import json
-                current = json.loads(self.status_path.read_text(encoding="utf-8"))
-            except (FileNotFoundError, ValueError):
-                pass
-            count = int(current.get("tokens", 0)) + 1
-            self.update("planning" if phase == "abc" else "semantic", tokens=count)
+            self.update("planning" if phase == "abc" else "semantic", tokens=self.token_count)
 
     def finish(self, **extra) -> None:
+        self.check_cancelled()
         current = {}
         try:
             import json

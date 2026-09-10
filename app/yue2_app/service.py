@@ -5,6 +5,7 @@ import json
 import mimetypes
 import os
 import queue
+import re
 import shutil
 import signal
 import subprocess
@@ -17,14 +18,62 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from . import __version__
-from .config import (CACHE, CORE_PYTHON, LOGS, OUTPUTS, ROOT, TRANSCRIBE_PYTHON,
-                     UPLOADS, ensure_layout, runtime_ready)
+from .config import (
+    CACHE,
+    CORE_PYTHON,
+    LOGS,
+    OUTPUTS,
+    ROOT,
+    TRANSCRIBE_PYTHON,
+    UPLOADS,
+    ensure_layout,
+    runtime_ready,
+)
 from .io import atomic_json, public_job, within
-
 
 TERMINAL = {"complete", "failed", "cancelled"}
 CORE_KINDS = {"generate", "plan", "render_plan", "semantic", "synthesize", "decode", "doctor"}
 TRANSCRIBE_KINDS = {"transcribe"}
+JOB_ID_PATTERN = re.compile(r"\d{8}-\d{6}-[0-9a-f]{8}")
+
+
+def job_directory(job_id: str) -> Path:
+    if not JOB_ID_PATTERN.fullmatch(job_id):
+        raise ValueError("无效的任务 ID")
+    return within(OUTPUTS, OUTPUTS / job_id)
+
+
+def terminate_process_tree(pid: int) -> None:
+    if pid <= 0:
+        return
+    if os.name == "nt":
+        subprocess.run(["taskkill.exe", "/PID", str(pid), "/T", "/F"], check=False,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    else:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+
+
+def terminate_recorded_worker(status: dict, job_id: str) -> None:
+    if os.name != "nt" or not JOB_ID_PATTERN.fullmatch(job_id):
+        return
+    try:
+        pid = int(status.get("worker_pid") or status.get("pid") or 0)
+    except (TypeError, ValueError):
+        return
+    if pid <= 0:
+        return
+    script = (
+        f"$p=Get-CimInstance Win32_Process -Filter 'ProcessId={pid}' -ErrorAction SilentlyContinue;"
+        f"if($p -and $p.CommandLine -match 'app\\.yue2_app\\.(core_worker|transcribe_worker)' "
+        f"-and $p.CommandLine -like '*{job_id}*'){{taskkill.exe /PID {pid} /T /F | Out-Null}}"
+    )
+    subprocess.run(["powershell.exe", "-NoProfile", "-Command", script], check=False,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                   creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
 
 class JobStore:
@@ -49,7 +98,11 @@ class JobStore:
                 status = json.loads((directory / "status.json").read_text(encoding="utf-8"))
             except (FileNotFoundError, json.JSONDecodeError):
                 continue
+            if (not JOB_ID_PATTERN.fullmatch(directory.name) or job.get("id") != directory.name
+                    or status.get("id") != directory.name):
+                continue
             if status.get("status") not in TERMINAL:
+                terminate_recorded_worker(status, directory.name)
                 status.update({"status": "failed", "stage": "failed", "finished_at": time.time(),
                                "error": "服务重启时任务仍未结束，请重新提交"})
                 atomic_json(directory / "status.json", status)
@@ -75,11 +128,13 @@ class JobStore:
         return public_job(status)
 
     def get(self, job_id: str) -> dict:
-        directory = within(OUTPUTS, OUTPUTS / job_id)
+        directory = job_directory(job_id)
         path = directory / "status.json"
         if not path.is_file():
             raise KeyError(job_id)
         status = json.loads(path.read_text(encoding="utf-8"))
+        if status.get("id") != job_id:
+            raise ValueError("任务状态 ID 与目录不一致")
         with self.lock:
             self.jobs[job_id] = status
         return public_job(status)
@@ -93,7 +148,7 @@ class JobStore:
         status = self.get(job_id)
         if status["status"] in TERMINAL:
             return status
-        directory = OUTPUTS / job_id
+        directory = job_directory(job_id)
         (directory / "cancel.requested").touch()
         status.update({"status": "cancelling", "stage": "cancelling", "updated_at": time.time()})
         atomic_json(directory / "status.json", status)
@@ -101,7 +156,7 @@ class JobStore:
             self.jobs[job_id] = status
             process = self.current_process if self.current_id == job_id else None
         if force and process and process.poll() is None:
-            process.terminate()
+            terminate_process_tree(process.pid)
         return public_job(status)
 
     def state(self) -> dict:
@@ -115,10 +170,17 @@ class JobStore:
         with self.lock:
             process = self.current_process
         if process and process.poll() is None:
-            process.terminate()
+            terminate_process_tree(process.pid)
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+        if self.thread is not threading.current_thread():
+            self.thread.join(timeout=15)
 
     def _mark(self, job_id: str, **values) -> None:
-        directory = OUTPUTS / job_id
+        directory = job_directory(job_id)
         status = self.get(job_id)
         status.update(values, updated_at=time.time())
         atomic_json(directory / "status.json", status)
@@ -131,6 +193,8 @@ class JobStore:
                 job_id = self.pending.get(timeout=0.25)
             except queue.Empty:
                 continue
+            process = None
+            log = None
             try:
                 status = self.get(job_id)
                 directory = OUTPUTS / job_id
@@ -163,8 +227,10 @@ class JobStore:
                                            creationflags=flags)
                 with self.lock:
                     self.current_id, self.current_process = job_id, process
+                self._mark(job_id, worker_pid=process.pid)
                 return_code = process.wait()
                 log.close()
+                log = None
                 latest = self.get(job_id)
                 if latest.get("status") not in TERMINAL:
                     if latest.get("status") == "cancelling" or (directory / "cancel.requested").exists():
@@ -174,12 +240,16 @@ class JobStore:
                         self._mark(job_id, status="failed", stage="failed", finished_at=time.time(),
                                    error=f"worker 已退出，返回码 {return_code}；请查看日志", return_code=return_code)
             except BaseException as exc:
+                if process and process.poll() is None:
+                    terminate_process_tree(process.pid)
                 try:
                     self._mark(job_id, status="failed", stage="failed", finished_at=time.time(),
                                error=str(exc), traceback=traceback.format_exc()[-12000:])
                 except BaseException:
                     pass
             finally:
+                if log is not None:
+                    log.close()
                 with self.lock:
                     self.current_id, self.current_process = None, None
                 self.pending.task_done()
@@ -210,6 +280,9 @@ class Handler(BaseHTTPRequestHandler):
         self._json(status, {"error": message})
 
     def _body_json(self, maximum: int = 4 * 1024 * 1024):
+        content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+        if content_type != "application/json":
+            raise ValueError("请求必须使用 application/json")
         length = int(self.headers.get("Content-Length", "0"))
         if length <= 0 or length > maximum:
             raise ValueError("请求正文大小无效")
@@ -245,8 +318,10 @@ class Handler(BaseHTTPRequestHandler):
                 if len(pieces) < 5:
                     return self._error(400, "缺少文件路径")
                 job_id = pieces[3]
+                STORE.get(job_id)
                 relative = Path(urllib.parse.unquote("/".join(pieces[4:])))
-                file = within(OUTPUTS / job_id, OUTPUTS / job_id / relative)
+                directory = job_directory(job_id)
+                file = within(directory, directory / relative)
                 return self._static(file)
             if path == "/" or path == "/index.html":
                 return self._static(WEB_ROOT / "index.html")
@@ -264,6 +339,9 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
         try:
+            origin = self.headers.get("Origin")
+            if origin and urllib.parse.urlparse(origin).netloc.lower() != self.headers.get("Host", "").lower():
+                return self._error(403, "拒绝跨站请求")
             if path == "/api/jobs":
                 data = self._body_json()
                 return self._json(202, STORE.create(data.get("kind", "generate"), data.get("request", {})))
@@ -282,27 +360,32 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("音频大小必须在 1GB 以内")
                 destination = UPLOADS / (time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:8] + suffix)
                 remaining = length
-                with destination.open("wb") as stream:
-                    while remaining:
-                        block = self.rfile.read(min(8 * 1024 * 1024, remaining))
-                        if not block:
-                            raise ValueError("上传中断")
-                        stream.write(block)
-                        remaining -= len(block)
+                try:
+                    with destination.open("wb") as stream:
+                        while remaining:
+                            block = self.rfile.read(min(8 * 1024 * 1024, remaining))
+                            if not block:
+                                raise ValueError("上传中断")
+                            stream.write(block)
+                            remaining -= len(block)
+                except BaseException:
+                    destination.unlink(missing_ok=True)
+                    raise
                 return self._json(201, {"path": str(destination), "bytes": length, "name": Path(original).name})
             if path == "/api/export":
                 data = self._body_json()
                 job_id = str(data["job_id"])
-                source = within(OUTPUTS / job_id, OUTPUTS / job_id / "artifacts")
+                status = STORE.get(job_id)
+                source = within(OUTPUTS, job_directory(job_id) / "artifacts")
                 if not source.is_dir():
                     raise FileNotFoundError("任务没有可导出的工件")
                 export_root = (ROOT / "exports").resolve()
                 requested = Path(str(data.get("destination") or ""))
                 base = within(export_root, requested if requested.is_absolute() else export_root / requested)
                 base.mkdir(parents=True, exist_ok=True)
-                destination = base / job_id
+                destination = within(export_root, base / status["id"])
                 if destination.exists():
-                    destination = base / f"{job_id}-{time.strftime('%H%M%S')}"
+                    destination = within(export_root, base / f"{status['id']}-{time.strftime('%H%M%S')}")
                 shutil.copytree(source, destination)
                 return self._json(200, {"destination": str(destination)})
             if path == "/api/unload":
@@ -324,11 +407,14 @@ def main(argv=None) -> int:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8189)
     args = parser.parse_args(argv)
+    if args.host not in {"127.0.0.1", "localhost"}:
+        parser.error("YuE2 service only supports a loopback host")
     ensure_layout()
     STORE = JobStore()
     server = ThreadingHTTPServer((args.host, args.port), Handler)
-    (ROOT / "server.json").write_text(json.dumps({"host": args.host, "port": args.port,
-                                                   "pid": os.getpid(), "started_at": time.time()}, indent=2), encoding="utf-8")
+    state_path = ROOT / "server.json"
+    state_path.write_text(json.dumps({"host": args.host, "port": args.port,
+                                      "pid": os.getpid(), "started_at": time.time()}, indent=2), encoding="utf-8")
     print(f"YuE2 本地整合包：http://{args.host}:{args.port}", flush=True)
     try:
         server.serve_forever(poll_interval=0.25)
@@ -337,6 +423,12 @@ def main(argv=None) -> int:
     finally:
         STORE.stop()
         server.server_close()
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            if state.get("pid") == os.getpid():
+                state_path.unlink(missing_ok=True)
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            pass
     return 0
 
 

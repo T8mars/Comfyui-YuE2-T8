@@ -8,7 +8,9 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from .app.yue2_app import __version__
 
+SERVICE_CONFIGURED = bool(os.environ.get("YUE2_SERVICE"))
 SERVICE = os.environ.get("YUE2_SERVICE", "http://127.0.0.1:8189").rstrip("/")
 
 
@@ -40,31 +42,60 @@ def request(path: str, method="GET", data=None, timeout=30):
         raise RuntimeError(detail) from exc
 
 
+def validate_health(health: dict) -> dict:
+    if not isinstance(health, dict) or health.get("ok") is not True:
+        raise RuntimeError(f"{SERVICE} 不是可用的 YuE2 服务")
+    if health.get("version") != __version__:
+        raise RuntimeError(
+            f"{SERVICE} 的 YuE2 服务版本为 {health.get('version')!r}，当前节点版本为 {__version__}；"
+            "请先运行 stop_service.bat，再重试"
+        )
+    if not SERVICE_CONFIGURED:
+        expected = find_root().resolve()
+        try:
+            actual = Path(str(health["root"])).resolve()
+        except (KeyError, OSError, ValueError) as exc:
+            raise RuntimeError(f"{SERVICE} 返回了无效的安装目录") from exc
+        if actual != expected:
+            raise RuntimeError(
+                f"端口 8189 已由另一套 YuE2 占用：{actual}；当前节点目录是 {expected}。"
+                "请停止另一套服务，或显式设置 YUE2_SERVICE"
+            )
+    return health
+
+
 def ensure_service(timeout=30):
     try:
-        return request("/api/health", timeout=2)
-    except Exception:
-        root = find_root()
-        python = root / "runtime" / "core" / "python.exe"
-        if not python.is_file():
-            raise RuntimeError(f"YuE2 运行时未安装，请运行 {root / 'install_runtime.bat'}")
-        environment = os.environ.copy()
-        environment.update({"YUE2_HOME": str(root), "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8",
-                            "PLAYWRIGHT_BROWSERS_PATH": str(root / "runtime" / "playwright")})
-        environment["PATH"] = str(root / "runtime" / "ffmpeg") + os.pathsep + environment.get("PATH", "")
-        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        logs = root / "logs"
-        logs.mkdir(parents=True, exist_ok=True)
-        with (logs / "service.stdout.log").open("ab") as stdout, (logs / "service.stderr.log").open("ab") as stderr:
-            subprocess.Popen([str(python), "-X", "utf8", "-m", "app.yue2_app.service"], cwd=root,
-                             env=environment, creationflags=flags, stdout=stdout, stderr=stderr)
-        started = time.monotonic()
-        while time.monotonic() - started < timeout:
-            try:
-                return request("/api/health", timeout=2)
-            except Exception:
-                time.sleep(0.4)
-        raise RuntimeError("YuE2 服务启动超时，请查看 logs/service.stderr.log")
+        health = request("/api/health", timeout=2)
+    except Exception as exc:
+        if SERVICE_CONFIGURED:
+            raise RuntimeError(f"无法连接显式配置的 YuE2 服务 {SERVICE}") from exc
+    else:
+        return validate_health(health)
+
+    root = find_root()
+    python = root / "runtime" / "core" / "python.exe"
+    if not python.is_file():
+        raise RuntimeError(f"YuE2 运行时未安装，请运行 {root / 'install_runtime.bat'}")
+    environment = os.environ.copy()
+    environment.update({"YUE2_HOME": str(root), "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8",
+                        "PLAYWRIGHT_BROWSERS_PATH": str(root / "runtime" / "playwright")})
+    environment["PATH"] = str(root / "runtime" / "ffmpeg") + os.pathsep + environment.get("PATH", "")
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    logs = root / "logs"
+    logs.mkdir(parents=True, exist_ok=True)
+    with (logs / "service.stdout.log").open("ab") as stdout, (logs / "service.stderr.log").open("ab") as stderr:
+        subprocess.Popen([str(python), "-X", "utf8", "-m", "app.yue2_app.service"], cwd=root,
+                         env=environment, creationflags=flags, stdout=stdout, stderr=stderr)
+    started = time.monotonic()
+    while time.monotonic() - started < timeout:
+        try:
+            health = request("/api/health", timeout=2)
+        except Exception:
+            time.sleep(0.4)
+            continue
+        return validate_health(health)
+    raise RuntimeError("YuE2 服务启动超时，请查看 logs/service.stderr.log")
 
 
 def submit(kind: str, payload: dict) -> dict:

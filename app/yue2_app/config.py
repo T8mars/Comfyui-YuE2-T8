@@ -27,22 +27,36 @@ def ensure_layout() -> None:
         path.mkdir(parents=True, exist_ok=True)
 
 
-def model_paths() -> dict[str, Path]:
+def upstream_path(root: Path | None = None) -> Path:
+    base = root or ROOT
+    candidates = (base / "vendor", base / "research" / "wheel-0.1.5")
+    return next((path for path in candidates if (path / "yue2").is_dir()), candidates[0])
+
+
+def model_paths(root: Path | None = None) -> dict[str, Path]:
+    models = (root / "models") if root is not None else MODELS
     return {
-        "model": MODELS / "YuE2-3B",
-        "vae": MODELS / "YuE2-Vae",
-        "sheetsage": MODELS / "SheetSage2",
-        "mert": MODELS / "MERT-v2-FullSong",
+        "model": models / "YuE2-3B",
+        "vae": models / "YuE2-Vae",
+        "sheetsage": models / "SheetSage2",
+        "mert": models / "MERT-v2-FullSong",
     }
 
 
 def runtime_ready() -> dict[str, object]:
     paths = model_paths()
+    required = {
+        "model": ("model.safetensors", "config.json", "qwen.tiktoken", "yue2_generation_config.json"),
+        "vae": ("model.safetensors", "config.json", "modeling_vae.py"),
+        "sheetsage": ("model.safetensors", "config.json", "modeling_sheetsage2.py", "processor_config.json"),
+        "mert": ("model.safetensors", "config.json", "modeling_mert2.py", "preprocessor_config.json"),
+    }
     return {
         "core_python": CORE_PYTHON.is_file(),
         "transcribe_python": TRANSCRIBE_PYTHON.is_file(),
-        "models": {name: (path / "model.safetensors").is_file() for name, path in paths.items()},
-        "upstream_source": (UPSTREAM / "yue2").is_dir(),
+        "models": {name: all((path / filename).is_file() for filename in required[name])
+                   for name, path in paths.items()},
+        "upstream_source": (upstream_path() / "yue2").is_dir(),
     }
 
 

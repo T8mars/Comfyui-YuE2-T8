@@ -14,7 +14,19 @@ $env:PLAYWRIGHT_BROWSERS_PATH = Join-Path $KitRoot 'runtime\playwright'
 $env:PATH = "$(Join-Path $KitRoot 'runtime\ffmpeg');$env:PATH"
 $ServiceUrl = 'http://127.0.0.1:8189'
 $Running = $false
-try { $Running = (Invoke-RestMethod -Uri "$ServiceUrl/api/health" -TimeoutSec 2).ok -eq $true } catch { }
+$ExpectedVersion = (& $Python -X utf8 -c 'from app.yue2_app import __version__; print(__version__)' | Out-String).Trim()
+$Health = $null
+try { $Health = Invoke-RestMethod -Uri "$ServiceUrl/api/health" -TimeoutSec 2 } catch { }
+if ($Health -and $Health.ok -eq $true) {
+    $ActualRoot = [IO.Path]::GetFullPath([string]$Health.root).TrimEnd('\')
+    if ($ActualRoot -ine $KitRoot.TrimEnd('\')) {
+        throw "Port 8189 is used by another YuE2 installation: $ActualRoot"
+    }
+    if ([string]$Health.version -ne $ExpectedVersion) {
+        throw "YuE2 service version $($Health.version) is stale; run stop_service.bat first"
+    }
+    $Running = $true
+}
 if (-not $Running) {
     New-Item -ItemType Directory -Force (Join-Path $KitRoot 'logs') | Out-Null
     $Process = Start-Process -FilePath $Python -ArgumentList '-X','utf8','-m','app.yue2_app.service','--host','127.0.0.1','--port','8189' `
@@ -27,6 +39,9 @@ if (-not $Running) {
         if ($Process.HasExited) { throw "YuE2 service exited with code $($Process.ExitCode). Check logs\server.stderr.log" }
         try { $Running = (Invoke-RestMethod -Uri "$ServiceUrl/api/health" -TimeoutSec 2).ok -eq $true } catch { }
     } while (-not $Running -and (Get-Date) -lt $Deadline)
-    if (-not $Running) { Stop-Process -Id $Process.Id -ErrorAction SilentlyContinue; throw 'YuE2 service startup timed out' }
+    if (-not $Running) {
+        & taskkill.exe /PID $Process.Id /T /F | Out-Null
+        throw 'YuE2 service startup timed out'
+    }
 }
 if (-not $NoBrowser) { Start-Process $ServiceUrl }

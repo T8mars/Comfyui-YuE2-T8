@@ -16,14 +16,15 @@ def main(argv=None) -> int:
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--job-dir", type=Path, required=True)
     args = parser.parse_args(argv)
-    root, job_dir = args.root.resolve(), args.job_dir.resolve()
+    root = args.root.resolve()
+    job_dir = within(root / "outputs" / "jobs", args.job_dir)
     configure_environment(root)
     ctx = JobContext(job_dir)
     job = json.loads((job_dir / "job.json").read_text(encoding="utf-8-sig"))
     request = job.get("request", {})
     try:
         ctx.update("starting", pid=os.getpid())
-        paths = model_paths()
+        paths = model_paths(root)
         sys.path.insert(0, str(paths["sheetsage"]))
         import torch
         from transformers import AutoModel
