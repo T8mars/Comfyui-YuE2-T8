@@ -1,6 +1,6 @@
 # ComfyUI YuE2 T8
 
-[中文](#中文说明) · [English](#english) · [模型仓库 / Model weights](https://huggingface.co/t8star/YuE2-Comfy) · [ComfyUI Registry](https://registry.comfy.org/t8star/yue2-t8)
+[中文](#中文说明) · [English](#english) · [模型仓库 / Model weights](https://huggingface.co/t8star/YuE2-Comfy) · [ComfyUI Registry](https://registry.comfy.org/nodes/yue2-t8)
 
 ![YuE2 Music T8](icon.svg)
 
