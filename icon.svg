@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#172018"/>
+      <stop offset="1" stop-color="#080b09"/>
+    </linearGradient>
+  </defs>
+  <rect width="400" height="400" rx="84" fill="url(#g)"/>
+  <path d="M111 112v119c-15-7-37-4-50 10-17 18-14 45 7 57 22 13 54 1 61-23 2-6 2-13 2-20V153l127-27v78c-16-7-38-3-50 11-16 18-12 44 9 56 23 13 54 0 61-24 2-6 2-12 2-19V86z" fill="#c9ff57"/>
+  <text x="200" y="347" text-anchor="middle" font-family="Arial, sans-serif" font-size="52" font-weight="700" fill="#f4f7f2">YuE2</text>
+</svg>

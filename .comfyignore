@@ -1,0 +1,5 @@
+.github/
+tests/
+CHANGELOG.md
+*.psd
+.vscode/

@@ -1,0 +1,24 @@
+[project]
+name = "yue2-t8"
+version = "1.0.0"
+description = "Local YuE2 music generation, editable ABC planning, audio transcription, and cover workflows for ComfyUI"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+dependencies = ["soundfile>=0.12,<0.14"]
+classifiers = [
+    "Operating System :: Microsoft :: Windows",
+    "Environment :: GPU :: NVIDIA CUDA",
+]
+
+[project.urls]
+Repository = "https://github.com/T8mars/Comfyui-YuE2-T8"
+Documentation = "https://github.com/T8mars/Comfyui-YuE2-T8#readme"
+"Model Weights" = "https://huggingface.co/t8star/YuE2-Comfy"
+Issues = "https://github.com/T8mars/Comfyui-YuE2-T8/issues"
+
+[tool.comfy]
+PublisherId = "t8star"
+DisplayName = "YuE2 Music T8"
+Icon = "https://raw.githubusercontent.com/T8mars/Comfyui-YuE2-T8/main/icon.svg"
+requires-comfyui = ">=0.3.0"

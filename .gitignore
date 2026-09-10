@@ -1,0 +1,14 @@
+runtime/
+models/
+cache/
+outputs/
+uploads/
+exports/
+logs/
+downloads/
+server.json
+node.zip
+*.pyc
+__pycache__/
+.pytest_cache/
+.venv/
