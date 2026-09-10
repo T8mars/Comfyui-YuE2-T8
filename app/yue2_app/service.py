@@ -177,19 +177,59 @@ class JobStore:
                 atomic_json(directory / "status.json", status)
             self.jobs[job["id"]] = status
 
-    def create(self, kind: str, request: dict) -> dict:
+    @staticmethod
+    def _summary(kind: str, request: dict) -> str:
+        if kind == "doctor":
+            return "检查 GPU、运行库与模型文件"
+        if kind == "transcribe":
+            name = Path(str(request.get("source_path", ""))).name
+            return f"转谱 {name}" if name else "从音频提取旋律与乐谱"
+        if kind == "render_plan":
+            return "从已确认的 ABC 乐谱生成歌曲"
+        style = " ".join(str(request.get("style", "")).split())
+        if style:
+            return style[:72] + ("…" if len(style) > 72 else "")
+        return {
+            "plan": "创作旋律与和弦乐谱",
+            "semantic": "生成音乐结构",
+            "synthesize": "合成人声与伴奏",
+            "decode": "输出 48 kHz 音频",
+        }.get(kind, "本地音乐任务")
+
+    def create(self, kind: str, request: dict, *, source: str = "api",
+               client_request_id: str | None = None) -> dict:
         if kind not in CORE_KINDS | TRANSCRIBE_KINDS:
             raise ValueError(f"不支持的任务类型：{kind}")
         if not isinstance(request, dict):
             raise ValueError("request 必须是对象")
-        job_id = time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:8]
+        source = source if source in {"webui", "comfyui", "api"} else "api"
+        client_request_id = str(client_request_id or "")[:128]
         with self.storage_lock:
+            with self.lock:
+                active_ids = [job_id for job_id, status in self.jobs.items()
+                              if status.get("status") not in TERMINAL]
+            for existing_id in active_ids:
+                try:
+                    existing = json.loads((job_directory(existing_id) / "job.json").read_text(encoding="utf-8"))
+                except (OSError, ValueError, json.JSONDecodeError):
+                    continue
+                same_client_request = bool(client_request_id and
+                                           existing.get("client_request_id") == client_request_id)
+                same_payload = existing.get("kind") == kind and existing.get("request") == request
+                if same_client_request or same_payload:
+                    result = self.get(existing_id)
+                    result["deduplicated"] = True
+                    return result
+
+            job_id = time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:8]
             directory = OUTPUTS / job_id
             directory.mkdir(parents=True)
             now = time.time()
-            job = {"id": job_id, "kind": kind, "request": request, "created_at": now}
+            job = {"id": job_id, "kind": kind, "request": request, "created_at": now,
+                   "source": source, "client_request_id": client_request_id}
             status = {"id": job_id, "kind": kind, "status": "queued", "stage": "queued",
-                      "created_at": now, "updated_at": now, "job_dir": str(directory)}
+                      "created_at": now, "updated_at": now, "job_dir": str(directory),
+                      "source": source, "summary": self._summary(kind, request)}
             atomic_json(directory / "job.json", job)
             atomic_json(directory / "status.json", status)
             with self.lock:
@@ -227,11 +267,17 @@ class JobStore:
             return status
         directory = job_directory(job_id)
         (directory / "cancel.requested").touch()
-        status.update({"status": "cancelling", "stage": "cancelling", "updated_at": time.time()})
+        with self.lock:
+            is_current = self.current_id == job_id or status.get("status") == "running"
+        if is_current:
+            status.update({"status": "cancelling", "stage": "cancelling", "updated_at": time.time()})
+        else:
+            status.update({"status": "cancelled", "stage": "cancelled", "updated_at": time.time(),
+                           "finished_at": time.time(), "error": "任务在排队阶段被取消"})
         atomic_json(directory / "status.json", status)
         with self.lock:
             self.jobs[job_id] = status
-            process = self.current_process if self.current_id == job_id else None
+            process = self.current_process if is_current else None
         if force and process and process.poll() is None:
             terminate_process_tree(process.pid)
         return public_job(status)
@@ -239,7 +285,8 @@ class JobStore:
     def state(self) -> dict:
         with self.lock:
             current = self.current_id
-            queued = self.pending.qsize()
+            queued = sum(1 for job_id, status in self.jobs.items()
+                         if job_id != current and status.get("status") == "queued")
         return {"current_job": current, "queued": queued}
 
     def cleanup_retention(self, *, force: bool = False) -> dict:
@@ -524,7 +571,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._error(403, "拒绝跨站请求")
             if path == "/api/jobs":
                 data = self._body_json()
-                return self._json(202, STORE.create(data.get("kind", "generate"), data.get("request", {})))
+                return self._json(202, STORE.create(
+                    data.get("kind", "generate"), data.get("request", {}),
+                    source=data.get("source", "api"), client_request_id=data.get("client_request_id"),
+                ))
             if path == "/api/retention/cleanup":
                 return self._json(200, STORE.cleanup_retention(force=True))
             pieces = path.split("/")

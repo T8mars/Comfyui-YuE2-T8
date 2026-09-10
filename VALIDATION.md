@@ -1,6 +1,6 @@
 # YuE2 Music T8 validation
 
-Validation date: 2026-09-11. Host: Windows, NVIDIA GeForce RTX 5090 Laptop GPU. The current service and workers report version 1.0.5.
+Validation date: 2026-09-11. Host: Windows, NVIDIA GeForce RTX 5090 Laptop GPU. The current service and workers report version 1.0.6.
 
 ## Release checks
 
@@ -11,6 +11,14 @@ Validation date: 2026-09-11. Host: Windows, NVIDIA GeForce RTX 5090 Laptop GPU. 
 - A live retention cleanup deleted one expired terminal job, one expired upload, and one expired log while preserving a sentinel in `exports`; the cleanup report contained no errors.
 
 All six validation jobs were exported before cleanup. Local paths and generated media are machine artifacts and are intentionally excluded from the Registry ZIP.
+
+## 1.0.6 task-center regression audit
+
+- Release tests: 21 passed and one expected model-installation skip. Local integration tests: all 22 passed with the installed models present.
+- Live duplicate submissions with different client request IDs returned the same active job `20260911-031109-38b46885` and `deduplicated: true`; only one worker entered the scheduler.
+- A live task-center state showed environment self-check `20260911-031144-f1dae5c3` as the running WebUI task, followed by ComfyUI decode `20260911-031144-de7ca40f` in queue position 1 and API transcription `20260911-031144-63ed7d80` in position 2.
+- The in-app browser accessibility tree exposed the task-center name, current stage, discrete task steps, source, elapsed time, both queue positions, summaries, short task IDs, and separate cancellation buttons.
+- The local service and installed ComfyUI client both report 1.0.6. JavaScript syntax, Python compilation, Git whitespace validation, responsive task-center CSS, focus styles, and reduced-motion behavior passed inspection.
 
 ## 1.0.5 regression audit
 

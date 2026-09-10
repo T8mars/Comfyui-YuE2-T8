@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.6 - 2026-09-11
+
+- Replace the ambiguous single-job drawer with a live task center that identifies the current task and lists every queued task in execution order.
+- Show localized task types, human-readable stages, source, style summary, elapsed/submitted time, and task-specific cancellation controls.
+- Lock submit buttons immediately, reflect queued/running/cancelling state in place, and restore active tasks from the server after page refresh.
+- Deduplicate identical active requests server-side and remove cancelled queued work from the logical queue immediately.
+- Separate runtime readiness from GPU workload, remove the misleading fake progress bar, and add responsive and reduced-motion task-center styles.
+
 ## 1.0.5 - 2026-09-11
 
 - Bind staged inference to the exact manifest-recorded files and recursively verify plan, semantic, and latent lineage while preserving compatibility with 1.0.4 manifests.

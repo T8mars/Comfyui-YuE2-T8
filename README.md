@@ -14,7 +14,7 @@ YuE2 Music T8 把 YuE2-3B 完整歌曲生成接入 ComfyUI，并提供一个可�
 - 生成并保存 ABC 旋律/和弦计划，可精确恢复原始计划，也可编辑或导入 ABC 后重新生成。
 - 一次生成 1–8 个连续种子候选；完整歌曲工件保留请求、配置、tokens、latents 与完整性清单，后续候选失败时仍保留已完成结果。
 - 使用 SheetSage2 + MERT 把 WAV、FLAC、MP3、M4A、OGG、AAC 转为 ABC/MIDI，并生成翻唱。
-- 共享单 GPU 队列、进度、取消、任务历史、导出，以及语义 token、声学合成、VAE 解码高级节点；高级工件保存文件哈希、固定模型来源和逐阶段来源链。
+- 共享单 GPU 队列、任务中心、逐项取消、任务历史与导出；任务中心会区分当前任务和完整等待列表，并显示来源、阶段、风格摘要与排队顺序。
 - 自动清理过期或超出容量的任务、上传和日志；`exports` 中的重要成品永久保留，服务重启时会把中断任务明确标为失败。
 
 ### 安装
@@ -80,7 +80,7 @@ YuE2 Music T8 integrates YuE2-3B full-song generation with ComfyUI and includes 
 
 Install it with `comfy node install yue2-t8`, then run `install_runtime.bat` once from the node directory and restart ComfyUI. Models are downloaded from [t8star/YuE2-Comfy](https://huggingface.co/t8star/YuE2-Comfy) into `<node-directory>/models`; keep all four model subdirectories and their configuration files. Windows and an NVIDIA GPU are required, with 24GB VRAM recommended.
 
-The node pack supports Chinese and English lyrics, editable ABC plans, multi-candidate generation, SheetSage2 transcription, cover generation, staged inference, cancellation, history, and artifact export. Staged artifacts carry recursively verified file hashes, pinned model provenance, and lineage manifests; transcription artifacts also record output hashes and the source-audio identity. Automatic retention limits terminal jobs, uploads, and logs while protecting active dependencies and leaving `exports` untouched. Interrupted jobs are retained in history and marked failed after a service restart. Example workflows are in `workflows`.
+The node pack supports Chinese and English lyrics, editable ABC plans, multi-candidate generation, SheetSage2 transcription, cover generation, staged inference, per-task cancellation, history, and artifact export. Its task center identifies the current job and every queued job with stage, source, summary, and queue position. Staged artifacts carry recursively verified file hashes, pinned model provenance, and lineage manifests; transcription artifacts also record output hashes and the source-audio identity. Automatic retention limits terminal jobs, uploads, and logs while protecting active dependencies and leaving `exports` untouched. Interrupted jobs are retained in history and marked failed after a service restart. Example workflows are in `workflows`.
 
 ## Links
 

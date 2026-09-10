@@ -16,7 +16,8 @@
     <div class="status-card">
       <span id="health-dot" class="dot"></span>
       <div><b id="health-title">正在检查运行环境</b><small id="health-detail">请稍候</small></div>
-      <button id="doctor-button" class="ghost">运行自检</button>
+      <button id="task-center-jump" class="workload hidden" type="button"></button>
+      <div class="doctor-action"><button id="doctor-button" class="ghost" type="button">重新进行完整自检</button><small>环境正常时通常无需运行</small></div>
     </div>
   </header>
 
@@ -52,8 +53,9 @@
           <label>显存预算 GiB<input name="memory_budget_gib" type="number" step="0.5" min="12" max="24" value="23.5"></label>
           <label class="check"><input name="offload_ar" type="checkbox">NAR 阶段卸载 AR</label>
         </div></details>
-        <button class="primary wide" type="submit">开始创作</button>
+        <button id="create-button" class="primary wide" type="submit" data-idle-label="生成歌曲">生成歌曲</button>
       </form>
+      <div id="create-task-status" class="inline-task hidden" aria-live="polite"></div>
       <div id="create-result" class="results"></div>
     </section>
 
@@ -70,7 +72,7 @@ Come home across the midnight blue
 This melody still waits for you</textarea></label>
         <label>规划模式<select name="cot"><option value="full">旋律 + 和弦</option><option value="melody">仅旋律</option></select></label>
         <label>随机种子<input name="seed" type="number" min="0" max="9007199254740991" step="1" value="831001"></label>
-        <button class="primary wide" type="submit">生成 ABC 计划</button>
+        <button id="plan-button" class="primary wide" type="submit" data-idle-label="生成 ABC 计划">生成 ABC 计划</button>
       </form>
       <div id="plan-workbench" class="workbench hidden">
         <div class="workbench-head"><h3>ABC 文本预览</h3><span id="plan-badge" class="badge">未生成</span></div>
@@ -78,7 +80,7 @@ This melody still waits for you</textarea></label>
         <div class="toolbar">
           <label class="check"><input id="plan-exact" type="checkbox" checked>精确恢复原计划（忽略文本框修改）</label>
           <button id="download-abc" class="ghost">下载 ABC</button>
-          <button id="render-plan" class="primary">渲染完整歌曲</button>
+          <button id="render-plan" class="primary" data-idle-label="渲染完整歌曲">渲染完整歌曲</button>
         </div>
       </div>
       <div id="plan-result" class="results"></div>
@@ -91,7 +93,7 @@ This melody still waits for you</textarea></label>
         <b>选择 WAV、FLAC、MP3、M4A、OGG 或 AAC</b>
         <span>最大 1GB，默认提取无和弦旋律谱</span>
       </div>
-      <button id="transcribe-button" class="primary full" disabled>上传并转谱</button>
+      <button id="transcribe-button" class="primary full" data-idle-label="上传并转谱" disabled>上传并转谱</button>
       <div id="cover-review" class="workbench hidden">
         <div class="workbench-head"><h3>翻唱审核</h3><span class="badge">请先校对</span></div>
         <label>旋律 ABC<textarea id="cover-abc" rows="16" spellcheck="false"></textarea></label>
@@ -99,7 +101,7 @@ This melody still waits for you</textarea></label>
         <label>歌词<textarea id="cover-lyrics" rows="10" placeholder="粘贴并按 [Verse] / [Chorus] 整理歌词"></textarea></label>
         <div class="toolbar">
           <label>随机种子<input id="cover-seed" type="number" min="0" max="9007199254740991" step="1" value="831001"></label>
-          <button id="generate-cover" class="primary">生成翻唱</button>
+          <button id="generate-cover" class="primary" data-idle-label="生成翻唱">生成翻唱</button>
         </div>
       </div>
       <div id="cover-result" class="results"></div>
@@ -112,10 +114,19 @@ This melody still waits for you</textarea></label>
     </section>
   </main>
 
-  <aside id="job-drawer" class="job-drawer hidden">
-    <div><b id="job-stage">排队中</b><small id="job-id"></small></div>
-    <div class="progress"><i id="job-progress"></i></div>
-    <button id="drawer-cancel" class="danger">取消</button>
+  <aside id="task-center" class="task-center hidden" aria-live="polite" aria-label="任务中心">
+    <header class="task-center-head">
+      <div><span class="eyebrow">TASK CENTER</span><h2>任务中心</h2></div>
+      <button id="open-history" class="ghost compact" type="button">查看记录</button>
+    </header>
+    <section id="running-section" class="task-group hidden">
+      <div class="task-group-title"><b>正在执行</b><span>GPU 一次处理一项任务</span></div>
+      <div id="running-job"></div>
+    </section>
+    <section id="queue-section" class="task-group hidden">
+      <div class="task-group-title"><b id="queue-title">等待队列</b><span>按提交顺序开始</span></div>
+      <ol id="queue-list" class="queue-list"></ol>
+    </section>
   </aside>
 
   <footer>YuE2 本地整合包 · 仅绑定 127.0.0.1 · 权重与输出保存在本机</footer>

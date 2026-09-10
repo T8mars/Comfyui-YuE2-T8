@@ -100,7 +100,7 @@ def ensure_service(timeout=30):
 
 def submit(kind: str, payload: dict) -> dict:
     ensure_service()
-    return request("/api/jobs", method="POST", data={"kind": kind, "request": payload})
+    return request("/api/jobs", method="POST", data={"kind": kind, "request": payload, "source": "comfyui"})
 
 
 def cancel(job_id: str, force=False):

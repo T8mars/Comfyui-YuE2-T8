@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import queue
 import tempfile
 import threading
 import unittest
@@ -80,6 +81,44 @@ class IntegrationCodeTests(unittest.TestCase):
 
     def test_public_status_hides_command(self):
         self.assertNotIn("command", public_job({"id": "x", "command": ["secret"]}))
+
+    def test_active_duplicate_request_reuses_existing_job(self):
+        with tempfile.TemporaryDirectory(dir=ROOT) as directory:
+            outputs = Path(directory) / "jobs"
+            outputs.mkdir()
+            store = object.__new__(JobStore)
+            store.storage_lock = threading.RLock()
+            store.lock = threading.RLock()
+            store.jobs = {}
+            store.pending = queue.Queue()
+            store.current_id = None
+            store.current_process = None
+            request = {"style": "Mandarin pop", "lyrics": "同一首歌", "seed": 42}
+            with mock.patch.object(service, "OUTPUTS", outputs):
+                first = store.create("generate", request, source="webui", client_request_id="click-1")
+                duplicate = store.create("generate", request, source="webui", client_request_id="click-2")
+            self.assertEqual(duplicate["id"], first["id"])
+            self.assertTrue(duplicate["deduplicated"])
+            self.assertEqual(store.pending.qsize(), 1)
+            self.assertEqual(first["summary"], "Mandarin pop")
+
+    def test_cancelling_queued_job_updates_logical_queue_immediately(self):
+        with tempfile.TemporaryDirectory(dir=ROOT) as directory:
+            outputs = Path(directory) / "jobs"
+            outputs.mkdir()
+            store = object.__new__(JobStore)
+            store.storage_lock = threading.RLock()
+            store.lock = threading.RLock()
+            store.jobs = {}
+            store.pending = queue.Queue()
+            store.current_id = None
+            store.current_process = None
+            with mock.patch.object(service, "OUTPUTS", outputs):
+                created = store.create("doctor", {"verify_hashes": True}, source="webui")
+                cancelled = store.cancel(created["id"])
+                state = store.state()
+            self.assertEqual(cancelled["status"], "cancelled")
+            self.assertEqual(state["queued"], 0)
 
     def test_generation_request_modes(self):
         value = generation_kwargs({"style": "爵士", "lyrics": "词", "cot": "melody", "seed": 42})
