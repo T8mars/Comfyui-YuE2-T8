@@ -29,6 +29,7 @@ from app.yue2_app.service import (
 )
 from app.yue2_app import service
 from app.yue2_app.worker_common import Cancelled, JobContext
+from app.yue2_app.voice_worker import remix_audio
 
 
 class IntegrationCodeTests(unittest.TestCase):
@@ -101,6 +102,43 @@ class IntegrationCodeTests(unittest.TestCase):
             self.assertTrue(duplicate["deduplicated"])
             self.assertEqual(store.pending.qsize(), 1)
             self.assertEqual(first["summary"], "Mandarin pop")
+
+    def test_reference_voice_job_is_accepted_and_named(self):
+        with tempfile.TemporaryDirectory(dir=ROOT) as directory:
+            outputs = Path(directory) / "jobs"
+            outputs.mkdir()
+            store = object.__new__(JobStore)
+            store.storage_lock = threading.RLock()
+            store.lock = threading.RLock()
+            store.jobs = {}
+            store.pending = queue.Queue()
+            store.current_id = None
+            store.current_process = None
+            request = {"source_path": "song.flac", "reference_path": "voice.wav"}
+            with mock.patch.object(service, "OUTPUTS", outputs):
+                created = store.create("voice_convert", request, source="comfyui")
+            self.assertEqual(created["kind"], "voice_convert")
+            self.assertEqual(created["summary"], "参考音色翻唱 · voice.wav")
+
+    def test_voice_remix_outputs_finite_48khz_stereo(self):
+        import importlib.util
+        if importlib.util.find_spec("scipy") is None:
+            self.skipTest("Voice runtime owns the SciPy resampler")
+        import numpy as np
+        import soundfile as sf
+        with tempfile.TemporaryDirectory(dir=ROOT) as directory:
+            root = Path(directory)
+            vocal = root / "vocal.wav"
+            backing = root / "backing.wav"
+            output = root / "audio.flac"
+            timeline = np.arange(8000, dtype=np.float32) / 8000
+            sf.write(vocal, np.sin(2 * np.pi * 220 * timeline)[:, None] * 0.1, 8000)
+            sf.write(backing, np.column_stack([np.sin(2 * np.pi * 110 * timeline) * 0.1] * 2), 8000)
+            info = remix_audio(vocal, backing, output)
+            data, rate = sf.read(output, dtype="float32", always_2d=True)
+            self.assertEqual((rate, data.shape[1]), (48000, 2))
+            self.assertTrue(np.isfinite(data).all())
+            self.assertEqual(info["channels"], 2)
 
     def test_cancelling_queued_job_updates_logical_queue_immediately(self):
         with tempfile.TemporaryDirectory(dir=ROOT) as directory:
@@ -440,7 +478,7 @@ class IntegrationCodeTests(unittest.TestCase):
 
     def test_workflows_are_well_formed(self):
         workflows = list((ROOT / "workflows").glob("*.json"))
-        self.assertEqual(len(workflows), 3)
+        self.assertEqual(len(workflows), 4)
         for path in workflows:
             data = json.loads(path.read_text(encoding="utf-8"))
             node_ids = {node["id"] for node in data["nodes"]}

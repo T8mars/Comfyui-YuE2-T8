@@ -3,3 +3,4 @@ tests/
 CHANGELOG.md
 *.psd
 .vscode/
+vendor/seed-vc/campplus_cn_common.bin

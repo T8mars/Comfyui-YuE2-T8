@@ -25,6 +25,7 @@ from .config import (
     OUTPUTS,
     ROOT,
     TRANSCRIBE_PYTHON,
+    VOICE_PYTHON,
     UPLOADS,
     ensure_layout,
     runtime_ready,
@@ -35,6 +36,7 @@ from .retention import RetentionManager
 TERMINAL = {"complete", "failed", "cancelled"}
 CORE_KINDS = {"generate", "plan", "render_plan", "semantic", "synthesize", "decode", "doctor"}
 TRANSCRIBE_KINDS = {"transcribe"}
+VOICE_KINDS = {"voice_convert"}
 JOB_ID_PATTERN = re.compile(r"\d{8}-\d{6}-[0-9a-f]{8}")
 _LOG_LOCK = threading.Lock()
 SERVER_LOG_MAX_BYTES = 20 * 1024 * 1024
@@ -134,7 +136,7 @@ def terminate_recorded_worker(status: dict, job_id: str) -> None:
         return
     script = (
         f"$p=Get-CimInstance Win32_Process -Filter 'ProcessId={pid}' -ErrorAction SilentlyContinue;"
-        f"if($p -and $p.CommandLine -match 'app\\.yue2_app\\.(core_worker|transcribe_worker)' "
+        f"if($p -and $p.CommandLine -match 'app\\.yue2_app\\.(core_worker|transcribe_worker|voice_worker)' "
         f"-and $p.CommandLine -like '*{job_id}*'){{taskkill.exe /PID {pid} /T /F | Out-Null}}"
     )
     subprocess.run(["powershell.exe", "-NoProfile", "-Command", script], check=False,
@@ -184,6 +186,9 @@ class JobStore:
         if kind == "transcribe":
             name = Path(str(request.get("source_path", ""))).name
             return f"转谱 {name}" if name else "从音频提取旋律与乐谱"
+        if kind == "voice_convert":
+            name = Path(str(request.get("reference_path", ""))).name
+            return f"参考音色翻唱 · {name}" if name else "参考音色翻唱"
         if kind == "render_plan":
             return "从已确认的 ABC 乐谱生成歌曲"
         style = " ".join(str(request.get("style", "")).split())
@@ -198,7 +203,7 @@ class JobStore:
 
     def create(self, kind: str, request: dict, *, source: str = "api",
                client_request_id: str | None = None) -> dict:
-        if kind not in CORE_KINDS | TRANSCRIBE_KINDS:
+        if kind not in CORE_KINDS | TRANSCRIBE_KINDS | VOICE_KINDS:
             raise ValueError(f"不支持的任务类型：{kind}")
         if not isinstance(request, dict):
             raise ValueError("request 必须是对象")
@@ -396,8 +401,12 @@ class JobStore:
                     continue
                 job = json.loads((directory / "job.json").read_text(encoding="utf-8"))
                 kind = job["kind"]
-                python = TRANSCRIBE_PYTHON if kind in TRANSCRIBE_KINDS else CORE_PYTHON
-                module = "app.yue2_app.transcribe_worker" if kind in TRANSCRIBE_KINDS else "app.yue2_app.core_worker"
+                if kind in TRANSCRIBE_KINDS:
+                    python, module = TRANSCRIBE_PYTHON, "app.yue2_app.transcribe_worker"
+                elif kind in VOICE_KINDS:
+                    python, module = VOICE_PYTHON, "app.yue2_app.voice_worker"
+                else:
+                    python, module = CORE_PYTHON, "app.yue2_app.core_worker"
                 if not python.is_file():
                     raise RuntimeError(f"运行时未安装：{python}。请先运行 install_runtime.bat")
                 command = [str(python), "-X", "utf8", "-m", module, "--root", str(ROOT), "--job-dir", str(directory)]

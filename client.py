@@ -8,10 +8,9 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from .app.yue2_app import __version__
-
 SERVICE_CONFIGURED = bool(os.environ.get("YUE2_SERVICE"))
 SERVICE = os.environ.get("YUE2_SERVICE", "http://127.0.0.1:8189").rstrip("/")
+__version__ = "1.1.0"
 
 
 def find_root() -> Path:
@@ -76,7 +75,7 @@ def ensure_service(timeout=30):
     root = find_root()
     python = root / "runtime" / "core" / "python.exe"
     if not python.is_file():
-        raise RuntimeError(f"YuE2 运行时未安装，请运行 {root / 'install_runtime.bat'}")
+        raise RuntimeError(f"YuE2 运行时未安装，请运行 {root / '安装运行环境.bat'}")
     environment = os.environ.copy()
     environment.update({"YUE2_HOME": str(root), "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8",
                         "PLAYWRIGHT_BROWSERS_PATH": str(root / "runtime" / "playwright")})

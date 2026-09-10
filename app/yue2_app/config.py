@@ -22,6 +22,7 @@ CACHE = ROOT / "cache"
 RUNTIME = ROOT / "runtime"
 CORE_PYTHON = RUNTIME / "core" / "python.exe"
 TRANSCRIBE_PYTHON = RUNTIME / "transcribe" / "python.exe"
+VOICE_PYTHON = RUNTIME / "voice" / "python.exe"
 UPSTREAM = ROOT / "vendor"
 
 
@@ -44,6 +45,11 @@ def model_paths(root: Path | None = None) -> dict[str, Path]:
         "sheetsage": models / "SheetSage2",
         "mert": models / "MERT-v2-FullSong",
     }
+
+
+def voice_model_paths(root: Path | None = None) -> dict[str, Path]:
+    models = (root / "models") if root is not None else MODELS
+    return {"seed_vc": models / "Seed-VC", "demucs": models / "Demucs"}
 
 
 def _nonempty(path: Path) -> bool:
@@ -84,6 +90,7 @@ def runtime_ready(root: Path | None = None) -> dict[str, object]:
     base = root.resolve() if root is not None else ROOT
     runtime = base / "runtime"
     paths = model_paths(base)
+    voice_paths = voice_model_paths(base)
     required = {
         "model": ("model.safetensors", "config.json", "qwen.tiktoken", "yue2_generation_config.json"),
         "vae": ("model.safetensors", "config.json", "modeling_vae.py"),
@@ -93,7 +100,8 @@ def runtime_ready(root: Path | None = None) -> dict[str, object]:
     identities = {"model": "YuE2-3B", "vae": "YuE2-Vae",
                   "sheetsage": "SheetSage2", "mert": "MERT-v2-FullSong"}
     models = {}
-    for name, path in paths.items():
+    for name in required:
+        path = paths[name]
         weight = path / "model.safetensors"
         expected_size = PINNED_MODELS[identities[name]]["size"]
         models[name] = (_expected_size(weight, expected_size)
@@ -105,12 +113,32 @@ def runtime_ready(root: Path | None = None) -> dict[str, object]:
         and any(_nonempty(path) for path in (runtime / "playwright").glob(
             "chromium_headless_shell-*/chrome-headless-shell-win64/chrome-headless-shell.exe"))
         and _render_assets_ready(paths["sheetsage"] / "render_assets"))
+    voice_python = _nonempty(runtime / "voice" / "python.exe")
+    voice_files = (
+        voice_paths["seed_vc"] / "DiT_seed_v2_uvit_whisper_base_f0_44k_bigvgan_pruned_ft_ema_v2.pth",
+        voice_paths["seed_vc"] / "config_dit_mel_seed_uvit_whisper_base_f0_44k.yml",
+        voice_paths["seed_vc"] / "rmvpe.pt",
+        voice_paths["seed_vc"] / "campplus_cn_common.bin",
+        voice_paths["seed_vc"] / "whisper-small" / "model.safetensors",
+        voice_paths["seed_vc"] / "bigvgan_v2_44khz_128band_512x" / "config.json",
+        voice_paths["seed_vc"] / "bigvgan_v2_44khz_128band_512x" / "bigvgan_generator.pt",
+        voice_paths["demucs"] / "955717e8.safetensors",
+        voice_paths["demucs"] / "955717e8.json",
+        voice_paths["demucs"] / "htdemucs.yaml",
+        base / "models" / "VOICE_MODEL_MANIFEST.json",
+    )
+    voice_models = all(_nonempty(path) for path in voice_files)
+    voice_source = all(_nonempty(base / "vendor" / "seed-vc" / filename)
+                       for filename in ("inference.py", "hf_utils.py", "LICENSE"))
     result = {
         "core_python": _nonempty(runtime / "core" / "python.exe"),
         "transcribe_python": transcribe_python,
+        "voice_python": voice_python,
         "ffmpeg": _nonempty(runtime / "ffmpeg" / "ffmpeg.exe"),
         "renderer": renderer,
         "models": models,
+        "voice_models": voice_models,
+        "voice_source": voice_source,
         "upstream_source": all(_nonempty(source / filename) for filename in ("__init__.py", "pipeline.py")),
     }
     result["capabilities"] = {
@@ -119,6 +147,8 @@ def runtime_ready(root: Path | None = None) -> dict[str, object]:
         "transcription": bool(result["transcribe_python"] and result["ffmpeg"]
                               and models["sheetsage"] and models["mert"]),
         "score_renderer": bool(result["renderer"]),
+        "voice_conversion": bool(voice_python and voice_models and voice_source
+                                 and result["ffmpeg"]),
     }
     return result
 

@@ -123,6 +123,17 @@ textarea { resize: vertical; }
 .upload-box { position: relative; display: flex; flex-direction: column; gap: 8px; padding: 54px 20px; border: 1px dashed rgba(89, 125, 255, .55); border-radius: 16px; color: #34415a; background: linear-gradient(120deg, rgba(89, 125, 255, .07), rgba(251, 114, 153, .06)), #fff; text-align: center; box-shadow: 0 7px 22px rgba(31, 41, 55, .05); }
 .upload-box input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 .upload-box span { color: var(--muted); font-size: 13px; }
+.creation-options { margin-top: 22px; display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); gap: 16px; align-items: start; }
+.choice-card { padding: 20px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel-soft); }
+.choice-card.accent-card { border-color: rgba(216, 88, 150, .3); background: linear-gradient(145deg, rgba(251, 232, 241, .62), #fff 52%); }
+.choice-step { color: var(--accent-strong); font-size: 11px; font-weight: 800; letter-spacing: .05em; }
+.choice-card h4 { margin: 7px 0 6px; font-size: 19px; }
+.choice-card p { min-height: 42px; margin: 0 0 14px; color: var(--muted); font-size: 12px; line-height: 1.7; }
+.mini-upload { position: relative; padding: 16px; gap: 4px; border: 1px dashed rgba(89, 125, 255, .5); border-radius: 10px; background: rgba(255,255,255,.8); text-align: center; cursor: pointer; }
+.mini-upload input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.mini-upload span { color: var(--muted); font-size: 11px; font-weight: 400; }
+.voice-settings { margin-top: 12px; }
+.voice-settings .advanced-grid { grid-template-columns: repeat(2, 1fr); }
 .results { display: grid; gap: 14px; margin-top: 28px; }
 .result-card, .history-card { padding: 20px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); box-shadow: 0 7px 20px rgba(31, 41, 55, .05); }
 .result-card header, .history-card header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0; margin: 0; border: 0; background: none; }
@@ -173,6 +184,8 @@ footer { padding: 30px; border-top: 1px solid #e0e5ed; color: #8a94a5; text-alig
   .grid-form { grid-template-columns: 1fr; padding: 18px; }
   .wide { grid-column: auto; }
   .advanced-grid { grid-template-columns: 1fr; }
+  .creation-options { grid-template-columns: 1fr; }
+  .voice-settings .advanced-grid { grid-template-columns: 1fr; }
   .tab { padding: 15px 16px; }
   .toolbar { flex-wrap: wrap; }
   .history-card { grid-template-columns: 1fr; }

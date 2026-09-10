@@ -32,6 +32,23 @@ def first_audio(status: dict):
     return result["candidates"][0]["audio"]
 
 
+def save_comfy_audio(audio: dict, prefix: str) -> Path:
+    import numpy as np
+    import soundfile as sf
+    root = client.find_root()
+    uploads = root / "uploads"
+    uploads.mkdir(parents=True, exist_ok=True)
+    batch = audio["waveform"]
+    if int(batch.shape[0]) != 1:
+        raise ValueError("YuE2 一次只接受一条 AUDIO；请先拆分批次")
+    waveform = batch[0].detach().float().cpu().numpy().T
+    if not np.isfinite(waveform).all() or waveform.size == 0:
+        raise ValueError("输入 AUDIO 为空或包含无效采样")
+    path = uploads / f"{prefix}-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}.wav"
+    sf.write(path, waveform, int(audio["sample_rate"]), subtype="FLOAT")
+    return path
+
+
 class YuE2ModelLoader:
     @classmethod
     def INPUT_TYPES(cls):
@@ -191,6 +208,45 @@ class YuE2GenerateCover:
         return (audio_value(first_audio(status)), result, json.dumps(status, ensure_ascii=False))
 
 
+class YuE2ReferenceVoiceCover:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {
+            "model": ("YUE2_MODEL",),
+            "song_audio": ("AUDIO",),
+            "reference_voice": ("AUDIO",),
+            "diffusion_steps": ("INT", {"default": 30, "min": 4, "max": 50, "step": 1}),
+            "timbre_strength": ("FLOAT", {"default": 0.7, "min": 0.0, "max": 1.5, "step": 0.05}),
+            "auto_match_pitch": ("BOOLEAN", {"default": False}),
+            "semitone_shift": ("INT", {"default": 0, "min": -12, "max": 12, "step": 1}),
+            "vocal_gain_db": ("FLOAT", {"default": 0.0, "min": -18.0, "max": 12.0, "step": 0.5}),
+            "accompaniment_gain_db": ("FLOAT", {"default": 0.0, "min": -18.0, "max": 12.0, "step": 0.5}),
+        }}
+    RETURN_TYPES = ("AUDIO", "YUE2_RESULT", "STRING")
+    RETURN_NAMES = ("audio", "result", "metadata")
+    FUNCTION = "convert"
+    CATEGORY = CATEGORY
+
+    def convert(self, model, song_audio, reference_voice, diffusion_steps, timbre_strength,
+                auto_match_pitch, semitone_shift, vocal_gain_db, accompaniment_gain_db):
+        ready = client.ensure_service()["ready"]
+        if not ready.get("capabilities", {}).get("voice_conversion"):
+            raise RuntimeError("参考音色环境未就绪：请安装 Seed-VC、Demucs 模型和 voice 运行时")
+        source = save_comfy_audio(song_audio, "comfy-song")
+        reference = save_comfy_audio(reference_voice, "comfy-reference")
+        payload = {
+            "source_path": str(source), "reference_path": str(reference),
+            "diffusion_steps": int(diffusion_steps), "cfg_rate": float(timbre_strength),
+            "auto_f0_adjust": bool(auto_match_pitch), "semi_tone_shift": int(semitone_shift),
+            "vocal_gain_db": float(vocal_gain_db),
+            "accompaniment_gain_db": float(accompaniment_gain_db),
+        }
+        status = client.run("voice_convert", payload)
+        result = {"job_id": status["id"], **status["result"]}
+        return (audio_value(status["result"]["audio"]), result,
+                json.dumps(status, ensure_ascii=False))
+
+
 class YuE2GenerateSemantic:
     @classmethod
     def INPUT_TYPES(cls): return {"required": {"model": ("YUE2_MODEL",), "plan": ("YUE2_PLAN",)}}
@@ -249,6 +305,7 @@ NODE_CLASS_MAPPINGS = {
     "YuE2ModelLoader": YuE2ModelLoader, "YuE2GenerateSong": YuE2GenerateSong,
     "YuE2PlanSong": YuE2PlanSong, "YuE2RenderPlan": YuE2RenderPlan,
     "YuE2Transcribe": YuE2Transcribe, "YuE2GenerateCover": YuE2GenerateCover,
+    "YuE2ReferenceVoiceCover": YuE2ReferenceVoiceCover,
     "YuE2GenerateSemantic": YuE2GenerateSemantic, "YuE2Synthesize": YuE2Synthesize,
     "YuE2Decode": YuE2Decode, "YuE2SaveArtifacts": YuE2SaveArtifacts, "YuE2Unload": YuE2Unload,
 }
@@ -256,7 +313,8 @@ NODE_CLASS_MAPPINGS = {
 NODE_DISPLAY_NAME_MAPPINGS = {
     "YuE2ModelLoader": "YuE2 模型服务", "YuE2GenerateSong": "YuE2 生成歌曲",
     "YuE2PlanSong": "YuE2 生成乐谱计划", "YuE2RenderPlan": "YuE2 渲染乐谱计划",
-    "YuE2Transcribe": "YuE2 音频转谱", "YuE2GenerateCover": "YuE2 生成翻唱",
+    "YuE2Transcribe": "YuE2 音频转谱", "YuE2GenerateCover": "YuE2 旋律重制",
+    "YuE2ReferenceVoiceCover": "YuE2 参考音色翻唱",
     "YuE2GenerateSemantic": "YuE2 生成语义 Tokens", "YuE2Synthesize": "YuE2 声学合成",
     "YuE2Decode": "YuE2 VAE 解码", "YuE2SaveArtifacts": "YuE2 导出工件", "YuE2Unload": "YuE2 卸载/取消",
 }

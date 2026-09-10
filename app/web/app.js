@@ -33,7 +33,7 @@ function kindLabel(kind) {
   return ({
     generate: '歌曲生成', plan: '乐谱创作', render_plan: '从乐谱生成歌曲',
     transcribe: '音频转谱', semantic: '生成音乐结构', synthesize: '合成人声与伴奏',
-    decode: '输出音频', doctor: '环境自检'
+    decode: '输出音频', doctor: '环境自检', voice_convert: '参考音色翻唱'
   })[kind] || kind;
 }
 
@@ -44,6 +44,8 @@ function stageLabel(stage) {
     synthesis: '正在合成人声与伴奏', decoding: '正在输出音频',
     loading_transcriber: '正在加载转谱模型', transcribing: '正在从音频提取旋律',
     encoding: '正在读取音频', notation: '正在整理 ABC 与 MIDI 乐谱',
+    separating_vocals: '正在分离人声与伴奏', loading_voice_model: '正在加载参考音色模型',
+    converting_voice: '正在转换演唱音色', remixing: '正在重新混音',
     cancelling: '正在安全停止', complete: '已完成，可试听', failed: '任务失败',
     cancelled: '已取消', doctor: '正在验证运行环境', running: '正在执行'
   })[stage] || stage;
@@ -57,6 +59,8 @@ function stageHint(job) {
     decoding: '正在输出 48 kHz 双声道音频，已经接近完成。', loading_transcriber: '正在将转谱模型载入 GPU。',
     transcribing: '正在从上传的音频中识别旋律和节拍。', encoding: '正在准备音频数据。',
     notation: '正在生成可编辑的 ABC、MIDI 和乐谱预览。', doctor: '正在检查 GPU、运行库和全部模型文件。',
+    separating_vocals: '正在把新生成歌曲拆分为人声和伴奏。', loading_voice_model: '正在将 Seed-VC、声纹和声码器载入 GPU。',
+    converting_voice: '保留新歌旋律与演唱节奏，把人声转换成参考音色。', remixing: '正在将转换后的人声与原伴奏合成为 48 kHz 双声道成品。',
     cancelling: '正在保存可用结果并安全释放 GPU。'
   };
   let hint = hints[job.stage] || '任务正在本机 GPU 上运行。';
@@ -80,7 +84,8 @@ function stepsFor(job) {
     transcribe: [['starting', '准备音频'], ['loading_transcriber', '加载模型'], ['transcribing', '识别旋律'], ['notation', '整理乐谱']],
     semantic: [['starting', '加载模型'], ['planning', '检查乐谱'], ['semantic', '生成结构']],
     synthesize: [['starting', '加载模型'], ['synthesis', '合成声音']], decode: [['starting', '加载模型'], ['decoding', '输出音频']],
-    doctor: [['starting', '启动检查'], ['doctor', '验证环境']]
+    doctor: [['starting', '启动检查'], ['doctor', '验证环境']],
+    voice_convert: [['starting', '准备音频'], ['separating_vocals', '分离人声'], ['loading_voice_model', '加载音色模型'], ['converting_voice', '转换音色'], ['remixing', '重新混音']]
   }[job.kind] || [['starting', '准备'], [job.stage, stageLabel(job.stage)]];
   const stage = job.stage === 'candidate' ? 'starting' : job.stage;
   const current = Math.max(0, steps.findIndex(([key]) => key === stage));
@@ -107,7 +112,8 @@ function restoreButton(button) {
   if (id) buttonBindings.delete(id);
   delete button.dataset.jobId;
   button.textContent = button.dataset.idleLabel || button.textContent;
-  button.disabled = button.id === 'transcribe-button' && !$('#cover-file').files[0];
+  button.disabled = (button.id === 'transcribe-button' && !$('#cover-file').files[0]) ||
+    (button.id === 'generate-reference-cover' && !$('#reference-file').files[0]);
 }
 
 function updateButton(button, job, queuePosition = 0) {
@@ -159,7 +165,8 @@ function renderHealth(data) {
   $('#health-dot').className = `dot ${ready ? 'ok' : 'bad'}`;
   $('#health-title').textContent = ready ? '运行环境已就绪' : '运行环境不完整';
   const renderer = data.ready.capabilities?.score_renderer ? '乐谱渲染可用' : '乐谱渲染器未安装';
-  $('#health-detail').textContent = `${ready ? '歌曲生成与音频转谱可用' : '请补全运行环境'} · ${renderer}`;
+  const voice = data.ready.capabilities?.voice_conversion ? '参考音色可用' : '参考音色组件未安装';
+  $('#health-detail').textContent = `${ready ? '歌曲生成与音频转谱可用' : '请补全运行环境'} · ${voice} · ${renderer}`;
 }
 
 async function refreshWorkspace() {
@@ -283,6 +290,43 @@ $('#generate-cover').onclick = async () => {
   try { await submit('generate', request, $('#cover-result'), $('#generate-cover')); }
   catch (error) { $('#cover-result').innerHTML = `<div class="result-card status-failed">${escapeHtml(error.message)}</div>`; }
 };
+
+$('#reference-file').onchange = event => {
+  const file = event.target.files[0];
+  $('#generate-reference-cover').disabled = !file || Boolean($('#generate-reference-cover').dataset.jobId);
+  $('#reference-drop-zone b').textContent = file ? file.name : '选择 1–30 秒清晰干声';
+};
+
+$('#generate-reference-cover').onclick = async () => {
+  const reference = $('#reference-file').files[0];
+  if (!reference) return alert('请先选择参考音色');
+  let seed;
+  try { seed = safeSeed($('#cover-seed').value); } catch (error) { return alert(error.message); }
+  const generateRequest = {style: $('#cover-style').value, lyrics: $('#cover-lyrics').value, abc: $('#cover-abc').value, cot: 'melody', seed, cfg_scale: 1, backend: 'torch-eager', memory_budget_gib: 23.5, candidates: 1};
+  if (!generateRequest.lyrics.trim()) return alert('请先填写并核对歌词');
+  const button = $('#generate-reference-cover');
+  try {
+    $('#cover-result').innerHTML = '';
+    const generated = await submit('generate', generateRequest, null, button);
+    renderJob(generated, $('#cover-intermediate'));
+    setSubmitting(button); button.textContent = '正在上传参考音色…';
+    const upload = await api(`/api/uploads?filename=${encodeURIComponent(reference.name)}`, {method: 'POST', headers: {'Content-Type': 'application/octet-stream'}, body: reference});
+    const voiceRequest = {
+      source_path: firstResultAudio(generated), reference_path: upload.path,
+      diffusion_steps: Number($('#voice-steps').value), cfg_rate: Number($('#voice-cfg').value),
+      semi_tone_shift: Number($('#voice-shift').value), auto_f0_adjust: $('#voice-auto-f0').checked,
+      vocal_gain_db: Number($('#voice-gain').value), accompaniment_gain_db: Number($('#backing-gain').value)
+    };
+    await submit('voice_convert', voiceRequest, $('#cover-result'), button);
+  } catch (error) {
+    restoreButton(button);
+    $('#cover-result').innerHTML = `<div class="result-card status-failed">${escapeHtml(error.message)}</div>`;
+  }
+};
+
+function firstResultAudio(job) {
+  return job.result?.audio || job.result?.candidates?.[0]?.audio;
+}
 
 async function loadHistory() {
   try {

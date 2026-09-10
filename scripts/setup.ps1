@@ -9,6 +9,7 @@ $Downloads = Join-Path $KitRoot 'downloads'
 $Runtime = Join-Path $KitRoot 'runtime'
 $Core = Join-Path $Runtime 'core'
 $Transcribe = Join-Path $Runtime 'transcribe'
+$Voice = Join-Path $Runtime 'voice'
 New-Item -ItemType Directory -Force $Downloads,$Runtime,(Join-Path $KitRoot 'cache'),(Join-Path $KitRoot 'logs') | Out-Null
 $Internet = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -ErrorAction SilentlyContinue
 $HasProxyEnable = $Internet -and $Internet.PSObject.Properties['ProxyEnable']
@@ -81,10 +82,12 @@ Assert-ExitCode 'Core Torch install'
 Assert-ExitCode 'YuE2 core dependencies install'
 
 Write-Host 'Downloading YuE2 model bundle from Hugging Face'
-& $CorePython -X utf8 -m huggingface_hub.commands.huggingface_cli download t8star/YuE2-Comfy --revision 553a4778c81403bc15ad2c56fde56894c3a2ed24 --local-dir (Join-Path $KitRoot 'models')
+& $CorePython -X utf8 -m huggingface_hub.commands.huggingface_cli download t8star/YuE2-Comfy --revision a083f106499daead99259dd0c443a5494254cfc5 --local-dir (Join-Path $KitRoot 'models')
 Assert-ExitCode 'YuE2 model bundle download'
 & $CorePython -X utf8 (Join-Path $KitRoot 'scripts\verify_models.py') --root $KitRoot
 Assert-ExitCode 'YuE2 model bundle verification'
+& $CorePython -X utf8 (Join-Path $KitRoot 'scripts\verify_voice_models.py') --root $KitRoot
+Assert-ExitCode 'Reference voice model verification'
 
 Write-Host 'Configuring SheetSage2 Python 3.11 runtime'
 Install-EmbeddedPython '3.11.9' $Transcribe
@@ -95,6 +98,16 @@ Assert-ExitCode 'Transcription pip upgrade'
 Assert-ExitCode 'Transcription Torch install'
 & $TranscribePython -m pip install -r (Join-Path $KitRoot 'requirements-transcribe.txt')
 Assert-ExitCode 'SheetSage2 dependencies install'
+
+Write-Host 'Configuring Seed-VC and Demucs Python 3.11 runtime'
+Install-EmbeddedPython '3.11.9' $Voice
+$VoicePython = Join-Path $Voice 'python.exe'
+& $VoicePython -m pip install --upgrade pip
+Assert-ExitCode 'Voice pip upgrade'
+& $VoicePython -m pip install --index-url https://download.pytorch.org/whl/cu128 'torch==2.8.0' 'torchaudio==2.8.0'
+Assert-ExitCode 'Voice Torch install'
+& $VoicePython -m pip install -r (Join-Path $KitRoot 'requirements-voice.txt')
+Assert-ExitCode 'Voice conversion dependencies install'
 
 $FfmpegDir = Join-Path $Runtime 'ffmpeg'
 New-Item -ItemType Directory -Force $FfmpegDir | Out-Null
@@ -119,6 +132,9 @@ Assert-ExitCode 'Core runtime verification'
 Write-Host 'Verifying transcription imports and CUDA'
 & $TranscribePython -X utf8 -c "import torch,torchaudio,transformers,numpy,pretty_midi,mir_eval; assert torch.cuda.is_available(); print('transcribe',torch.__version__,torchaudio.__version__,torch.version.cuda)"
 Assert-ExitCode 'Transcription runtime verification'
+Write-Host 'Verifying reference voice imports and CUDA'
+& $VoicePython -X utf8 -c "import torch,torchaudio,demucs,transformers,librosa,soundfile; assert torch.cuda.is_available(); print('voice',torch.__version__,torchaudio.__version__,torch.version.cuda)"
+Assert-ExitCode 'Reference voice runtime verification'
 
 $Manifest = [ordered]@{
     installed_at = (Get-Date).ToString('o')
@@ -126,6 +142,8 @@ $Manifest = [ordered]@{
     core_torch = (& $CorePython -c 'import torch;print(torch.__version__)' | Out-String).Trim()
     transcribe_python = (& $TranscribePython --version 2>&1 | Out-String).Trim()
     transcribe_torch = (& $TranscribePython -c 'import torch;print(torch.__version__)' | Out-String).Trim()
+    voice_python = (& $VoicePython --version 2>&1 | Out-String).Trim()
+    voice_torch = (& $VoicePython -c 'import torch;print(torch.__version__)' | Out-String).Trim()
     renderer = -not $SkipRenderer
     ffmpeg = (Join-Path $FfmpegDir 'ffmpeg.exe')
 }

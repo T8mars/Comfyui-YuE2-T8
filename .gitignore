@@ -10,6 +10,7 @@ server.json
 service.lock
 retention.json
 node.zip
+vendor/seed-vc/campplus_cn_common.bin
 *.pyc
 __pycache__/
 .pytest_cache/

@@ -57,7 +57,8 @@ class JobContext:
             current = json.loads(self.status_path.read_text(encoding="utf-8"))
         except (FileNotFoundError, ValueError):
             pass
-        current.update({"status": "complete", "stage": "complete", "updated_at": time.time(),
+        current.update({"status": "complete", "stage": "complete", "progress": 1.0,
+                        "updated_at": time.time(),
                         "finished_at": time.time(), **extra})
         atomic_json(self.status_path, current)
 

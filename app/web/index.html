@@ -11,7 +11,7 @@
     <div>
       <p class="eyebrow">YUЕ2 · LOCAL MUSIC STUDIO</p>
       <h1>把旋律写清楚，再让声音发生。</h1>
-      <p class="lead">本地歌词作曲、ABC 乐谱编辑、翻唱转谱与版本对比。所有推理都在你的 NVIDIA GPU 上完成。</p>
+      <p class="lead">本地歌词作曲、ABC 乐谱编辑、旋律重制与参考音色翻唱。所有推理都在你的 NVIDIA GPU 上完成。</p>
       <div class="project-meta" aria-label="项目与作者链接">
         <a class="creator-credit" href="https://space.bilibili.com/385085361" target="_blank" rel="noreferrer">制作者 By B站UP主：T8star-Aix</a>
         <span class="project-links">
@@ -33,7 +33,7 @@
   <nav>
     <button class="tab active" data-tab="create">创作</button>
     <button class="tab" data-tab="plan">乐谱计划</button>
-    <button class="tab" data-tab="cover">翻唱</button>
+    <button class="tab" data-tab="cover">旋律重制 / 参考音色</button>
     <button class="tab" data-tab="history">历史</button>
   </nav>
 
@@ -111,23 +111,51 @@ This melody still waits for you</textarea></label>
     </section>
 
     <section id="cover" class="panel">
-      <div class="section-title"><div><span>03</span><h2>从录音转谱并翻唱</h2></div><p>先提取旋律 ABC，人工核对歌词与乐谱，再用新风格重新生成。</p></div>
+      <div class="section-title"><div><span>03</span><h2>旋律重制与参考音色翻唱</h2></div><p>先从原曲提取旋律，再选择只重制歌曲，或把新歌人声转换成参考音色。</p></div>
       <div class="upload-box" id="drop-zone">
         <input id="cover-file" type="file" accept="audio/*">
         <b>选择 WAV、FLAC、MP3、M4A、OGG 或 AAC</b>
-        <span>最大 1GB，默认提取无和弦旋律谱</span>
+        <span>这里的原曲只用于提取旋律，不会直接复制原唱音色；最大 1GB</span>
       </div>
       <button id="transcribe-button" class="primary full" data-idle-label="上传并转谱" disabled>上传并转谱</button>
       <div id="cover-review" class="workbench hidden">
-        <div class="workbench-head"><h3>翻唱审核</h3><span class="badge">请先校对</span></div>
+        <div class="workbench-head"><h3>第一步：核对旋律与歌词</h3><span class="badge">请先校对</span></div>
         <label>旋律 ABC<textarea id="cover-abc" rows="16" spellcheck="false"></textarea></label>
         <label>目标风格<textarea id="cover-style" rows="3">Jazz-funk, warm lead vocal, Rhodes piano, electric bass, tight drums</textarea></label>
         <label>歌词<textarea id="cover-lyrics" rows="10" placeholder="粘贴并按 [Verse] / [Chorus] 整理歌词"></textarea></label>
-        <div class="toolbar">
-          <label>随机种子<input id="cover-seed" type="number" min="0" max="9007199254740991" step="1" value="831001"></label>
-          <button id="generate-cover" class="primary" data-idle-label="生成翻唱">生成翻唱</button>
+        <label>随机种子<input id="cover-seed" type="number" min="0" max="9007199254740991" step="1" value="831001"></label>
+        <div class="creation-options">
+          <article class="choice-card">
+            <span class="choice-step">方案 A</span>
+            <h4>旋律重制</h4>
+            <p>按核对后的旋律、歌词和目标风格重新生成，使用 YuE2 自己的人声音色。</p>
+            <button id="generate-cover" class="ghost full" data-idle-label="生成旋律重制">生成旋律重制</button>
+          </article>
+          <article class="choice-card accent-card">
+            <span class="choice-step">方案 B · 参考音色</span>
+            <h4>用参考声音演唱</h4>
+            <p>先生成歌曲，再分离人声并转换音色，最后与伴奏重新混音。请只使用你有权使用的声音。</p>
+            <label class="mini-upload" id="reference-drop-zone">
+              <input id="reference-file" type="file" accept="audio/*">
+              <b>选择 1–30 秒清晰干声</b>
+              <span>推荐 5–25 秒、单人、无伴奏、少混响</span>
+            </label>
+            <details class="advanced voice-settings">
+              <summary>参考音色高级设置</summary>
+              <div class="advanced-grid">
+                <label>转换精度（步数）<input id="voice-steps" type="number" min="4" max="50" step="1" value="30"></label>
+                <label>音色贴合度<input id="voice-cfg" type="number" min="0" max="1.5" step="0.05" value="0.7"></label>
+                <label>整体移调（半音）<input id="voice-shift" type="number" min="-12" max="12" step="1" value="0"></label>
+                <label>人声音量 dB<input id="voice-gain" type="number" min="-18" max="12" step="0.5" value="0"></label>
+                <label>伴奏音量 dB<input id="backing-gain" type="number" min="-18" max="12" step="0.5" value="0"></label>
+                <label class="check"><input id="voice-auto-f0" type="checkbox">自动匹配参考音域</label>
+              </div>
+            </details>
+            <button id="generate-reference-cover" class="primary full" data-idle-label="生成参考音色翻唱" disabled>生成参考音色翻唱</button>
+          </article>
         </div>
       </div>
+      <div id="cover-intermediate" class="results"></div>
       <div id="cover-result" class="results"></div>
     </section>
 

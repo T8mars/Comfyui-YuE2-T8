@@ -1,6 +1,15 @@
 # YuE2 Music T8 validation
 
-Validation date: 2026-09-11. Host: Windows, NVIDIA GeForce RTX 5090 Laptop GPU. The current service and workers report version 1.0.7.
+Validation date: 2026-09-11. Host: Windows, NVIDIA GeForce RTX 5090 Laptop GPU. The current service and workers report version 1.1.0.
+
+## 1.1.0 reference-voice validation
+
+- Release source checks ran 24 tests: 23 passed and the model-installation check was skipped as expected; the installed local source under the voice runtime passed all 24 checks.
+- All 24 Seed-VC/Demucs bundle files passed the pinned size and SHA-256 check in `VOICE_MODEL_MANIFEST.json` (2,574,547,539 bytes total).
+- Live service job `20260911-045414-30d09856` completed with 30 diffusion steps. Demucs separated the source, Seed-VC converted the vocal, and the worker produced a finite 12.0-second, 48 kHz stereo FLAC together with separated vocal, converted vocal, accompaniment, result JSON, and artifact manifest.
+- ComfyUI prompt `4a593e72-f797-4b94-adf7-630d7a87d925` loaded two real AUDIO inputs and executed `YuE2ReferenceVoiceCover` at four diffusion steps. ComfyUI reported `success` with no node validation errors and PreviewAudio produced a 12.0-second, 48 kHz stereo FLAC (peak 0.98001, RMS 0.24306, all samples finite).
+- ComfyUI 0.33.0 registered the new node after reinstall/restart. The local service recorded the linked job `20260911-050433-ef9b2cd5` with source `comfyui` and terminal status `complete`.
+- The WebUI was rendered at 1508×1000. The page has no horizontal overflow; reference-voice controls remain inside the document flow and use the same pink, blue, white, and slate palette as the rest of the integration.
 
 ## Release checks
 

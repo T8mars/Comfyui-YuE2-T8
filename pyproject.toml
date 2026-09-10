@@ -1,7 +1,7 @@
 [project]
 name = "yue2-t8"
-version = "1.0.7"
-description = "Local YuE2 music generation, editable ABC planning, audio transcription, and cover workflows for ComfyUI"
+version = "1.1.0"
+description = "Local YuE2 song generation, editable notation, transcription, and reference-voice cover workflows for ComfyUI"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
