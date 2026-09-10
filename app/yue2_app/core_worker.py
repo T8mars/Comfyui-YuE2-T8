@@ -13,6 +13,7 @@ from .artifacts import (
     generation_provenance,
     manifest_reference,
     verify_artifact_manifest,
+    verify_hash_manifest,
     write_artifact_manifest,
 )
 from .config import model_paths, upstream_path
@@ -185,6 +186,9 @@ def load_semantic(source: Path):
         source, manifest_path.name, "yue2-semantic-v1",
         {"semantic.npy", "semantic.json", "plan_manifest.json"},
     )
+    verify_hash_manifest(
+        source, "plan_manifest.json", {"plan.json", "abc_tokens.npy", "prefix.npy"},
+    )
     plan = SymbolicPlan.load(source)
     info = json.loads((source / "semantic.json").read_text(encoding="utf-8"))
     array = np.load(source / "semantic.npy", allow_pickle=False)
@@ -219,6 +223,9 @@ def run_semantic(root: Path, ctx: JobContext, request: dict) -> dict:
     from yue2 import SymbolicPlan
 
     plan_path = within(root / "outputs" / "jobs", Path(request["plan_dir"]))
+    verify_hash_manifest(
+        plan_path, "plan_manifest.json", {"plan.json", "abc_tokens.npy", "prefix.npy"},
+    )
     plan = SymbolicPlan.load(plan_path)
     destination = ctx.job_dir / "artifacts" / "semantic"
     pipe = create_pipe(root, request)
@@ -277,12 +284,22 @@ def run_decode(root: Path, ctx: JobContext, request: dict) -> dict:
 
     source = within(root / "outputs" / "jobs",
                     Path(request.get("latent") or Path(request["latent_dir"]) / "latent.npy"))
+    canonical_source = within(root / "outputs" / "jobs", source.parent / "latent.npy")
+    if source != canonical_source:
+        raise ValueError("解码只接受 latent_manifest.json 记录的 latent.npy")
     latent_manifest_path = source.parent / "latent_manifest.json"
     latent_manifest = verify_artifact_manifest(
         source.parent, latent_manifest_path.name, "yue2-latent-v1",
         {"latent.npy", "semantic_manifest.json"},
     )
-    latents = np.load(source, allow_pickle=False)
+    verify_artifact_manifest(
+        source.parent, "semantic_manifest.json", "yue2-semantic-v1",
+        {"semantic.npy", "semantic.json", "plan_manifest.json"},
+    )
+    verify_hash_manifest(
+        source.parent, "plan_manifest.json", {"plan.json", "abc_tokens.npy", "prefix.npy"},
+    )
+    latents = np.load(canonical_source, allow_pickle=False)
     destination = ctx.job_dir / "artifacts" / "decode"
     destination.mkdir(parents=True, exist_ok=True)
     pipe = create_pipe(root, request)
@@ -311,6 +328,9 @@ def run_render_plan(root: Path, ctx: JobContext, request: dict) -> dict:
     from yue2 import SymbolicPlan
 
     plan_dir = within(root / "outputs" / "jobs", Path(request["plan_dir"]))
+    verify_hash_manifest(
+        plan_dir, "plan_manifest.json", {"plan.json", "abc_tokens.npy", "prefix.npy"},
+    )
     exact = bool(request.get("exact", True)) and not request.get("abc")
     if not exact:
         generated = dict(request)
@@ -360,15 +380,19 @@ def run_doctor(root: Path, ctx: JobContext, request: dict) -> dict:
     from .model_verify import verify_bundle
 
     ctx.update("doctor")
+    if not torch.cuda.is_available():
+        raise RuntimeError("自检失败：未检测到 NVIDIA CUDA")
+    if not torch.cuda.is_bf16_supported():
+        raise RuntimeError("自检失败：GPU 不支持 BF16")
     verified = verify_bundle(root, progress=False)
     packages = {name: importlib.metadata.version(name) for name in
                 ("torch", "transformers", "huggingface-hub", "safetensors", "tiktoken", "soundfile")}
     result = {
         "versions": packages,
         "torch_cuda": torch.version.cuda,
-        "cuda_available": torch.cuda.is_available(),
-        "bf16_supported": torch.cuda.is_available() and torch.cuda.is_bf16_supported(),
-        "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
+        "cuda_available": True,
+        "bf16_supported": True,
+        "gpu": torch.cuda.get_device_name(0),
         "model": verified["YuE2-3B"],
         "vae": verified["YuE2-Vae"],
         "sheetsage": verified["SheetSage2"],

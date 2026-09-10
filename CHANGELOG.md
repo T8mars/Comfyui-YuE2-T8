@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.5 - 2026-09-11
+
+- Bind staged inference to the exact manifest-recorded files and recursively verify plan, semantic, and latent lineage while preserving compatibility with 1.0.4 manifests.
+- Protect queued and running job dependencies from retention, serialize reads and exports with cleanup, and publish exports atomically with collision-safe names.
+- Reject non-loopback Host headers, acquire a per-installation instance lock and bind the service port before job recovery, and make CUDA/BF16 self-check failures explicit.
+- Pin model source identities in code, make provenance comparison insensitive to unrelated manifest formatting, and reject placeholder runtime files.
+- Preserve transcription errors, prevent missing ABC from silently becoming a new composition, and add transcription manifests with source-audio and output hashes.
+- Refresh the local WebUI with the light pink, blue, and slate palette used by the T8star IndexTTS 2.5 integration.
+
 ## 1.0.4 - 2026-09-11
 
 - Add independent semantic, latent, and decode manifests with file hashes, pinned model sources, runtime weight identities, and stage-to-stage lineage verification.

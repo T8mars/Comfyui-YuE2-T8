@@ -41,6 +41,68 @@ SERVER_LOG_MAX_BYTES = 20 * 1024 * 1024
 SERVER_LOG_BACKUPS = 3
 
 
+def acquire_instance_lock(root: Path):
+    path = root.resolve() / "service.lock"
+    stream = path.open("a+b")
+    try:
+        if path.stat().st_size == 0:
+            stream.write(b"0")
+            stream.flush()
+        stream.seek(0)
+        if os.name == "nt":
+            import msvcrt
+            msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (OSError, BlockingIOError) as exc:
+        stream.close()
+        raise RuntimeError("此 YuE2 整合包已有一个服务实例在运行") from exc
+    return stream
+
+
+def is_loopback_host(authority: str) -> bool:
+    try:
+        parsed = urllib.parse.urlsplit("//" + authority)
+        _ = parsed.port
+    except ValueError:
+        return False
+    return (not parsed.username and not parsed.password
+            and (parsed.hostname or "").lower() in {"127.0.0.1", "localhost", "::1"})
+
+
+def _request_strings(value):
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _request_strings(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            yield from _request_strings(item)
+
+
+def retention_references(requests, outputs: Path = OUTPUTS,
+                         uploads: Path = UPLOADS) -> tuple[set[str], set[str]]:
+    outputs = outputs.resolve()
+    uploads = uploads.resolve()
+    protected_jobs: set[str] = set()
+    protected_uploads: set[str] = set()
+    for request in requests:
+        for value in _request_strings(request):
+            try:
+                candidate = Path(value).expanduser().resolve()
+            except (OSError, ValueError):
+                continue
+            if candidate == outputs or outputs in candidate.parents:
+                relative = candidate.relative_to(outputs)
+                if relative.parts and JOB_ID_PATTERN.fullmatch(relative.parts[0]):
+                    protected_jobs.add(relative.parts[0])
+            elif candidate.parent == uploads:
+                protected_uploads.add(candidate.name)
+    return protected_jobs, protected_uploads
+
+
 def job_directory(job_id: str) -> Path:
     if not JOB_ID_PATTERN.fullmatch(job_id):
         raise ValueError("无效的任务 ID")
@@ -84,6 +146,7 @@ class JobStore:
     def __init__(self):
         ensure_layout()
         self.lock = threading.RLock()
+        self.storage_lock = threading.RLock()
         self.jobs: dict[str, dict] = {}
         self.pending: queue.Queue[str] = queue.Queue()
         self.current_id: str | None = None
@@ -97,7 +160,7 @@ class JobStore:
 
     def _restore(self) -> None:
         for directory in sorted(OUTPUTS.glob("*")):
-            if not directory.is_dir():
+            if directory.is_symlink() or not directory.is_dir():
                 continue
             try:
                 job = json.loads((directory / "job.json").read_text(encoding="utf-8"))
@@ -120,29 +183,31 @@ class JobStore:
         if not isinstance(request, dict):
             raise ValueError("request 必须是对象")
         job_id = time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:8]
-        directory = OUTPUTS / job_id
-        directory.mkdir(parents=True)
-        now = time.time()
-        job = {"id": job_id, "kind": kind, "request": request, "created_at": now}
-        status = {"id": job_id, "kind": kind, "status": "queued", "stage": "queued",
-                  "created_at": now, "updated_at": now, "job_dir": str(directory)}
-        atomic_json(directory / "job.json", job)
-        atomic_json(directory / "status.json", status)
-        with self.lock:
-            self.jobs[job_id] = status
-            self.pending.put(job_id)
+        with self.storage_lock:
+            directory = OUTPUTS / job_id
+            directory.mkdir(parents=True)
+            now = time.time()
+            job = {"id": job_id, "kind": kind, "request": request, "created_at": now}
+            status = {"id": job_id, "kind": kind, "status": "queued", "stage": "queued",
+                      "created_at": now, "updated_at": now, "job_dir": str(directory)}
+            atomic_json(directory / "job.json", job)
+            atomic_json(directory / "status.json", status)
+            with self.lock:
+                self.jobs[job_id] = status
+                self.pending.put(job_id)
         return public_job(status)
 
     def get(self, job_id: str) -> dict:
-        directory = job_directory(job_id)
-        path = directory / "status.json"
-        if not path.is_file():
-            raise KeyError(job_id)
-        status = json.loads(path.read_text(encoding="utf-8"))
-        if status.get("id") != job_id:
-            raise ValueError("任务状态 ID 与目录不一致")
-        with self.lock:
-            self.jobs[job_id] = status
+        with self.storage_lock:
+            directory = job_directory(job_id)
+            path = directory / "status.json"
+            if not path.is_file():
+                raise KeyError(job_id)
+            status = json.loads(path.read_text(encoding="utf-8"))
+            if status.get("id") != job_id:
+                raise ValueError("任务状态 ID 与目录不一致")
+            with self.lock:
+                self.jobs[job_id] = status
         return public_job(status)
 
     def list(self, limit: int = 100) -> list[dict]:
@@ -178,15 +243,67 @@ class JobStore:
         return {"current_job": current, "queued": queued}
 
     def cleanup_retention(self, *, force: bool = False) -> dict:
-        with self.lock:
-            current = self.current_id
-        report = self.retention.cleanup(current, force=force)
-        deleted = {item["id"] for item in report.get("deleted", {}).get("jobs", [])}
-        if deleted:
+        with self.storage_lock:
+            protected_jobs, protected_uploads, protected_logs = self._retention_protection()
+            report = self.retention.cleanup(
+                force=force, protected_jobs=protected_jobs,
+                protected_uploads=protected_uploads, protected_logs=protected_logs,
+            )
+            deleted = {item["id"] for item in report.get("deleted", {}).get("jobs", [])}
             with self.lock:
                 for job_id in deleted:
                     self.jobs.pop(job_id, None)
         return report
+
+    def retention_status(self) -> dict:
+        with self.storage_lock:
+            return self.retention.status()
+
+    def _retention_protection(self) -> tuple[set[str], set[str], set[str]]:
+        with self.lock:
+            active = {job_id for job_id, status in self.jobs.items()
+                      if status.get("status") not in TERMINAL}
+            if self.current_id:
+                active.add(self.current_id)
+        protected_jobs = set(active)
+        protected_uploads: set[str] = set()
+        protected_logs = {f"{job_id}.log" for job_id in active}
+        requests = []
+        for job_id in active:
+            try:
+                job = json.loads((job_directory(job_id) / "job.json").read_text(encoding="utf-8-sig"))
+            except (OSError, ValueError, json.JSONDecodeError):
+                continue
+            requests.append(job.get("request", {}))
+        referenced_jobs, referenced_uploads = retention_references(requests)
+        protected_jobs.update(referenced_jobs)
+        protected_uploads.update(referenced_uploads)
+        return protected_jobs, protected_uploads, protected_logs
+
+    def export(self, job_id: str, requested_destination: str = "") -> Path:
+        with self.storage_lock:
+            status = self.get(job_id)
+            if status.get("status") != "complete":
+                raise ValueError("只能导出已完成任务的工件")
+            source = within(OUTPUTS, job_directory(job_id) / "artifacts")
+            if not source.is_dir():
+                raise FileNotFoundError("任务没有可导出的工件")
+            export_root = (ROOT / "exports").resolve()
+            requested = Path(requested_destination)
+            base = within(export_root, requested if requested.is_absolute() else export_root / requested)
+            base.mkdir(parents=True, exist_ok=True)
+            destination = within(export_root, base / status["id"])
+            if destination.exists():
+                destination = within(export_root, base / f"{status['id']}-{uuid.uuid4().hex[:8]}")
+            temporary = within(export_root, base / f".{destination.name}.{uuid.uuid4().hex}.tmp")
+            try:
+                shutil.copytree(source, temporary)
+                temporary.replace(destination)
+            except BaseException:
+                if temporary.exists():
+                    shutil.rmtree(temporary, ignore_errors=True)
+                raise
+            return destination
 
     def stop(self) -> None:
         self.stopping.set()
@@ -335,6 +452,9 @@ class Handler(BaseHTTPRequestHandler):
         if not path.is_file():
             return self._error(404, "文件不存在")
         content = path.read_bytes()
+        return self._static_content(path, content)
+
+    def _static_content(self, path: Path, content: bytes):
         mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
         self.send_response(200)
         self.send_header("Content-Type", mime + ("; charset=utf-8" if mime.startswith("text/") or mime.endswith("javascript") else ""))
@@ -348,6 +468,8 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
         try:
+            if not is_loopback_host(self.headers.get("Host", "")):
+                return self._error(403, "Host 必须是本机回环地址")
             if path == "/api/health":
                 return self._json(200, {"ok": True, "version": __version__, "root": str(ROOT),
                                         "ready": runtime_ready(), **STORE.state()})
@@ -355,19 +477,28 @@ class Handler(BaseHTTPRequestHandler):
                 limit = int(urllib.parse.parse_qs(parsed.query).get("limit", ["100"])[0])
                 return self._json(200, {"jobs": STORE.list(limit)})
             if path == "/api/retention":
-                return self._json(200, STORE.retention.status())
+                return self._json(200, STORE.retention_status())
             if path.startswith("/api/jobs/"):
-                return self._json(200, STORE.get(path.split("/")[3]))
+                pieces = path.split("/")
+                if len(pieces) != 4 or not pieces[3]:
+                    return self._error(404, "接口不存在")
+                return self._json(200, STORE.get(pieces[3]))
             if path.startswith("/api/files/"):
                 pieces = path.split("/")
                 if len(pieces) < 5:
                     return self._error(400, "缺少文件路径")
                 job_id = pieces[3]
-                STORE.get(job_id)
-                relative = Path(urllib.parse.unquote("/".join(pieces[4:])))
-                directory = job_directory(job_id)
-                file = within(directory, directory / relative)
-                return self._static(file)
+                with STORE.storage_lock:
+                    status = STORE.get(job_id)
+                    if status.get("status") != "complete":
+                        return self._error(409, "任务尚未完成，工件暂不可读取")
+                    relative = Path(urllib.parse.unquote("/".join(pieces[4:])))
+                    directory = job_directory(job_id)
+                    file = within(directory, directory / relative)
+                    if not file.is_file():
+                        return self._error(404, "文件不存在")
+                    content = file.read_bytes()
+                return self._static_content(file, content)
             if path == "/" or path == "/index.html":
                 return self._static(WEB_ROOT / "index.html")
             if path.startswith("/static/"):
@@ -384,16 +515,21 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
         try:
+            host = self.headers.get("Host", "")
+            if not is_loopback_host(host):
+                return self._error(403, "Host 必须是本机回环地址")
             origin = self.headers.get("Origin")
-            if origin and urllib.parse.urlparse(origin).netloc.lower() != self.headers.get("Host", "").lower():
+            if origin and (not is_loopback_host(urllib.parse.urlparse(origin).netloc)
+                           or urllib.parse.urlparse(origin).netloc.lower() != host.lower()):
                 return self._error(403, "拒绝跨站请求")
             if path == "/api/jobs":
                 data = self._body_json()
                 return self._json(202, STORE.create(data.get("kind", "generate"), data.get("request", {})))
             if path == "/api/retention/cleanup":
                 return self._json(200, STORE.cleanup_retention(force=True))
-            if path.startswith("/api/jobs/") and path.endswith("/cancel"):
-                job_id = path.split("/")[3]
+            pieces = path.split("/")
+            if len(pieces) == 5 and pieces[1:3] == ["api", "jobs"] and pieces[4] == "cancel":
+                job_id = pieces[3]
                 data = self._body_json(1024) if int(self.headers.get("Content-Length", "0")) else {}
                 return self._json(200, STORE.cancel(job_id, bool(data.get("force", False))))
             if path == "/api/uploads":
@@ -422,18 +558,7 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/export":
                 data = self._body_json()
                 job_id = str(data["job_id"])
-                status = STORE.get(job_id)
-                source = within(OUTPUTS, job_directory(job_id) / "artifacts")
-                if not source.is_dir():
-                    raise FileNotFoundError("任务没有可导出的工件")
-                export_root = (ROOT / "exports").resolve()
-                requested = Path(str(data.get("destination") or ""))
-                base = within(export_root, requested if requested.is_absolute() else export_root / requested)
-                base.mkdir(parents=True, exist_ok=True)
-                destination = within(export_root, base / status["id"])
-                if destination.exists():
-                    destination = within(export_root, base / f"{status['id']}-{time.strftime('%H%M%S')}")
-                shutil.copytree(source, destination)
+                destination = STORE.export(job_id, str(data.get("destination") or ""))
                 return self._json(200, {"destination": str(destination)})
             if path == "/api/unload":
                 data = self._body_json(1024) if int(self.headers.get("Content-Length", "0")) else {}
@@ -457,19 +582,31 @@ def main(argv=None) -> int:
     if args.host not in {"127.0.0.1", "localhost"}:
         parser.error("YuE2 service only supports a loopback host")
     ensure_layout()
-    STORE = JobStore()
-    server = ThreadingHTTPServer((args.host, args.port), Handler)
-    state_path = ROOT / "server.json"
-    state_path.write_text(json.dumps({"host": args.host, "port": args.port,
-                                      "pid": os.getpid(), "started_at": time.time()}, indent=2), encoding="utf-8")
-    print(f"YuE2 本地整合包：http://{args.host}:{args.port}", flush=True)
+    instance_lock = acquire_instance_lock(ROOT)
     try:
-        server.serve_forever(poll_interval=0.25)
-    except KeyboardInterrupt:
-        pass
+        server = ThreadingHTTPServer((args.host, args.port), Handler)
+    except BaseException:
+        instance_lock.close()
+        raise
+    try:
+        STORE = JobStore()
+    except BaseException:
+        server.server_close()
+        instance_lock.close()
+        raise
+    state_path = ROOT / "server.json"
+    try:
+        state_path.write_text(json.dumps({"host": args.host, "port": args.port,
+                                          "pid": os.getpid(), "started_at": time.time()}, indent=2), encoding="utf-8")
+        print(f"YuE2 本地整合包：http://{args.host}:{args.port}", flush=True)
+        try:
+            server.serve_forever(poll_interval=0.25)
+        except KeyboardInterrupt:
+            pass
     finally:
         STORE.stop()
         server.server_close()
+        instance_lock.close()
         try:
             state = json.loads(state_path.read_text(encoding="utf-8"))
             if state.get("pid") == os.getpid():

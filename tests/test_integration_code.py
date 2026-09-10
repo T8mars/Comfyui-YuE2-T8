@@ -11,14 +11,22 @@ from app.yue2_app.artifacts import (
     assert_provenance,
     generation_provenance,
     verify_artifact_manifest,
+    verify_hash_manifest,
     write_artifact_manifest,
 )
-from app.yue2_app.config import ROOT, model_paths
-from app.yue2_app.core_worker import generation_kwargs, generation_result, run_generate
+from app.yue2_app.config import ROOT, model_paths, runtime_ready
+from app.yue2_app.core_worker import generation_kwargs, generation_result, run_decode, run_doctor, run_generate
 from app.yue2_app.io import atomic_json, public_job, within
-from app.yue2_app.model_verify import REQUIRED_FILES, verify_bundle
+from app.yue2_app.model_verify import PINNED_MODELS, REQUIRED_FILES, verify_bundle
 from app.yue2_app.retention import RetentionManager
-from app.yue2_app.service import job_directory
+from app.yue2_app.service import (
+    JobStore,
+    acquire_instance_lock,
+    is_loopback_host,
+    job_directory,
+    retention_references,
+)
+from app.yue2_app import service
 from app.yue2_app.worker_common import Cancelled, JobContext
 
 
@@ -118,12 +126,14 @@ class IntegrationCodeTests(unittest.TestCase):
                 weight.write_bytes(payload)
                 for filename in required:
                     (model_dir / filename).write_text("{}", encoding="utf-8")
-                entries[name] = {"file": f"{name}/model.safetensors", "size": len(payload),
+                entries[name] = {"source": f"source/{name}", "revision": name.lower(),
+                                 "file": f"{name}/model.safetensors", "size": len(payload),
                                  "sha256": hashlib.sha256(payload).hexdigest()}
             atomic_json(models / "MODEL_MANIFEST.json", {"bundle": "t8star/YuE2-Comfy", "models": entries})
-            self.assertEqual(set(verify_bundle(root, progress=False)), set(REQUIRED_FILES))
+            with mock.patch.dict(PINNED_MODELS, entries, clear=True):
+                self.assertEqual(set(verify_bundle(root, progress=False)), set(REQUIRED_FILES))
             (models / "YuE2-3B" / "model.safetensors").write_bytes(b"changed")
-            with self.assertRaises(ValueError):
+            with mock.patch.dict(PINNED_MODELS, entries, clear=True), self.assertRaises(ValueError):
                 verify_bundle(root, progress=False)
 
     def test_staged_manifest_verifies_hashes_and_model_provenance(self):
@@ -146,7 +156,12 @@ class IntegrationCodeTests(unittest.TestCase):
                 "mot": {"files": {"model.safetensors": {"sha256": mot_hash, "bytes": 1}}},
                 "vae": {"files": {"model.safetensors": {"sha256": vae_hash, "bytes": 1}}},
             }
-            provenance = generation_provenance(root, weights)
+            pins = json.loads(json.dumps(json.loads((models / "MODEL_MANIFEST.json").read_text())["models"]))
+            with mock.patch.dict(PINNED_MODELS, pins, clear=True):
+                provenance = generation_provenance(root, weights)
+                original_manifest = (models / "MODEL_MANIFEST.json").read_text(encoding="utf-8")
+                (models / "MODEL_MANIFEST.json").write_text(original_manifest + "  \n", encoding="utf-8")
+                self.assertEqual(generation_provenance(root, weights), provenance)
             artifact = root / "artifact"
             artifact.mkdir()
             (artifact / "semantic.npy").write_bytes(b"tokens")
@@ -160,11 +175,20 @@ class IntegrationCodeTests(unittest.TestCase):
                 artifact, "semantic_manifest.json", "yue2-semantic-v1",
                 {"semantic.npy", "semantic.json", "plan_manifest.json"},
             )
-            assert_provenance(manifest, root, weights)
+            with mock.patch.dict(PINNED_MODELS, pins, clear=True):
+                assert_provenance(manifest, root, weights)
+                legacy = json.loads(json.dumps(manifest))
+                legacy["models"]["bundle_manifest_sha256"] = "legacy-audit-only-value"
+                assert_provenance(legacy, root, weights)
             wrong_weights = json.loads(json.dumps(weights))
             wrong_weights["mot"]["files"]["model.safetensors"]["sha256"] = "3" * 64
-            with self.assertRaises(ValueError):
+            with mock.patch.dict(PINNED_MODELS, pins, clear=True), self.assertRaises(ValueError):
                 assert_provenance(manifest, root, wrong_weights)
+            changed_manifest = json.loads((models / "MODEL_MANIFEST.json").read_text())
+            changed_manifest["models"]["YuE2-3B"]["source"] = "untrusted/source"
+            atomic_json(models / "MODEL_MANIFEST.json", changed_manifest)
+            with mock.patch.dict(PINNED_MODELS, pins, clear=True), self.assertRaises(ValueError):
+                generation_provenance(root, weights)
             (artifact / "latent.npy").write_bytes(b"latents")
             write_artifact_manifest(
                 artifact, "latent_manifest.json", "yue2-latent-v1",
@@ -226,6 +250,154 @@ class IntegrationCodeTests(unittest.TestCase):
             self.assertEqual(len(report["deleted"]["uploads"]), 1)
             self.assertEqual(len(report["deleted"]["logs"]), 1)
             self.assertTrue((root / "exports" / "keep.flac").is_file())
+
+    def test_retention_keeps_active_dependencies(self):
+        with tempfile.TemporaryDirectory(dir=ROOT) as directory:
+            root = Path(directory)
+            for relative in ("outputs/jobs", "uploads", "logs", "exports"):
+                (root / relative).mkdir(parents=True)
+            old_id = "20260910-120000-00000001"
+            old = root / "outputs" / "jobs" / old_id
+            old.mkdir()
+            atomic_json(old / "status.json", {"id": old_id, "status": "complete", "finished_at": 1})
+            (old / "artifact.bin").write_bytes(b"x")
+            upload = root / "uploads" / "source.wav"
+            upload.write_bytes(b"audio")
+            os.utime(upload, (1, 1))
+            atomic_json(root / "retention.json", {
+                "enabled": True, "cleanup_interval_hours": 6,
+                "jobs": {"max_age_days": 0, "max_count": 0, "max_bytes_gib": 1 / 2**30},
+                "uploads": {"max_age_days": 0, "max_bytes_gib": 1 / 2**30},
+                "logs": {"max_age_days": 0, "max_bytes_gib": 1},
+            })
+            jobs, uploads = retention_references(
+                [{"plan_dir": str(old / "artifacts"), "source_path": str(upload)}],
+                root / "outputs" / "jobs", root / "uploads",
+            )
+            report = RetentionManager(root).cleanup(
+                force=True, protected_jobs=jobs, protected_uploads=uploads,
+            )
+            self.assertTrue(old.is_dir())
+            self.assertTrue(upload.is_file())
+            self.assertEqual(report["deleted"]["jobs"], [])
+            self.assertEqual(report["deleted"]["uploads"], [])
+
+    def test_decode_rejects_untracked_file_before_loading_model(self):
+        with tempfile.TemporaryDirectory(dir=ROOT) as directory:
+            root = Path(directory)
+            source = root / "outputs" / "jobs" / "20260910-120000-00000001" / "artifacts" / "synthesis"
+            source.mkdir(parents=True)
+            (source / "unverified.npy").write_bytes(b"not trusted")
+            job = root / "outputs" / "jobs" / "20260910-120001-00000002"
+            job.mkdir(parents=True)
+            with self.assertRaisesRegex(ValueError, "latent.npy"):
+                run_decode(root, JobContext(job), {"latent": str(source / "unverified.npy")})
+
+    def test_recursive_plan_manifest_detects_tamper(self):
+        with tempfile.TemporaryDirectory(dir=ROOT) as directory:
+            root = Path(directory)
+            files = {"plan.json": b"plan", "abc_tokens.npy": b"abc", "prefix.npy": b"prefix", "score.abc": b"score"}
+            for name, payload in files.items():
+                (root / name).write_bytes(payload)
+            atomic_json(root / "plan_manifest.json", {
+                name: hashlib.sha256(payload).hexdigest() for name, payload in files.items()
+            })
+            verify_hash_manifest(root, "plan_manifest.json", set(files))
+            (root / "score.abc").write_bytes(b"changed")
+            with self.assertRaises(ValueError):
+                verify_hash_manifest(root, "plan_manifest.json", set(files))
+            (root / "score.abc").unlink()
+            atomic_json(root / "plan_manifest.json", {
+                name: hashlib.sha256(payload).hexdigest()
+                for name, payload in files.items() if name != "score.abc"
+            })
+            verify_hash_manifest(
+                root, "plan_manifest.json", {"plan.json", "abc_tokens.npy", "prefix.npy"},
+            )
+
+    def test_loopback_host_validation(self):
+        for value in ("127.0.0.1:8189", "localhost", "[::1]:8189"):
+            self.assertTrue(is_loopback_host(value), value)
+        for value in ("attacker.example:8189", "localhost@attacker.example", "127.0.0.1:bad", ""):
+            self.assertFalse(is_loopback_host(value), value)
+
+    def test_instance_lock_rejects_duplicate_service(self):
+        with tempfile.TemporaryDirectory(dir=ROOT) as directory:
+            root = Path(directory)
+            first = acquire_instance_lock(root)
+            try:
+                with self.assertRaises(RuntimeError):
+                    acquire_instance_lock(root)
+            finally:
+                first.close()
+            acquire_instance_lock(root).close()
+
+    def test_runtime_ready_rejects_placeholder_files(self):
+        with tempfile.TemporaryDirectory(dir=ROOT) as directory:
+            root = Path(directory)
+            for relative in ("runtime/core/python.exe", "runtime/transcribe/python.exe", "runtime/ffmpeg/ffmpeg.exe",
+                             "models/YuE2-3B/model.safetensors", "models/YuE2-Vae/model.safetensors",
+                             "models/SheetSage2/model.safetensors", "models/MERT-v2-FullSong/model.safetensors"):
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.touch()
+            ready = runtime_ready(root)
+            self.assertFalse(ready["core_python"])
+            self.assertFalse(ready["ffmpeg"])
+            self.assertFalse(any(ready["models"].values()))
+            self.assertFalse(ready["capabilities"]["generation"])
+            browser = root / "runtime" / "playwright" / "chromium_headless_shell-1" / "chrome-headless-shell-win64" / "chrome-headless-shell.exe"
+            browser.parent.mkdir(parents=True)
+            browser.write_bytes(b"browser")
+            (root / "runtime" / "transcribe" / "python.exe").write_bytes(b"python")
+            self.assertFalse(runtime_ready(root)["capabilities"]["score_renderer"])
+
+    def test_doctor_fails_without_cuda(self):
+        with tempfile.TemporaryDirectory(dir=ROOT) as directory, \
+                mock.patch("torch.cuda.is_available", return_value=False):
+            job = Path(directory)
+            atomic_json(job / "status.json", {"status": "running"})
+            with self.assertRaisesRegex(RuntimeError, "CUDA"):
+                run_doctor(ROOT, JobContext(job), {})
+
+    def test_export_is_complete_and_collision_safe(self):
+        with tempfile.TemporaryDirectory(dir=ROOT) as directory:
+            root = Path(directory)
+            outputs = root / "outputs" / "jobs"
+            job_id = "20260910-120000-00000001"
+            artifact = outputs / job_id / "artifacts"
+            artifact.mkdir(parents=True)
+            atomic_json(outputs / job_id / "status.json", {"id": job_id, "status": "complete"})
+            (artifact / "one.bin").write_bytes(b"one")
+            store = object.__new__(JobStore)
+            store.storage_lock = threading.RLock()
+            store.lock = threading.RLock()
+            store.jobs = {}
+            results = []
+            errors = []
+            def export():
+                try:
+                    results.append(store.export(job_id))
+                except BaseException as exc:
+                    errors.append(exc)
+            with mock.patch.object(service, "ROOT", root), mock.patch.object(service, "OUTPUTS", outputs):
+                threads = [threading.Thread(target=export) for _ in range(2)]
+                for thread in threads: thread.start()
+                for thread in threads: thread.join()
+            self.assertEqual(errors, [])
+            first, second = results
+            self.assertNotEqual(first, second)
+            self.assertEqual((first / "one.bin").read_bytes(), b"one")
+            self.assertEqual((second / "one.bin").read_bytes(), b"one")
+            def fail_copy(_source, temporary):
+                Path(temporary).mkdir()
+                (Path(temporary) / "partial.bin").write_bytes(b"partial")
+                raise OSError("copy interrupted")
+            with mock.patch.object(service, "ROOT", root), mock.patch.object(service, "OUTPUTS", outputs), \
+                    mock.patch.object(service.shutil, "copytree", side_effect=fail_copy), \
+                    self.assertRaises(OSError):
+                store.export(job_id)
+            self.assertEqual(list((root / "exports").glob(".*.tmp")), [])
 
     def test_workflows_are_well_formed(self):
         workflows = list((ROOT / "workflows").glob("*.json"))

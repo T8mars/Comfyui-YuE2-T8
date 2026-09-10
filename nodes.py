@@ -47,9 +47,14 @@ class YuE2ModelLoader:
 
     def load(self, backend, memory_budget_gib, offload_ar):
         health = client.ensure_service()
-        missing = [name for name, ready in health["ready"]["models"].items() if not ready]
-        if not health["ready"]["core_python"] or missing:
-            raise RuntimeError("YuE2 未就绪：" + ("缺少模型 " + ", ".join(missing) if missing else "核心运行时未安装"))
+        ready = health["ready"]
+        missing = [name for name in ("model", "vae") if not ready["models"].get(name)]
+        if not ready.get("capabilities", {}).get("generation"):
+            details = []
+            if not ready.get("core_python"): details.append("核心运行时")
+            if not ready.get("upstream_source"): details.append("推理源码")
+            if missing: details.append("模型 " + ", ".join(missing))
+            raise RuntimeError("YuE2 生成环境未就绪：缺少 " + "、".join(details))
         handle = {"backend": backend, "memory_budget_gib": float(memory_budget_gib),
                   "offload_ar": bool(offload_ar), "service": client.SERVICE}
         return (handle, json.dumps(health, ensure_ascii=False))
@@ -143,6 +148,11 @@ class YuE2Transcribe:
 
     def transcribe(self, model, audio, melody_only, render_score):
         import soundfile as sf
+        ready = client.ensure_service()["ready"]
+        if not ready.get("capabilities", {}).get("transcription"):
+            raise RuntimeError("YuE2 转谱环境未就绪：请安装转谱运行时、模型和 FFmpeg")
+        if render_score != "none" and not ready.get("capabilities", {}).get("score_renderer"):
+            raise RuntimeError("YuE2 乐谱渲染器未安装；请重新运行安装脚本且不要使用 -SkipRenderer")
         root = client.find_root(); uploads = root / "uploads"; uploads.mkdir(parents=True, exist_ok=True)
         path = uploads / f"comfy-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}.wav"
         batch = audio["waveform"]
@@ -170,8 +180,12 @@ class YuE2GenerateCover:
     CATEGORY = CATEGORY
 
     def cover(self, model, transcription, style, lyrics, seed, reviewed_abc=""):
+        abc = str(reviewed_abc or transcription.get("abc") or "").strip()
+        if not abc:
+            detail = transcription.get("abc_error") or "转谱没有产生可用的 ABC"
+            raise ValueError(f"无法生成翻唱：{detail}；请提供核对后的 ABC")
         payload = {**base_request(model), "style": style, "lyrics": lyrics,
-                   "abc": reviewed_abc or transcription["abc"], "cot": "melody", "seed": int(seed),
+                   "abc": abc, "cot": "melody", "seed": int(seed),
                    "cfg_scale": 1.0, "candidates": 1}
         status = client.run("generate", payload); result={"job_id":status["id"],**status["result"]}
         return (audio_value(first_audio(status)), result, json.dumps(status, ensure_ascii=False))

@@ -114,13 +114,16 @@ class RetentionManager:
         self.reload()
         return {"policy": self.policy, "usage": self.usage(), "last_cleanup": self.last_report}
 
-    def cleanup(self, current_job: str | None = None, *, force: bool = False) -> dict:
+    def cleanup(self, current_job: str | None = None, *, force: bool = False,
+                protected_jobs: set[str] | None = None,
+                protected_uploads: set[str] | None = None,
+                protected_logs: set[str] | None = None) -> dict:
+        self.reload()
         interval = float(self.policy["cleanup_interval_hours"]) * 3600
         elapsed = time.monotonic() - self.last_cleanup_monotonic
         if not force and self.last_cleanup_monotonic and elapsed < interval:
             return self.last_report or {"skipped": True, "reason": "interval"}
         self.last_cleanup_monotonic = time.monotonic()
-        self.reload()
         before = self.usage()
         report = {"ran_at": time.time(), "deleted": {"jobs": [], "uploads": [], "logs": []},
                   "errors": [], "before": before}
@@ -130,10 +133,17 @@ class RetentionManager:
             return report
 
         now = time.time()
+        protected_jobs = set(protected_jobs or ())
+        protected_uploads = set(protected_uploads or ())
+        protected_logs = set(protected_logs or ())
+        if current_job:
+            protected_jobs.add(current_job)
+            protected_logs.add(f"{current_job}.log")
         jobs_root = self.root / "outputs" / "jobs"
         job_items = []
         for directory in (jobs_root.iterdir() if jobs_root.is_dir() else ()):
-            if not directory.is_dir() or not JOB_ID_PATTERN.fullmatch(directory.name) or directory.name == current_job:
+            if (directory.is_symlink() or not directory.is_dir() or not JOB_ID_PATTERN.fullmatch(directory.name)
+                    or directory.name in protected_jobs):
                 continue
             try:
                 status = json.loads((directory / "status.json").read_text(encoding="utf-8-sig"))
@@ -166,10 +176,9 @@ class RetentionManager:
                 report["errors"].append({"path": str(item["path"]), "error": str(exc)})
 
         excluded_logs = {"server.log", "server.stdout.log", "server.stderr.log"}
-        if current_job:
-            excluded_logs.add(f"{current_job}.log")
+        excluded_logs.update(protected_logs)
         for category, directory, excluded in (
-            ("uploads", self.root / "uploads", set()),
+            ("uploads", self.root / "uploads", protected_uploads),
             ("logs", self.root / "logs", excluded_logs),
         ):
             items = []

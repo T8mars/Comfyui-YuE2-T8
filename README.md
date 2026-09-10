@@ -80,7 +80,7 @@ YuE2 Music T8 integrates YuE2-3B full-song generation with ComfyUI and includes 
 
 Install it with `comfy node install yue2-t8`, then run `install_runtime.bat` once from the node directory and restart ComfyUI. Models are downloaded from [t8star/YuE2-Comfy](https://huggingface.co/t8star/YuE2-Comfy) into `<node-directory>/models`; keep all four model subdirectories and their configuration files. Windows and an NVIDIA GPU are required, with 24GB VRAM recommended.
 
-The node pack supports Chinese and English lyrics, editable ABC plans, multi-candidate generation, SheetSage2 transcription, cover generation, staged inference, cancellation, history, and artifact export. Staged artifacts carry file hashes, pinned model provenance, and lineage manifests. Automatic retention limits terminal jobs, uploads, and logs while leaving `exports` untouched. Interrupted jobs are retained in history and marked failed after a service restart. Example workflows are in `workflows`.
+The node pack supports Chinese and English lyrics, editable ABC plans, multi-candidate generation, SheetSage2 transcription, cover generation, staged inference, cancellation, history, and artifact export. Staged artifacts carry recursively verified file hashes, pinned model provenance, and lineage manifests; transcription artifacts also record output hashes and the source-audio identity. Automatic retention limits terminal jobs, uploads, and logs while protecting active dependencies and leaving `exports` untouched. Interrupted jobs are retained in history and marked failed after a service restart. Example workflows are in `workflows`.
 
 ## Links
 

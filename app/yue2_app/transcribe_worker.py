@@ -7,7 +7,8 @@ import sys
 from pathlib import Path
 
 from .config import model_paths
-from .io import atomic_json, within
+from .artifacts import declared_model_provenance, write_artifact_manifest
+from .io import atomic_json, sha256, within
 from .worker_common import JobContext, configure_environment
 
 
@@ -72,7 +73,25 @@ def main(argv=None) -> int:
             "melody_only": bool(request.get("melody_only", True)),
             "rendered": result.get("rendered"),
             "render_error": result.get("render_error"),
+            "abc_error": result.get("abc_error"),
         }
+        atomic_json(output / "job_result.json", public)
+        artifact_files = [
+            path.relative_to(output).as_posix() for path in output.rglob("*")
+            if path.is_file() and not path.is_symlink()
+            and path.name not in {"job_result.json", "transcription_manifest.json"}
+        ]
+        manifest_path, _ = write_artifact_manifest(
+            output, "transcription_manifest.json", "yue2-transcription-v1", artifact_files,
+            models=declared_model_provenance(root, ("SheetSage2", "MERT-v2-FullSong")),
+            source={"audio": {"file": source.name, "sha256": sha256(source),
+                              "bytes": source.stat().st_size}},
+            config={"melody_only": bool(request.get("melody_only", True)),
+                    "dtype": request.get("dtype", "bf16"),
+                    "preset": request.get("preset", "default"),
+                    "max_seconds": request.get("max_seconds")},
+        )
+        public["manifest"] = str(manifest_path)
         atomic_json(output / "job_result.json", public)
         del model
         torch.cuda.empty_cache()

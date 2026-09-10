@@ -12,6 +12,60 @@ REQUIRED_FILES = {
     "MERT-v2-FullSong": ("config.json", "modeling_mert2.py", "preprocessor_config.json"),
 }
 
+PINNED_MODELS = {
+    "YuE2-3B": {
+        "source": "mrfakename/YuE2-3B",
+        "revision": "9c7af7677010933b77b159d9dc1a2848c58e26a1",
+        "file": "YuE2-3B/model.safetensors",
+        "size": 7261441640,
+        "sha256": "1d55c42c1a9875c34f5d736e15078449992b044e807ce2a138e6cf289a1e59e9",
+    },
+    "YuE2-Vae": {
+        "source": "m-a-p/YuE2-Vae",
+        "revision": "95535e72a97bc0f09b8ada125d26b4009428c0e8",
+        "file": "YuE2-Vae/model.safetensors",
+        "size": 530512720,
+        "sha256": "807ce9d5149fa27c5ad3e6582058469852e908f6c5acc8c8aa338e7ab7751346",
+    },
+    "SheetSage2": {
+        "source": "m-a-p/SheetSage2",
+        "revision": "eab522a8168e8b8b8c4856bf8609cd86198f01fe",
+        "file": "SheetSage2/model.safetensors",
+        "size": 228738564,
+        "sha256": "b235f68091a5f5b644000f2b5acb57d1e70432aca2b34ab1b9cf27236e1f4274",
+    },
+    "MERT-v2-FullSong": {
+        "source": "m-a-p/MERT-v2-FullSong",
+        "revision": "d8ba1c745e733b3908ce6ad16ebeb17ac7600a42",
+        "file": "MERT-v2-FullSong/model.safetensors",
+        "size": 2529812848,
+        "sha256": "e6dd2ab187d6dd62b6521cd7d8f932e237acf0c5757745a7232082e28391350d",
+    },
+}
+
+
+def pinned_entries(manifest: dict, names=None) -> dict:
+    if manifest.get("bundle") != "t8star/YuE2-Comfy":
+        raise ValueError("Unexpected model bundle identity")
+    entries = manifest.get("models")
+    selected_names = tuple(names or PINNED_MODELS)
+    if not isinstance(entries, dict) or any(name not in entries for name in selected_names):
+        raise ValueError("Model manifest does not contain the required models")
+    selected = {}
+    for name in selected_names:
+        entry = entries[name]
+        if not isinstance(entry, dict):
+            raise ValueError(f"Invalid model manifest entry: {name}")
+        expected = PINNED_MODELS[name]
+        for key, value in expected.items():
+            actual = entry.get(key)
+            if key == "sha256":
+                actual, value = str(actual).lower(), str(value).lower()
+            if actual != value:
+                raise ValueError(f"Pinned model identity mismatch: {name}.{key}")
+        selected[name] = {key: entry[key] for key in expected}
+    return selected
+
 
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
@@ -25,11 +79,10 @@ def verify_bundle(root: Path, progress: bool = True) -> dict:
     models = root.resolve() / "models"
     manifest_path = models / "MODEL_MANIFEST.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
-    if manifest.get("bundle") != "t8star/YuE2-Comfy":
-        raise ValueError("Unexpected model bundle identity")
     entries = manifest.get("models")
     if not isinstance(entries, dict) or set(entries) != set(REQUIRED_FILES):
         raise ValueError("Model manifest does not contain the four required models")
+    pinned_entries(manifest)
 
     checked = {}
     for name, required in REQUIRED_FILES.items():

@@ -1,6 +1,6 @@
 [project]
 name = "yue2-t8"
-version = "1.0.4"
+version = "1.0.5"
 description = "Local YuE2 music generation, editable ABC planning, audio transcription, and cover workflows for ComfyUI"
 readme = "README.md"
 requires-python = ">=3.10"

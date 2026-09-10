@@ -34,10 +34,11 @@ function stageLabel(stage) {
 async function health() {
   try {
     const data = await api('/api/health');
-    const ready = data.ready.core_python && data.ready.transcribe_python && data.ready.upstream_source && Object.values(data.ready.models).every(Boolean);
+    const ready = data.ready.capabilities?.generation && data.ready.capabilities?.transcription;
     $('#health-dot').className = `dot ${ready ? 'ok' : 'bad'}`;
     $('#health-title').textContent = ready ? '核心环境已就绪' : '运行环境不完整';
-    $('#health-detail').textContent = data.current_job ? `正在运行 ${data.current_job}，另有 ${data.queued} 个排队` : `${data.ready.core_python ? '核心运行时已安装' : '请先安装运行时'} · GPU 当前空闲`;
+    const renderer = data.ready.capabilities?.score_renderer ? '乐谱渲染可用' : '乐谱渲染器未安装';
+    $('#health-detail').textContent = data.current_job ? `正在运行 ${data.current_job}，另有 ${data.queued} 个排队` : `${ready ? '生成与转谱运行时已安装' : '请补全运行环境'} · ${renderer} · GPU 当前空闲`;
   } catch (error) {
     $('#health-dot').className = 'dot bad'; $('#health-title').textContent = '服务连接失败'; $('#health-detail').textContent = error.message;
   }

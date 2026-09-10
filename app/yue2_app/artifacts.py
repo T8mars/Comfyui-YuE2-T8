@@ -5,19 +5,21 @@ from pathlib import Path
 
 from . import __version__
 from .io import atomic_json, sha256, within
+from .model_verify import pinned_entries
 
 ARTIFACT_SCHEMA = 1
+
+
+def declared_model_provenance(root: Path, names) -> dict:
+    manifest_path = root.resolve() / "models" / "MODEL_MANIFEST.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
+    return {"bundle": manifest.get("bundle"), "models": pinned_entries(manifest, names)}
 
 
 def generation_provenance(root: Path, runtime_weights: dict) -> dict:
     manifest_path = root.resolve() / "models" / "MODEL_MANIFEST.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
-    if manifest.get("bundle") != "t8star/YuE2-Comfy":
-        raise ValueError("模型总清单来源不正确")
-    entries = manifest.get("models", {})
-    selected = {name: entries.get(name) for name in ("YuE2-3B", "YuE2-Vae")}
-    if any(not isinstance(value, dict) for value in selected.values()):
-        raise ValueError("模型总清单缺少 YuE2-3B 或 YuE2-Vae 来源")
+    selected = pinned_entries(manifest, ("YuE2-3B", "YuE2-Vae"))
     expected = {
         "YuE2-3B": runtime_weights.get("mot", {}).get("files", {}).get("model.safetensors", {}).get("sha256"),
         "YuE2-Vae": runtime_weights.get("vae", {}).get("files", {}).get("model.safetensors", {}).get("sha256"),
@@ -27,7 +29,6 @@ def generation_provenance(root: Path, runtime_weights: dict) -> dict:
             raise ValueError(f"{name} 运行时权重与模型来源清单不一致")
     return {
         "bundle": manifest["bundle"],
-        "bundle_manifest_sha256": sha256(manifest_path),
         "models": selected,
         "runtime_identity": runtime_weights,
     }
@@ -40,12 +41,12 @@ def write_artifact_manifest(directory: Path, filename: str, kind: str, files: li
     records = {}
     for name in files:
         relative = Path(name)
-        if relative.is_absolute() or len(relative.parts) != 1:
+        if relative.is_absolute() or not relative.parts or ".." in relative.parts:
             raise ValueError(f"无效的工件清单路径：{name}")
         path = within(directory, directory / relative)
         if path.is_symlink() or not path.is_file():
             raise FileNotFoundError(f"工件缺失或是符号链接：{name}")
-        records[name] = {"sha256": sha256(path), "bytes": path.stat().st_size}
+        records[relative.as_posix()] = {"sha256": sha256(path), "bytes": path.stat().st_size}
     value = {
         "schema": ARTIFACT_SCHEMA,
         "kind": kind,
@@ -74,7 +75,7 @@ def verify_artifact_manifest(directory: Path, filename: str, kind: str,
         raise ValueError(f"{filename} 缺少必要文件记录")
     for name, expected in records.items():
         relative = Path(name)
-        if relative.is_absolute() or len(relative.parts) != 1:
+        if relative.is_absolute() or not relative.parts or ".." in relative.parts:
             raise ValueError(f"{filename} 包含越界路径")
         candidate = within(directory, directory / relative)
         if candidate.is_symlink() or not candidate.is_file():
@@ -90,7 +91,29 @@ def manifest_reference(path: Path) -> dict:
     return {"file": path.name, "sha256": sha256(path), "bytes": path.stat().st_size}
 
 
+def verify_hash_manifest(directory: Path, filename: str, required: set[str]) -> dict:
+    directory = directory.resolve()
+    path = within(directory, directory / filename)
+    if path.is_symlink() or not path.is_file():
+        raise FileNotFoundError(f"缺少 {filename}")
+    value = json.loads(path.read_text(encoding="utf-8-sig"))
+    if not isinstance(value, dict) or not required <= set(value):
+        raise ValueError(f"{filename} 缺少必要文件记录")
+    for name, expected in value.items():
+        relative = Path(name)
+        if relative.is_absolute() or len(relative.parts) != 1 or not isinstance(expected, str):
+            raise ValueError(f"{filename} 包含无效文件记录")
+        candidate = within(directory, directory / relative)
+        if candidate.is_symlink() or not candidate.is_file() or sha256(candidate) != expected:
+            raise ValueError(f"谱系完整性校验失败：{name}")
+    return value
+
+
 def assert_provenance(manifest: dict, root: Path, runtime_weights: dict) -> None:
     current = generation_provenance(root, runtime_weights)
-    if manifest.get("models") != current:
+    recorded = manifest.get("models")
+    if not isinstance(recorded, dict):
+        raise ValueError("高级工件缺少模型来源")
+    compatible = {key: recorded.get(key) for key in ("bundle", "models", "runtime_identity")}
+    if compatible != current:
         raise ValueError("高级工件的模型来源与当前 YuE2 权重不一致")
