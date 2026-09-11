@@ -17,5 +17,7 @@ logs/
 server.json
 service.lock
 retention.json
+userdata/
+*.gguf
 *.zip
 *.sha256

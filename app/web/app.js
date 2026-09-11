@@ -60,7 +60,8 @@ function formObject(form) {
   if (data.seed !== undefined) data.seed = safeSeed(data.seed);
   if (data.candidates !== undefined) data.candidates = Number(data.candidates);
   for (const key of ['cfg_scale', 'memory_budget_gib', 'nar_query_chunk_size']) if (data[key] !== undefined) data[key] = Number(data[key]);
-  data.offload_ar = form.querySelector('[name=offload_ar]')?.checked || false;
+  const offload = form.querySelector('[name=offload_ar]');
+  if (offload) data.offload_ar = offload.checked;
   return data;
 }
 
@@ -72,6 +73,7 @@ function safeSeed(value) {
 
 function kindLabel(kind) {
   return ({
+    assistant: 'AI 创作助手',
     generate: '歌曲生成', plan: '乐谱创作', render_plan: '从乐谱生成歌曲',
     transcribe: '音频转谱', semantic: '生成音乐结构', synthesize: '合成人声与伴奏',
     decode: '输出音频', doctor: '环境自检', voice_convert: '参考音色转换', reference_cover: '参考音色翻唱'
@@ -87,12 +89,13 @@ function stageLabel(stage) {
     encoding: '正在读取音频', notation: '正在整理 ABC 与 MIDI 乐谱',
     separating_vocals: '正在分离人声与伴奏', loading_voice_model: '正在加载参考音色模型',
     converting_voice: '正在转换演唱音色', remixing: '正在重新混音',
-    cancelling: '正在安全停止', complete: '已完成，可试听', failed: '任务失败',
+    cancelling: '正在安全停止', complete: '已完成', failed: '任务失败',
     cancelled: '已取消', doctor: '正在验证运行环境', running: '正在执行'
-  })[stage] || stage;
+  })[stage] || window.assistantStageLabel?.(stage) || stage;
 }
 
 function stageHint(job) {
+  if (job.kind === 'assistant') return '文本创作与音乐任务串行。已完成的内容会保留在 AI 创作助手页面，可编辑后发送到其他页面。';
   const hints = {
     queued: '等待前面的任务完成后自动开始。', starting: '正在启动独立运行环境并加载所需模型。',
     candidate: '正在准备本轮生成参数。', planning: '正在根据歌词和风格安排旋律、节拍与和弦。',
@@ -213,6 +216,7 @@ async function saveModelDirectory(value) {
 }
 
 function stepsFor(job) {
+  if (job.kind === 'assistant') return '';
   const steps = {
     generate: [['starting', '加载模型'], ['planning', '创作乐谱'], ['semantic', '生成结构'], ['synthesis', '合成人声与伴奏'], ['decoding', '输出音频']],
     render_plan: [['starting', '加载模型'], ['semantic', '生成结构'], ['synthesis', '合成人声与伴奏'], ['decoding', '输出音频']],
@@ -394,7 +398,7 @@ $$('.tab').forEach(button => button.onclick = () => {
   if (button.dataset.tab === 'history') loadHistory();
 });
 const restoredTab = savedValue('active-tab');
-if (['create', 'plan', 'cover', 'history'].includes(restoredTab)) $(`.tab[data-tab="${restoredTab}"]`).click();
+if (['create', 'plan', 'cover', 'history', 'assistant'].includes(restoredTab)) $(`.tab[data-tab="${restoredTab}"]`).click();
 
 function openHistory() { $('.tab[data-tab="history"]').click(); $('#history').scrollIntoView({behavior: 'smooth', block: 'start'}); }
 function openTaskCenter() { $('#task-center').scrollIntoView({behavior: 'smooth', block: 'nearest'}); }
@@ -423,10 +427,22 @@ $('#create-form').onsubmit = async event => {
 
 $('#plan-form').onsubmit = async event => {
   event.preventDefault();
+  const revision = window.assistantDraftRevision?.('plan');
   try {
     const request = formObject(event.target); request.backend = 'torch-eager'; request.memory_budget_gib = 23.5;
-    const job = await submit('plan', request, null, $('#plan-button')); planState = {...job.result, request};
-    $('#plan-abc').value = job.result.abc || ''; $('#plan-badge').textContent = job.result.truncated ? '计划已截断' : '原始计划'; $('#plan-workbench').classList.remove('hidden');
+    const job = await submit('plan', request, null, $('#plan-button'));
+    const apply = () => {
+      planState = {...job.result, request, source: 'saved_exact'};
+      $('#plan-abc').value = job.result.abc || ''; $('#plan-exact').disabled = false; $('#plan-exact').checked = true; $('#plan-abc').disabled = true;
+      $('#plan-badge').textContent = job.result.truncated ? '计划已截断' : '原始计划'; $('#plan-workbench').classList.remove('hidden');
+      window.assistantDraftChanged?.('plan');
+    };
+    if (window.assistantDraftRevision?.('plan') === revision) apply();
+    else {
+      const notice = document.createElement('div'); notice.className = 'result-card'; notice.textContent = '计划已完成，当前草稿已有新编辑，因此没有覆盖。';
+      const button = document.createElement('button'); button.className = 'ghost'; button.textContent = '载入这份计划'; button.onclick = () => { if (confirm('替换当前乐谱草稿？')) apply(); };
+      notice.append(button); $('#plan-result').append(notice);
+    }
   } catch (error) { $('#plan-result').innerHTML = failureMarkup(error); }
 };
 
@@ -434,6 +450,14 @@ $('#plan-exact').onchange = event => { $('#plan-abc').disabled = event.target.ch
 $('#plan-abc').disabled = true;
 $('#render-plan').onclick = async () => {
   if (!planState) return;
+  if (planState.source === 'imported_abc') {
+    try {
+      const request = {...formObject($('#plan-form')), abc: $('#plan-abc').value, candidates: 1};
+      await api('/api/assistant/validate-abc', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({abc: request.abc, cot: request.cot})});
+      await submit('generate', request, $('#plan-result'), $('#render-plan'));
+    } catch (error) { $('#plan-result').innerHTML = failureMarkup(error); }
+    return;
+  }
   const exact = $('#plan-exact').checked; const request = {plan_dir: planState.plan_dir, exact, backend: 'torch-eager', memory_budget_gib: 23.5};
   if (!exact) Object.assign(request, planState.request, {abc: $('#plan-abc').value, candidates: 1});
   try { await submit('render_plan', request, $('#plan-result'), $('#render-plan')); }
@@ -478,17 +502,25 @@ function bindUploadPreview(inputSelector, dropSelector, previewSelector, buttonS
 bindUploadPreview('#cover-file', '#drop-zone', '#cover-preview', '#transcribe-button');
 $('#transcribe-button').onclick = async () => {
   const file = $('#cover-file').files[0]; if (!file) return; const button = $('#transcribe-button');
+  const revision = window.assistantDraftRevision?.('cover');
   try {
     setSubmitting(button); button.textContent = '正在上传…';
     const upload = await api(`/api/uploads?filename=${encodeURIComponent(file.name)}`, {method: 'POST', headers: {'Content-Type': 'application/octet-stream'}, body: file});
     const job = await submit('transcribe', {source_path: upload.path, melody_only: true, dtype: 'bf16', preset: 'default'}, null, button);
-    $('#cover-abc').value = job.result.abc || ''; $('#cover-review').classList.remove('hidden');
+    if (window.assistantDraftRevision?.('cover') === revision) {
+      $('#cover-abc').value = job.result.abc || ''; $('#cover-review').classList.remove('hidden'); window.assistantDraftChanged?.('cover');
+    } else {
+      const notice = document.createElement('div'); notice.className = 'result-card'; notice.textContent = '转谱已完成，当前草稿已有新编辑，因此没有覆盖。';
+      const apply = document.createElement('button'); apply.className = 'ghost'; apply.textContent = '载入转谱结果'; apply.onclick = () => { if (confirm('替换当前旋律 ABC？')) { $('#cover-abc').value = job.result.abc || ''; $('#cover-review').classList.remove('hidden'); window.assistantDraftChanged?.('cover'); } };
+      notice.append(apply); $('#cover-result').append(notice);
+    }
   } catch (error) { restoreButton(button); $('#cover-result').innerHTML = failureMarkup(error); }
 };
 $('#generate-cover').onclick = async () => {
   let seed; try { seed = safeSeed($('#cover-seed').value); } catch (error) { return alert(error.message); }
   const request = {style: $('#cover-style').value, lyrics: $('#cover-lyrics').value, abc: $('#cover-abc').value, cot: 'melody', seed, cfg_scale: 1, backend: 'torch-eager', memory_budget_gib: 23.5, candidates: 1};
-  if (!request.lyrics.trim()) return alert('请先填写并核对歌词');
+  if (!request.lyrics.trim() && $('#cover').dataset.instrumental !== 'true') return alert('请先填写并核对歌词');
+  if (!request.abc.trim()) return alert('请先转谱或导入有效的旋律 ABC');
   try { await submit('generate', request, $('#cover-result'), $('#generate-cover')); }
   catch (error) { $('#cover-result').innerHTML = failureMarkup(error); }
 };
@@ -496,6 +528,7 @@ $('#generate-cover').onclick = async () => {
 bindUploadPreview('#reference-file', '#reference-drop-zone', '#reference-preview', '#generate-reference-cover');
 
 $('#generate-reference-cover').onclick = async () => {
+  if ($('#cover').dataset.instrumental === 'true') return alert('纯器乐没有可转换的人声，请使用旋律重制');
   const reference = $('#reference-file').files[0];
   if (!reference) return alert('请先选择参考音色');
   let seed;
@@ -526,7 +559,7 @@ async function loadHistory() {
       const result = job.result || {}; const audio = relativeAudio(job, result.audio || result.candidates?.[0]?.audio);
       const exportButton = job.status === 'complete' && job.result ? `<button class="ghost" onclick="exportJob('${job.id}')">导出</button>` : '';
       const retryButton = ['failed', 'cancelled'].includes(job.status) && ['generate', 'reference_cover', 'voice_convert', 'render_plan'].includes(job.kind) ? `<button class="ghost compact" onclick="resumeJob('${job.id}', this)">${job.resumable ? '从已保存阶段继续' : '重新运行'}</button>` : '';
-      const logButtons = job.status === 'failed' ? `<button class="ghost compact" onclick="toggleJobLog('${job.id}', this)">查看任务日志</button><button class="ghost compact" onclick="openDirectory('logs')">打开日志目录</button>` : '';
+      const logButtons = (job.kind === 'assistant' ? `<button class="ghost compact" onclick="openAssistantJob('${job.id}')">查看 / 继续创作</button>` : '') + (job.status === 'failed' ? `<button class="ghost compact" onclick="toggleJobLog('${job.id}', this)">查看任务日志</button><button class="ghost compact" onclick="openDirectory('logs')">打开日志目录</button>` : '');
       return `<article class="history-card"><header><div><b>${escapeHtml(kindLabel(job.kind))}</b><div class="meta">${escapeHtml(job.id)} · ${new Date(job.created_at * 1000).toLocaleString()} · ${escapeHtml(sourceLabel(job.source))}</div></div></header><b class="status-${job.status}">${escapeHtml(job.status === 'running' ? stageLabel(job.stage) : stageLabel(job.status))}</b>${job.error ? `<div class="meta">${escapeHtml(job.error)}</div>` : ''}${audio ? `<audio controls preload="none" src="${audioUrl(job.id, audio)}"></audio>` : ''}<div class="toolbar">${exportButton}${retryButton}${logButtons}</div><pre class="job-log hidden"></pre></article>`;
     }).join('') || '<p class="meta">还没有任务。</p>';
   } catch (error) { $('#history-list').innerHTML = `<p class="status-failed">${escapeHtml(error.message)}</p>`; }

@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>YuE2 本地音乐工作室</title>
   <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/assistant.css">
 </head>
 <body>
   <header>
@@ -34,6 +35,7 @@
     <button class="tab active" data-tab="create">创作</button>
     <button class="tab" data-tab="plan">乐谱计划</button>
     <button class="tab" data-tab="cover">旋律重制 / 参考音色</button>
+    <button class="tab" data-tab="assistant">AI 创作助手</button>
     <button class="tab" data-tab="history">历史</button>
   </nav>
 
@@ -196,6 +198,66 @@ This melody still waits for you</textarea></label>
       <div id="cover-intermediate" class="results"></div>
     </section>
 
+    <section id="assistant" class="panel">
+      <div class="section-title"><div><span>AI</span><h2>从一个想法开始写歌</h2></div><p>先创作歌词与曲风，也可以让 LLM 作谱。编辑满意后，发送到对应页面制作音乐。</p></div>
+      <details id="assistant-settings" class="workbench" open>
+        <summary>创作渠道与模型 <span id="assistant-capability" class="meta"></span></summary>
+        <form id="assistant-config-form" class="grid-form assistant-settings-grid">
+          <label>渠道<select name="provider" id="assistant-provider"></select></label>
+          <label>API 模型名 / GGUF 文件<input name="model" id="assistant-model" list="assistant-models" autocomplete="off" placeholder="填写渠道模型名，或选择已有 GGUF"></label>
+          <datalist id="assistant-models"></datalist>
+          <label class="wide" data-api-config>OpenAI 兼容地址<input name="base_url" id="assistant-base-url" type="url" placeholder="https://example.com/v1"></label>
+          <label data-api-config>API Key<input id="assistant-key" type="password" autocomplete="new-password" placeholder="已保存的密钥不回显"></label>
+          <div data-api-config><label class="check"><input id="assistant-remember-key" type="checkbox">在本机记住密钥</label><button type="button" id="assistant-delete-key" class="ghost compact">删除已保存凭据</button></div>
+          <label class="wide" data-local-config>本地 GGUF 目录（可选）<input name="llm_directory" placeholder="留空使用模型根目录下的 LLM 文件夹"></label>
+          <label>每次输出 Token 上限<input name="max_tokens" type="number" min="64" max="32768" value="4096"></label>
+          <label data-local-config>上下文长度<input name="context_size" type="number" min="512" max="131072" value="16384"></label>
+          <label data-local-config>GPU 层数（0 为 CPU，-1 为全部）<input name="gpu_layers" type="number" min="-1" max="200" value="24"></label>
+          <label data-local-config>CPU 线程<input name="threads" type="number" min="1" max="64" value="4"></label>
+          <label data-local-config class="check"><input name="think" type="checkbox">启用模型思考（占用输出额度）</label>
+          <label data-api-config>温度参数<select name="temperature_policy"><option value="auto">自动</option><option value="send">发送</option><option value="omit">省略</option></select></label>
+          <label data-api-config class="check"><input name="stream" type="checkbox" checked>接收流式响应</label>
+          <label class="wide" data-api-config>可选渠道参数 JSON<textarea id="assistant-extra" rows="2" spellcheck="false">{}</textarea></label>
+          <p class="meta wide" data-api-config>使用 API 无需下载本地 LLM，也无需设置本地模型目录。</p>
+          <p class="meta wide" data-local-config><a href="https://pan.quark.cn/s/55eab3bb2d9b" target="_blank" rel="noopener noreferrer">下载本地 LLM 模型（可选）</a>，解压后填写存放 GGUF 的目录，再选择模型文件；无需视觉投影模型。若尚未安装环境，请在整合包运行“安装本地LLM.bat”。本地模型任务与音乐任务串行，结束后释放模型。</p>
+          <div class="toolbar wide"><button class="ghost" type="submit">保存设置 / 刷新模型</button><button class="ghost" type="button" id="assistant-test">测试模型连接</button><span id="assistant-config-status" class="meta" role="status"></span></div>
+        </form>
+      </details>
+      <form id="assistant-form" class="grid-form">
+        <label class="wide">歌曲想法<textarea name="music_idea" rows="3" required placeholder="例如：写一首关于离家后重逢的中文民谣，温暖克制，副歌容易跟唱。"></textarea></label>
+        <label>歌词处理<select name="lyrics_mode" id="assistant-lyrics-mode"></select></label>
+        <label>歌词语言<select name="lyrics_language"><option>中文</option><option>English</option><option>日本語</option><option>한국어</option></select></label>
+        <label class="wide">已有歌词（可选）<textarea name="lyrics" rows="7" placeholder="有词时 AUTO 会保留原词；定向改词只修改指定段落。"></textarea></label>
+        <label>乐谱由谁创作<select name="abc_source" id="assistant-abc-source"></select></label>
+        <label>谱面模式<select name="cot"><option value="full">旋律 + 和弦</option><option value="melody">仅旋律</option><option value="off">不用谱面</option></select></label>
+        <p id="assistant-cost-hint" class="meta wide"></p>
+        <details class="wide workbench"><summary>创作与审校设置</summary><div id="assistant-advanced" class="grid-form"></div></details>
+        <div class="toolbar wide"><button id="assistant-generate" class="primary" type="submit">创作歌词与曲风</button><button id="assistant-save-draft" class="ghost" type="button">保存草稿</button><span id="assistant-draft-status" class="meta" role="status"></span></div>
+      </form>
+      <div id="assistant-progress" role="status" aria-live="polite"></div>
+      <div id="assistant-result" class="workbench hidden">
+        <div class="workbench-head"><h3>本次创作</h3><span id="assistant-outcome" class="badge"></span></div>
+        <p id="assistant-result-note" class="meta"></p>
+        <label>曲风<textarea id="assistant-result-style" rows="3"></textarea></label>
+        <label>歌词<textarea id="assistant-result-lyrics" rows="10"></textarea></label>
+        <label>ABC 乐谱<textarea id="assistant-result-abc" rows="10" spellcheck="false"></textarea></label>
+        <p id="assistant-abc-status" class="meta" role="status"></p>
+        <div class="toolbar"><button type="button" id="assistant-validate" class="ghost">校验当前 ABC</button><button type="button" id="assistant-download" class="ghost">下载文本与请求 JSON</button><button type="button" id="assistant-download-abc" class="ghost">下载 ABC</button><button type="button" id="assistant-copy" class="ghost">复制歌词与曲风</button></div>
+        <div class="assistant-send toolbar"><button type="button" class="primary" data-assistant-send="create">发送到歌曲创作</button><button type="button" class="primary" data-assistant-send="plan">发送到乐谱计划</button><button type="button" class="primary" data-assistant-send="cover">发送到旋律重制</button></div>
+        <div class="toolbar"><label>单独重试<select id="assistant-retry-stage"><option value="">失败步骤（复用已有结果）</option><option value="lyrics">歌词及其后续内容</option><option value="style">曲风及其后续内容</option><option value="review">审校与作谱</option><option value="abc">仅作谱</option></select></label><button type="button" id="assistant-retry" class="ghost">继续创作</button></div>
+        <details><summary>创作报告与来源</summary><pre id="assistant-report" class="meta"></pre></details>
+      </div>
+    </section>
+
+    <dialog id="assistant-send-dialog">
+      <form method="dialog"><h3 id="assistant-send-title">发送创作内容</h3><p id="assistant-send-warning"></p>
+        <div class="toolbar"><label class="check"><input type="checkbox" name="style" checked>曲风</label><label class="check"><input type="checkbox" name="lyrics" checked>歌词</label><label class="check"><input type="checkbox" name="abc">ABC 乐谱</label></div>
+        <label id="assistant-send-mode-label">接收的谱面模式<select id="assistant-send-mode"><option value="">请选择</option><option value="full">旋律 + 和弦</option><option value="melody">仅旋律</option></select></label>
+        <p id="assistant-send-details" class="meta"></p><div class="toolbar"><button value="cancel" class="ghost">取消</button><button id="assistant-send-confirm" type="button" class="primary">填入并切换页面</button></div>
+      </form>
+    </dialog>
+    <div id="assistant-transfer-notice" class="assistant-transfer-notice hidden" role="status"><span></span><button type="button" class="ghost compact" id="assistant-undo">撤销填入</button><button type="button" class="ghost compact" id="assistant-dismiss">关闭</button></div>
+
     <section id="history" class="panel">
       <div class="section-title"><div><span>04</span><h2>任务与版本</h2></div><p>失败、取消和截断结果都会保留，便于定位问题与继续编辑。</p></div>
       <div class="toolbar"><button id="refresh-history" class="ghost">刷新</button><button class="ghost" type="button" onclick="openDirectory('logs')">打开日志目录</button><button class="ghost" type="button" onclick="openDirectory('outputs')">打开输出目录</button><button id="cleanup-storage" class="ghost">按策略清理</button><span id="storage-usage" class="meta"></span><button id="cancel-active" class="danger">取消当前任务</button></div>
@@ -205,5 +267,6 @@ This melody still waits for you</textarea></label>
 
   <footer>YuE2 本地整合包 · 制作者 By B站UP主：T8star-Aix · 仅绑定 127.0.0.1 · 权重与输出保存在本机</footer>
   <script src="/static/app.js"></script>
+  <script src="/static/assistant.js"></script>
 </body>
 </html>

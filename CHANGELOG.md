@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.0 - 2026-09-11
+
+- Add a standalone AI creation tab with the T8 project's pinned YuE2 skill rules, API provider options and isolated local GGUF support; no new ComfyUI nodes.
+- Edit, save and transfer lyrics, style and validated ABC between tabs, with revision checks, overwrite review, undo and result restoration after refresh.
+- Preserve completed text on failures; resume only failed stages and reuse successful responses. Keep API credentials out of jobs and prevent repeated submissions from creating duplicate paid tasks.
+- Add a pinned Windows GGUF runtime installer, verified resumable downloads, packaged CUDA dependencies and metadata/shard checks without importing Torch into the LLM worker.
+- Preserve assistant drafts and local models during updates; use the memory-saving generation default when importing an external score into the plan page.
+- Verify the Seedance API, imported-score audio generation, browser workflows and error recovery. Local Qwen 27B lyrics/style generation passes; constrain response fields to avoid placeholder/wrong-field output. Reject over-budget prompts without truncating lyrics.
+- Make the local GGUF directory optional and add a separate model download link. API users do not need local LLM weights. Local ABC quality remains model-dependent; invalid scores preserve text and can fall back to YuE2 planning.
+
 ## 1.1.6 - 2026-09-11
 
 - Preview the source song and reference voice immediately after file selection, with native playback, seeking, duration and file replacement controls.

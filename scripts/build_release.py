@@ -25,7 +25,7 @@ def build(output):
     output.mkdir(parents=True, exist_ok=True)
     asset = output / f"Comfyui-YuE2-T8-{tag}-code.zip"
     git("archive", "--format=zip", f"--prefix={prefix}", f"--output={asset}", commit)
-    preserve = ["models/", "runtime/", "downloads/", "outputs/", "uploads/", "exports/", "logs/", "cache/",
+    preserve = ["models/", "runtime/", "downloads/", "outputs/", "uploads/", "exports/", "logs/", "cache/", "userdata/",
                 "settings.json", "retention.json", "server.json", "yue2_home.txt"]
     with zipfile.ZipFile(asset) as archive:
         assert archive.testzip() is None
@@ -33,7 +33,7 @@ def build(output):
         for name in names:
             assert not name.startswith("/") and ".." not in Path(name).parts
             assert not any(name == protected or (protected.endswith("/") and name.startswith(protected)) for protected in preserve), name
-            assert not name.endswith((".pyc", ".safetensors", ".pth", ".pt", ".bin")), name
+            assert not name.endswith((".pyc", ".safetensors", ".pth", ".pt", ".bin", ".gguf")), name
         for required in ("nodes.py", "client.py", "app/yue2_app/workflow_worker.py", "vendor/yue2/nar.py",
                          "vendor/yue2/pipeline.py", "vendor/seed-vc/inference.py", "app/web/app.js"):
             assert required in names, required

@@ -9,6 +9,9 @@ downloads/
 server.json
 service.lock
 retention.json
+userdata/
+downloads/llm/
+*.gguf
 settings.json
 yue2_home.txt
 node.zip

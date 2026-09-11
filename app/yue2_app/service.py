@@ -34,6 +34,10 @@ from .config import (
 from .io import atomic_json, public_job, within
 from .retention import RetentionManager
 from .settings import model_directory, save_model_directory, settings_info
+from . import assistant_data
+
+CREDENTIALS = assistant_data.Credentials()
+ASSISTANT_KINDS = {"assistant"}
 
 TERMINAL = {"complete", "failed", "cancelled"}
 CORE_KINDS = {"generate", "plan", "render_plan", "semantic", "synthesize", "decode", "doctor"}
@@ -212,6 +216,8 @@ class JobStore:
 
     @staticmethod
     def _summary(kind: str, request: dict) -> str:
+        if kind in ASSISTANT_KINDS:
+            return "测试 LLM 连接" if request.get("test_connection") else str(request.get("values", {}).get("music_idea", "AI 创作助手"))[:160]
         if kind == "doctor":
             return "检查 GPU、运行库与模型文件"
         if kind == "transcribe":
@@ -234,7 +240,7 @@ class JobStore:
 
     def create(self, kind: str, request: dict, *, source: str = "api",
                client_request_id: str | None = None, result_panel: str | None = None) -> dict:
-        if kind not in CORE_KINDS | TRANSCRIBE_KINDS | VOICE_KINDS | WORKFLOW_KINDS:
+        if kind not in CORE_KINDS | TRANSCRIBE_KINDS | VOICE_KINDS | WORKFLOW_KINDS | ASSISTANT_KINDS:
             raise ValueError(f"不支持的任务类型：{kind}")
         if not isinstance(request, dict):
             raise ValueError("request 必须是对象")
@@ -246,6 +252,9 @@ class JobStore:
         if kind in VOICE_KINDS | WORKFLOW_KINDS and not capabilities.get("voice_conversion"):
             raise ValueError("参考音色组件不完整：请检查 Seed-VC、Demucs 与 voice 运行环境")
         request = json.loads(json.dumps(request))
+        if kind in ASSISTANT_KINDS:
+            request = assistant_data.normalize_request(ROOT, request)
+            result_panel = "assistant"
         generation = request.get("generate") if kind in WORKFLOW_KINDS else request
         if kind in WORKFLOW_KINDS:
             if not isinstance(generation, dict) or not isinstance(request.get("voice"), dict):
@@ -280,23 +289,25 @@ class JobStore:
             if not math.isfinite(budget) or budget <= 2:
                 raise ValueError("显存预算必须是大于 2 GiB 的有限数值")
         source = source if source in {"webui", "comfyui", "api"} else "api"
-        if result_panel not in {"create", "plan", "cover"}:
+        if result_panel not in {"create", "plan", "cover", "assistant"}:
             result_panel = ("cover" if kind in {"reference_cover", "voice_convert"} or
                             (kind == "generate" and request.get("abc")) else
                             "plan" if kind == "render_plan" else "create")
         client_request_id = str(client_request_id or "")[:128]
         with self.storage_lock:
             with self.lock:
-                active_ids = [job_id for job_id, status in self.jobs.items()
-                              if status.get("status") not in TERMINAL]
-            for existing_id in active_ids:
+                candidate_ids = [(job_id, status.get("status") not in TERMINAL)
+                                 for job_id, status in self.jobs.items()
+                                 if status.get("status") not in TERMINAL or
+                                 (kind in ASSISTANT_KINDS and client_request_id and status.get("kind") == kind)]
+            for existing_id, is_active in candidate_ids:
                 try:
                     existing = json.loads((job_directory(existing_id) / "job.json").read_text(encoding="utf-8"))
                 except (OSError, ValueError, json.JSONDecodeError):
                     continue
-                same_client_request = bool(client_request_id and
+                same_client_request = bool(client_request_id and existing.get("kind") == kind and
                                            existing.get("client_request_id") == client_request_id)
-                same_payload = existing.get("kind") == kind and existing.get("request") == request
+                same_payload = is_active and existing.get("kind") == kind and existing.get("request") == request
                 if same_client_request or same_payload:
                     result = self.get(existing_id)
                     result["deduplicated"] = True
@@ -355,6 +366,21 @@ class JobStore:
             return self.create(job["kind"], request, source=job.get("source", "api"),
                                result_panel=job.get("result_panel"))
 
+    def retry_assistant(self, job_id: str, data: dict) -> dict:
+        with self.storage_lock:
+            status = self.get(job_id)
+            if status["kind"] != "assistant" or status["status"] not in TERMINAL:
+                raise ValueError("只能重试已结束的助手任务")
+            directory = job_directory(job_id)
+            job = json.loads((directory / "job.json").read_text(encoding="utf-8"))
+            request = dict(job["request"])
+            for key in ("values", "config", "retry_stages", "final_fields"):
+                if key in data:
+                    request[key] = data[key]
+            request.update(resume_from=str(directory), variant_id=uuid.uuid4().hex)
+            return self.create("assistant", request, source="webui", result_panel="assistant",
+                               client_request_id=data.get("client_request_id"))
+
     def list(self, limit: int = 100) -> list[dict]:
         with self.lock:
             ids = sorted(self.jobs, key=lambda value: self.jobs[value].get("created_at", 0), reverse=True)
@@ -382,8 +408,8 @@ class JobStore:
         atomic_json(directory / "status.json", status)
         with self.lock:
             self.jobs[job_id] = status
-            process = self.current_process if is_current else None
-        if force and process and process.poll() is None:
+            process = self.current_process if self.current_id == job_id else None
+        if (force or status.get("kind") in ASSISTANT_KINDS) and process and process.poll() is None:
             terminate_process_tree(process.pid)
         return public_job(status)
 
@@ -421,6 +447,13 @@ class JobStore:
         protected_uploads: set[str] = set()
         protected_logs = {f"{job_id}.log" for job_id in active}
         requests = []
+        saved_drafts = assistant_data.drafts(ROOT)
+        requests.append(saved_drafts)
+        if any(draft.get("error") for draft in saved_drafts.values()):
+            # An older/corrupt schema cannot reveal every referenced artifact safely.
+            protected_jobs.update(self.jobs)
+            protected_uploads.update(path.name for path in UPLOADS.iterdir() if path.is_file())
+            protected_logs.update(path.name for path in LOGS.glob("*.log"))
         for job_id in active:
             try:
                 job = json.loads((job_directory(job_id) / "job.json").read_text(encoding="utf-8-sig"))
@@ -501,7 +534,14 @@ class JobStore:
                     continue
                 job = json.loads((directory / "job.json").read_text(encoding="utf-8"))
                 kind = job["kind"]
-                if kind in WORKFLOW_KINDS:
+                secret = ""
+                if kind in ASSISTANT_KINDS:
+                    config = job["request"]["config"]
+                    python = ROOT / "runtime/llm/python.exe" if config["provider"] == "local" else CORE_PYTHON
+                    module = "app.yue2_app.assistant_worker"
+                    if config["provider"] != "local":
+                        secret = CREDENTIALS.get(config["credential_id"], assistant_data.endpoint(config))
+                elif kind in WORKFLOW_KINDS:
                     python, module = CORE_PYTHON, "app.yue2_app.workflow_worker"
                 elif kind in TRANSCRIBE_KINDS:
                     python, module = TRANSCRIBE_PYTHON, "app.yue2_app.transcribe_worker"
@@ -521,16 +561,28 @@ class JobStore:
                     "PLAYWRIGHT_BROWSERS_PATH": str(ROOT / "runtime" / "playwright"),
                 })
                 environment["PATH"] = str(ROOT / "runtime" / "ffmpeg") + os.pathsep + environment.get("PATH", "")
+                if kind in ASSISTANT_KINDS:
+                    system = Path(os.environ.get("SystemRoot", "C:/Windows"))
+                    environment["PATH"] = os.pathsep.join([str(python.parent), str(python.parent / "Scripts"), str(system / "System32"), str(system)])
+                    for variable in ("PYTHONPATH", "PYTHONHOME", "CUDA_PATH", "CUDA_HOME"):
+                        environment.pop(variable, None)
                 log_path = LOGS / f"{job_id}.log"
                 log = log_path.open("ab", buffering=0)
                 flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
                 self._mark(job_id, status="running", stage="starting", started_at=time.time(),
                            log=str(log_path), command=command)
                 process = subprocess.Popen(command, cwd=ROOT, env=environment, stdout=log, stderr=subprocess.STDOUT,
+                                           stdin=subprocess.PIPE if kind in ASSISTANT_KINDS else subprocess.DEVNULL,
                                            creationflags=flags)
                 with self.lock:
                     self.current_id, self.current_process = job_id, process
                 self._mark(job_id, worker_pid=process.pid)
+                if kind in ASSISTANT_KINDS:
+                    process.stdin.write((json.dumps({"secret": secret}) + "\n").encode("utf-8"))
+                    process.stdin.close()
+                    secret = ""
+                    if (directory / "cancel.requested").exists():
+                        terminate_process_tree(process.pid)
                 return_code = process.wait()
                 log.close()
                 log = None
@@ -637,6 +689,17 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/jobs":
                 limit = int(urllib.parse.parse_qs(parsed.query).get("limit", ["100"])[0])
                 return self._json(200, {"jobs": STORE.list(limit)})
+            if path == "/api/assistant/config":
+                return self._json(200, assistant_data.config_info(ROOT))
+            if path == "/api/assistant/drafts":
+                return self._json(200, assistant_data.drafts(ROOT))
+            if path.startswith("/api/assistant/jobs/"):
+                job_id = path.removeprefix("/api/assistant/jobs/")
+                status = STORE.get(job_id)
+                if status.get("kind") != "assistant":
+                    raise ValueError("不是助手任务")
+                job = assistant_data.read(job_directory(job_id) / "job.json", {})
+                return self._json(200, {"job": status, "request": job["request"]})
             if path == "/api/retention":
                 return self._json(200, STORE.retention_status())
             if path.startswith("/api/jobs/") and path.endswith("/log"):
@@ -698,6 +761,37 @@ class Handler(BaseHTTPRequestHandler):
                 ))
             if path == "/api/retention/cleanup":
                 return self._json(200, STORE.cleanup_retention(force=True))
+            if path == "/api/assistant/config":
+                return self._json(200, assistant_data.save_config(ROOT, self._body_json(32 * 1024)))
+            if path == "/api/assistant/credentials":
+                data = self._body_json(16 * 1024)
+                if data.get("delete"):
+                    CREDENTIALS.delete(str(data.get("credential_id", "")))
+                    return self._json(200, {"deleted": True})
+                config = assistant_data.normalize_config(data.get("config", {}))
+                ident = CREDENTIALS.put(data.get("api_key"), assistant_data.endpoint(config), data.get("remember") is True)
+                return self._json(200, {"credential_id": ident})
+            if path == "/api/assistant/drafts":
+                return self._json(200, assistant_data.save_draft(ROOT, self._body_json(1024 * 1024)))
+            if path == "/api/assistant/validate-abc":
+                data = self._body_json(1024 * 1024)
+                from .assistant_rules import engine
+                abc, report = engine.prepare_abc(str(data.get("abc", "")), str(data.get("cot", "full")),
+                                                engine.ABC_STRIP if data.get("strip_chords") else engine.ABC_KEEP, 0, "AUTO", "")
+                if not abc:
+                    raise ValueError("没有可校验的 ABC")
+                return self._json(200, {"abc": abc, "report": report})
+            if path == "/api/assistant/check-plan":
+                data = self._body_json(4096)
+                directory = within(ROOT / "outputs/jobs", Path(str(data.get("plan_dir", ""))))
+                try:
+                    manifest = assistant_data.read(directory / "plan_manifest.json", {})
+                    from .artifacts import verify_hash_manifest
+                    verify_hash_manifest(directory, "plan_manifest.json", {"plan.json", "abc_tokens.npy", "prefix.npy"})
+                    available = bool(manifest)
+                except (ValueError, FileNotFoundError, OSError):
+                    available = False
+                return self._json(200, {"available": available})
             if path == "/api/settings":
                 data = self._body_json(16 * 1024)
                 state = STORE.state()
@@ -725,6 +819,8 @@ class Handler(BaseHTTPRequestHandler):
                                      stderr=subprocess.DEVNULL)
                 return self._json(200, {"ok": True, "path": str(target)})
             pieces = path.split("/")
+            if len(pieces) == 5 and pieces[1:3] == ["api", "jobs"] and pieces[4] == "retry-assistant":
+                return self._json(202, STORE.retry_assistant(pieces[3], self._body_json()))
             if len(pieces) == 5 and pieces[1:3] == ["api", "jobs"] and pieces[4] == "resume":
                 return self._json(202, STORE.resume(pieces[3]))
             if len(pieces) == 5 and pieces[1:3] == ["api", "jobs"] and pieces[4] == "cancel":
@@ -768,7 +864,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._error(404, "接口不存在")
         except KeyError as exc:
             return self._error(400, f"缺少字段：{exc}")
-        except (ValueError, OSError, json.JSONDecodeError) as exc:
+        except (ValueError, OSError, json.JSONDecodeError, assistant_data.engine.YuE2PromptError) as exc:
             return self._error(400, str(exc))
 
 

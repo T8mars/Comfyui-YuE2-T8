@@ -31,3 +31,18 @@ Reference-voice support also uses the following upstream projects and models:
 
 All third-party code and weights retain their original terms. Nothing in this
 repository changes or combines those licenses into the YuE2 model license.
+
+The standalone AI creation assistant adapts text rules and provider/metadata
+helpers from the owner's `T8mars/comfyui-minimax-h3-prompt-enhancer-T8` project,
+commit `b09412575ef726b4b7637f7279f1848108435607`, with the owner's authorization.
+Its original notice is retained at `app/yue2_app/assistant_rules/T8-LICENSE.txt`;
+this integration does not grant a general license to the source project.
+The official YuE2 skill snapshot and ABC helpers retain Apache-2.0 at
+`app/yue2_app/assistant_rules/official_skills/yue2-music/LICENSE`, pinned to
+`92a73cc7652fcc1f937855e4b765e0a0edd7ff2e`. Source records remain beside the files.
+
+The optional local runtime uses llama-cpp-python / llama.cpp from the JamePeng
+Windows distribution. Its packaged license notices remain in that runtime.
+CUDA runtime libraries copied from the existing bundled CUDA 12 environment
+remain governed by NVIDIA's original redistribution terms; no Torch code is
+imported into the assistant worker for this purpose.

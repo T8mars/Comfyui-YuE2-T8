@@ -1,0 +1,11 @@
+{
+  "repository": "https://github.com/T8mars/comfyui-minimax-h3-prompt-enhancer-T8",
+  "commit": "b09412575ef726b4b7637f7279f1848108435607",
+  "adaptations": [
+    "pure text rules only",
+    "injected runner",
+    "checkpoint validated text",
+    "standalone defaults"
+  ],
+  "authorization": "Project owner requested integration into the local YuE2 kit."
+}
