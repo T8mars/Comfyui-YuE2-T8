@@ -142,6 +142,10 @@ textarea { resize: vertical; }
 .history-list { display: grid; gap: 12px; }
 .history-card { display: grid; grid-template-columns: 1fr auto; gap: 8px 20px; }
 .history-card audio { grid-column: 1 / -1; }
+.history-card .toolbar, .history-card .job-log { grid-column: 1 / -1; }
+.failure-card p { margin: 9px 0 0; color: #4e596c; line-height: 1.65; }
+.failure-actions { justify-content: flex-start; }
+.job-log { max-height: 320px; overflow: auto; margin: 10px 0 0; padding: 14px; border: 1px solid #e1e6ee; border-radius: 9px; color: #273248; background: #f7f9fc; font: 11px/1.55 Consolas, "SFMono-Regular", monospace; white-space: pre-wrap; word-break: break-word; }
 .status-complete { color: #21885a; }
 .status-failed, .status-cancelled { color: var(--red); }
 .task-center { margin: 0 0 42px; overflow: hidden; border: 1px solid rgba(89, 125, 255, .2); border-radius: 16px; background: var(--panel); box-shadow: 0 8px 24px rgba(31, 41, 55, .06); }

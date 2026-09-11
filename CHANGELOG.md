@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.3 - 2026-09-11
+
+- Restore the vendored YuE2 inference package in standalone archives so generation and reference-voice cover flows can start.
+- Show the final worker exception in failed jobs and add in-page task-log viewing plus buttons that open the managed log and output directories.
+- Reject jobs before queueing when their generation, transcription, or voice-conversion capability is incomplete, with a specific repair message.
+
 ## 1.1.2 - 2026-09-11
 
 - Automatically switch from another idle YuE2 installation that already owns port 8189 after verifying the exact service process and executable path.

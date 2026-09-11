@@ -421,11 +421,11 @@ def main(argv=None) -> int:
     root = args.root.resolve()
     job_dir = within(root / "outputs" / "jobs", args.job_dir)
     configure_environment(root)
-    add_upstream(root)
     ctx = JobContext(job_dir)
     job = json.loads((job_dir / "job.json").read_text(encoding="utf-8-sig"))
     try:
         ctx.update("starting", pid=__import__("os").getpid())
+        add_upstream(root)
         result = HANDLERS[job["kind"]](root, ctx, job.get("request", {}))
         ctx.finish(result=result)
         return 0

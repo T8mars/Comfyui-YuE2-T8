@@ -26,6 +26,7 @@ from app.yue2_app.service import (
     is_loopback_host,
     job_directory,
     retention_references,
+    worker_failure_message,
 )
 from app.yue2_app import service
 from app.yue2_app.worker_common import Cancelled, JobContext
@@ -33,6 +34,13 @@ from app.yue2_app.voice_worker import remix_audio
 
 
 class IntegrationCodeTests(unittest.TestCase):
+    def test_worker_failure_uses_final_exception_message(self):
+        with tempfile.TemporaryDirectory(dir=ROOT) as directory:
+            log = Path(directory) / "job.log"
+            log.write_text("Traceback (most recent call last):\nFileNotFoundError: 缺少 YuE2 推理源码\n",
+                           encoding="utf-8")
+            self.assertEqual(worker_failure_message(log, 1), "缺少 YuE2 推理源码")
+
     def test_required_model_files_exist(self):
         if not (ROOT / "models").is_dir():
             self.skipTest("Models are downloaded by the post-install setup")
@@ -95,7 +103,10 @@ class IntegrationCodeTests(unittest.TestCase):
             store.current_id = None
             store.current_process = None
             request = {"style": "Mandarin pop", "lyrics": "同一首歌", "seed": 42}
-            with mock.patch.object(service, "OUTPUTS", outputs):
+            with mock.patch.object(service, "OUTPUTS", outputs), \
+                    mock.patch.object(service, "runtime_ready", return_value={
+                        "capabilities": {"generation": True}
+                    }):
                 first = store.create("generate", request, source="webui", client_request_id="click-1")
                 duplicate = store.create("generate", request, source="webui", client_request_id="click-2")
             self.assertEqual(duplicate["id"], first["id"])
@@ -115,7 +126,10 @@ class IntegrationCodeTests(unittest.TestCase):
             store.current_id = None
             store.current_process = None
             request = {"source_path": "song.flac", "reference_path": "voice.wav"}
-            with mock.patch.object(service, "OUTPUTS", outputs):
+            with mock.patch.object(service, "OUTPUTS", outputs), \
+                    mock.patch.object(service, "runtime_ready", return_value={
+                        "capabilities": {"voice_conversion": True}
+                    }):
                 created = store.create("voice_convert", request, source="comfyui")
             self.assertEqual(created["kind"], "voice_convert")
             self.assertEqual(created["summary"], "参考音色翻唱 · voice.wav")
@@ -478,7 +492,7 @@ class IntegrationCodeTests(unittest.TestCase):
 
     def test_workflows_are_well_formed(self):
         workflows = list((ROOT / "workflows").glob("*.json"))
-        self.assertEqual(len(workflows), 4)
+        self.assertEqual({path.name[:2] for path in workflows}, {"01", "02", "03", "04"})
         for path in workflows:
             data = json.loads(path.read_text(encoding="utf-8"))
             node_ids = {node["id"] for node in data["nodes"]}

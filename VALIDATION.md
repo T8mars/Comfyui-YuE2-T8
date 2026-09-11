@@ -1,6 +1,14 @@
 # YuE2 Music T8 validation
 
-Validation date: 2026-09-11. Host: Windows, NVIDIA GeForce RTX 5090 Laptop GPU. The current service and workers report version 1.1.2.
+Validation date: 2026-09-11. Host: Windows, NVIDIA GeForce RTX 5090 Laptop GPU. The current service and workers report version 1.1.3.
+
+## 1.1.3 standalone source and diagnostics validation
+
+- Restored all 14 tracked YuE2 0.1.6 inference files under `vendor/yue2`; live health reports generation, transcription, score rendering, and reference-voice conversion ready.
+- Replayed the exact request that failed in 1.1.2. Job `20260911-135440-d0f97332` completed a 46.1987-second song with seed 831001 and no ABC or semantic truncation.
+- Live 30-step Seed-VC job `20260911-135831-3d37d331` converted that song with the reference-voice path, completing Demucs separation, voice conversion, and 48 kHz stereo remix for the full 46.199 seconds.
+- The WebUI history view exposed “查看任务日志”, “打开日志目录”, and “打开输出目录”; expanding the original failed job displayed its full traceback inside the page.
+- Integration checks passed all 25 tests, including worker error extraction and all eight localized workflow JSON files across the four workflow types.
 
 ## 1.1.2 multi-installation launcher validation
 

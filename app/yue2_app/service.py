@@ -37,10 +37,37 @@ TERMINAL = {"complete", "failed", "cancelled"}
 CORE_KINDS = {"generate", "plan", "render_plan", "semantic", "synthesize", "decode", "doctor"}
 TRANSCRIBE_KINDS = {"transcribe"}
 VOICE_KINDS = {"voice_convert"}
+GENERATION_KINDS = CORE_KINDS - {"doctor"}
 JOB_ID_PATTERN = re.compile(r"\d{8}-\d{6}-[0-9a-f]{8}")
 _LOG_LOCK = threading.Lock()
 SERVER_LOG_MAX_BYTES = 20 * 1024 * 1024
 SERVER_LOG_BACKUPS = 3
+
+
+def worker_failure_message(log_path: Path, return_code: int) -> str:
+    """Return the useful final exception instead of only a worker exit code."""
+    try:
+        content = log_path.read_bytes()[-64 * 1024:].decode("utf-8", errors="replace")
+    except OSError:
+        content = ""
+    lines = [line.strip() for line in content.splitlines() if line.strip()]
+    if lines:
+        final = lines[-1]
+        match = re.match(r"^[\w.]+(?:Error|Exception):\s*(.+)$", final)
+        if match:
+            final = match.group(1).strip()
+        if final and not final.startswith("Traceback"):
+            return final[:1200]
+    return f"任务运行失败（worker 返回码 {return_code}）"
+
+
+def job_log_text(job_id: str) -> str:
+    if not JOB_ID_PATTERN.fullmatch(job_id):
+        raise ValueError("无效的任务 ID")
+    path = within(LOGS, LOGS / f"{job_id}.log")
+    if not path.is_file():
+        raise FileNotFoundError("这个任务还没有生成日志")
+    return path.read_bytes()[-256 * 1024:].decode("utf-8", errors="replace")
 
 
 def acquire_instance_lock(root: Path):
@@ -207,6 +234,13 @@ class JobStore:
             raise ValueError(f"不支持的任务类型：{kind}")
         if not isinstance(request, dict):
             raise ValueError("request 必须是对象")
+        capabilities = runtime_ready().get("capabilities", {})
+        if kind in GENERATION_KINDS and not capabilities.get("generation"):
+            raise ValueError("歌曲生成组件不完整：缺少 YuE2 推理源码或核心模型，请重新解压完整整合包")
+        if kind in TRANSCRIBE_KINDS and not capabilities.get("transcription"):
+            raise ValueError("音频转谱组件不完整，请重新解压完整整合包")
+        if kind in VOICE_KINDS and not capabilities.get("voice_conversion"):
+            raise ValueError("参考音色组件不完整：请检查 Seed-VC、Demucs 与 voice 运行环境")
         source = source if source in {"webui", "comfyui", "api"} else "api"
         client_request_id = str(client_request_id or "")[:128]
         with self.storage_lock:
@@ -439,7 +473,8 @@ class JobStore:
                                    error="任务已终止", return_code=return_code)
                     else:
                         self._mark(job_id, status="failed", stage="failed", finished_at=time.time(),
-                                   error=f"worker 已退出，返回码 {return_code}；请查看日志", return_code=return_code)
+                                   error=worker_failure_message(log_path, return_code),
+                                   log_available=log_path.is_file(), return_code=return_code)
             except BaseException as exc:
                 if process and process.poll() is None:
                     terminate_process_tree(process.pid)
@@ -534,6 +569,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, {"jobs": STORE.list(limit)})
             if path == "/api/retention":
                 return self._json(200, STORE.retention_status())
+            if path.startswith("/api/jobs/") and path.endswith("/log"):
+                pieces = path.split("/")
+                if len(pieces) != 5 or not pieces[3]:
+                    return self._error(404, "接口不存在")
+                STORE.get(pieces[3])
+                return self._json(200, {"id": pieces[3], "text": job_log_text(pieces[3])})
             if path.startswith("/api/jobs/"):
                 pieces = path.split("/")
                 if len(pieces) != 4 or not pieces[3]:
@@ -586,6 +627,20 @@ class Handler(BaseHTTPRequestHandler):
                 ))
             if path == "/api/retention/cleanup":
                 return self._json(200, STORE.cleanup_retention(force=True))
+            if path == "/api/open-directory":
+                data = self._body_json(1024)
+                directory = str(data.get("directory", ""))
+                choices = {"logs": LOGS, "outputs": ROOT / "outputs", "exports": ROOT / "exports"}
+                if directory not in choices:
+                    raise ValueError("不支持打开这个目录")
+                target = choices[directory].resolve()
+                target.mkdir(parents=True, exist_ok=True)
+                if os.name == "nt":
+                    os.startfile(str(target))
+                else:
+                    subprocess.Popen(["xdg-open", str(target)], stdout=subprocess.DEVNULL,
+                                     stderr=subprocess.DEVNULL)
+                return self._json(200, {"ok": True, "path": str(target)})
             pieces = path.split("/")
             if len(pieces) == 5 and pieces[1:3] == ["api", "jobs"] and pieces[4] == "cancel":
                 job_id = pieces[3]

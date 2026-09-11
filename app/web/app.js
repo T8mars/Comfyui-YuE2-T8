@@ -76,6 +76,33 @@ function formatClock(seconds) { const value = Math.max(0, Math.floor(seconds || 
 function elapsed(job) { return formatClock(Date.now() / 1000 - (job.started_at || job.created_at || Date.now() / 1000)); }
 function submittedAt(job) { return new Date(job.created_at * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}); }
 
+function failureMarkup(error) {
+  const id = error?.jobId;
+  const actions = id ? `<div class="toolbar failure-actions"><button class="ghost compact" type="button" onclick="toggleJobLog('${id}', this)">查看任务日志</button><button class="ghost compact" type="button" onclick="openDirectory('logs')">打开日志目录</button></div><pre id="log-${id}" class="job-log hidden"></pre>` : '';
+  return `<div class="result-card failure-card"><b class="status-failed">任务失败</b><p>${escapeHtml(error?.message || '未知错误')}</p>${actions}</div>`;
+}
+
+async function toggleJobLog(id, button) {
+  const target = document.getElementById(`log-${id}`);
+  if (!target) return;
+  if (!target.classList.contains('hidden')) {
+    target.classList.add('hidden'); button.textContent = '查看任务日志'; return;
+  }
+  button.disabled = true; button.textContent = '正在读取…';
+  try {
+    const data = await api(`/api/jobs/${id}/log`);
+    target.textContent = data.text || '日志为空'; target.classList.remove('hidden'); button.textContent = '收起任务日志';
+  } catch (error) { alert(error.message); button.textContent = '查看任务日志'; }
+  finally { button.disabled = false; }
+}
+
+async function openDirectory(directory) {
+  try { await api('/api/open-directory', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({directory})}); }
+  catch (error) { alert(error.message); }
+}
+window.toggleJobLog = toggleJobLog;
+window.openDirectory = openDirectory;
+
 function stepsFor(job) {
   const steps = {
     generate: [['starting', '加载模型'], ['planning', '创作乐谱'], ['semantic', '生成结构'], ['synthesis', '合成人声与伴奏'], ['decoding', '输出音频']],
@@ -166,7 +193,10 @@ function renderHealth(data) {
   $('#health-title').textContent = ready ? '运行环境已就绪' : '运行环境不完整';
   const renderer = data.ready.capabilities?.score_renderer ? '乐谱渲染可用' : '乐谱渲染器未安装';
   const voice = data.ready.capabilities?.voice_conversion ? '参考音色可用' : '参考音色组件未安装';
-  $('#health-detail').textContent = `${ready ? '歌曲生成与音频转谱可用' : '请补全运行环境'} · ${voice} · ${renderer}`;
+  const missing = [];
+  if (!data.ready.capabilities?.generation) missing.push(data.ready.upstream_source ? '歌曲模型未就绪' : '缺少 YuE2 推理源码');
+  if (!data.ready.capabilities?.transcription) missing.push('音频转谱未就绪');
+  $('#health-detail').textContent = `${missing.length ? missing.join(' · ') : '歌曲生成与音频转谱可用'} · ${voice} · ${renderer}`;
 }
 
 async function refreshWorkspace() {
@@ -204,7 +234,8 @@ async function waitForJob(id, resultTarget) {
     }
     if (job.status === 'failed' || job.status === 'cancelled') {
       restoreButton(buttonBindings.get(id));
-      await Promise.all([refreshWorkspace(), loadHistory()]); throw new Error(job.error || stageLabel(job.status));
+      await Promise.all([refreshWorkspace(), loadHistory()]);
+      const failure = new Error(job.error || stageLabel(job.status)); failure.jobId = job.id; throw failure;
     }
   }
 }
@@ -250,7 +281,7 @@ $('#task-center-jump').onclick = openTaskCenter;
 $('#create-form').onsubmit = async event => {
   event.preventDefault(); $('#create-result').innerHTML = '';
   try { await submit('generate', formObject(event.target), $('#create-result'), $('#create-button')); }
-  catch (error) { $('#create-result').innerHTML = `<div class="result-card status-failed">${escapeHtml(error.message)}</div>`; }
+  catch (error) { $('#create-result').innerHTML = failureMarkup(error); }
 };
 
 $('#plan-form').onsubmit = async event => {
@@ -259,7 +290,7 @@ $('#plan-form').onsubmit = async event => {
     const request = formObject(event.target); request.backend = 'torch-eager'; request.memory_budget_gib = 23.5;
     const job = await submit('plan', request, null, $('#plan-button')); planState = {...job.result, request};
     $('#plan-abc').value = job.result.abc || ''; $('#plan-badge').textContent = job.result.truncated ? '计划已截断' : '原始计划'; $('#plan-workbench').classList.remove('hidden');
-  } catch (error) { $('#plan-result').innerHTML = `<div class="result-card status-failed">${escapeHtml(error.message)}</div>`; }
+  } catch (error) { $('#plan-result').innerHTML = failureMarkup(error); }
 };
 
 $('#plan-exact').onchange = event => { $('#plan-abc').disabled = event.target.checked; };
@@ -269,7 +300,7 @@ $('#render-plan').onclick = async () => {
   const exact = $('#plan-exact').checked; const request = {plan_dir: planState.plan_dir, exact, backend: 'torch-eager', memory_budget_gib: 23.5};
   if (!exact) Object.assign(request, planState.request, {abc: $('#plan-abc').value, candidates: 1});
   try { const job = await submit('render_plan', request, null, $('#render-plan')); renderJob(job, $('#plan-result')); }
-  catch (error) { $('#plan-result').innerHTML = `<div class="result-card status-failed">${escapeHtml(error.message)}</div>`; }
+  catch (error) { $('#plan-result').innerHTML = failureMarkup(error); }
 };
 $('#download-abc').onclick = () => { const blob = new Blob([$('#plan-abc').value], {type: 'text/plain;charset=utf-8'}); const anchor = document.createElement('a'); anchor.href = URL.createObjectURL(blob); anchor.download = 'score.abc'; anchor.click(); URL.revokeObjectURL(anchor.href); };
 
@@ -281,14 +312,14 @@ $('#transcribe-button').onclick = async () => {
     const upload = await api(`/api/uploads?filename=${encodeURIComponent(file.name)}`, {method: 'POST', headers: {'Content-Type': 'application/octet-stream'}, body: file});
     const job = await submit('transcribe', {source_path: upload.path, melody_only: true, dtype: 'bf16', preset: 'default'}, null, button);
     $('#cover-abc').value = job.result.abc || ''; $('#cover-review').classList.remove('hidden');
-  } catch (error) { restoreButton(button); $('#cover-result').innerHTML = `<div class="result-card status-failed">${escapeHtml(error.message)}</div>`; }
+  } catch (error) { restoreButton(button); $('#cover-result').innerHTML = failureMarkup(error); }
 };
 $('#generate-cover').onclick = async () => {
   let seed; try { seed = safeSeed($('#cover-seed').value); } catch (error) { return alert(error.message); }
   const request = {style: $('#cover-style').value, lyrics: $('#cover-lyrics').value, abc: $('#cover-abc').value, cot: 'melody', seed, cfg_scale: 1, backend: 'torch-eager', memory_budget_gib: 23.5, candidates: 1};
   if (!request.lyrics.trim()) return alert('请先填写并核对歌词');
   try { await submit('generate', request, $('#cover-result'), $('#generate-cover')); }
-  catch (error) { $('#cover-result').innerHTML = `<div class="result-card status-failed">${escapeHtml(error.message)}</div>`; }
+  catch (error) { $('#cover-result').innerHTML = failureMarkup(error); }
 };
 
 $('#reference-file').onchange = event => {
@@ -320,7 +351,7 @@ $('#generate-reference-cover').onclick = async () => {
     await submit('voice_convert', voiceRequest, $('#cover-result'), button);
   } catch (error) {
     restoreButton(button);
-    $('#cover-result').innerHTML = `<div class="result-card status-failed">${escapeHtml(error.message)}</div>`;
+    $('#cover-result').innerHTML = failureMarkup(error);
   }
 };
 
@@ -334,7 +365,8 @@ async function loadHistory() {
     $('#history-list').innerHTML = jobs.map(job => {
       const result = job.result || {}; const audio = relativeAudio(job, result.audio || result.candidates?.[0]?.audio);
       const exportButton = job.status === 'complete' && job.result ? `<button class="ghost" onclick="exportJob('${job.id}')">导出</button>` : '';
-      return `<article class="history-card"><header><div><b>${escapeHtml(kindLabel(job.kind))}</b><div class="meta">${escapeHtml(job.id)} · ${new Date(job.created_at * 1000).toLocaleString()} · ${escapeHtml(sourceLabel(job.source))}</div></div></header><b class="status-${job.status}">${escapeHtml(job.status === 'running' ? stageLabel(job.stage) : stageLabel(job.status))}</b>${job.error ? `<div class="meta">${escapeHtml(job.error)}</div>` : ''}${audio ? `<audio controls preload="none" src="${audioUrl(job.id, audio)}"></audio>` : ''}<div class="toolbar">${exportButton}</div></article>`;
+      const logButtons = job.status === 'failed' ? `<button class="ghost compact" onclick="toggleJobLog('${job.id}', this)">查看任务日志</button><button class="ghost compact" onclick="openDirectory('logs')">打开日志目录</button>` : '';
+      return `<article class="history-card"><header><div><b>${escapeHtml(kindLabel(job.kind))}</b><div class="meta">${escapeHtml(job.id)} · ${new Date(job.created_at * 1000).toLocaleString()} · ${escapeHtml(sourceLabel(job.source))}</div></div></header><b class="status-${job.status}">${escapeHtml(job.status === 'running' ? stageLabel(job.stage) : stageLabel(job.status))}</b>${job.error ? `<div class="meta">${escapeHtml(job.error)}</div>` : ''}${audio ? `<audio controls preload="none" src="${audioUrl(job.id, audio)}"></audio>` : ''}<div class="toolbar">${exportButton}${logButtons}</div><pre id="log-${job.id}" class="job-log hidden"></pre></article>`;
     }).join('') || '<p class="meta">还没有任务。</p>';
   } catch (error) { $('#history-list').innerHTML = `<p class="status-failed">${escapeHtml(error.message)}</p>`; }
 }
