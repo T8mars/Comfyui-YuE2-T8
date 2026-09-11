@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.2 - 2026-09-12
+
+- Add a visible update control to the WebUI status card and automatically check the stable GitHub Release channel when the page opens.
+- Download and validate the project-bound update manifest and code archive before installation, including the release URL, archive root, size limits, and SHA256.
+- Install updates through a separate process, preserve models, runtimes, local LLM files, works, uploads, drafts, settings, logs, and caches, then restart the same local port.
+- Back up every replaced file and automatically restore the previous code if the updated service cannot start.
+
 ## 1.2.1 - 2026-09-12
 
 - Add channel-specific default models: `bytedance/doubao-seed-evolving` for ZhenZhen Affordable AI Shop and `gemini-3.5-flash` for ZhenZhen AI Workshop.

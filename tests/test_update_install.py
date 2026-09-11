@@ -6,8 +6,34 @@ import tomllib
 import unittest
 from pathlib import Path
 
+from scripts.apply_update import apply_files
+
 
 class UpdateInstallTests(unittest.TestCase):
+    def test_staged_updater_preserves_large_user_directories_and_creates_backup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "install"
+            source = target / "cache/updates/1.2.2-test"
+            for name, content in {
+                "app/yue2_app/service.py": b"new service",
+                "scripts/apply_update.py": b"new helper",
+                "models/model.bin": b"must stay",
+            }.items():
+                path = source / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(content)
+            old = target / "app/yue2_app/service.py"
+            old.parent.mkdir(parents=True, exist_ok=True)
+            old.write_bytes(b"old service")
+            model = target / "models/model.bin"
+            model.parent.mkdir(parents=True, exist_ok=True)
+            model.write_bytes(b"user model")
+            backup, records = apply_files(source, target, "1.2.2")
+            self.assertEqual(old.read_bytes(), b"new service")
+            self.assertEqual(model.read_bytes(), b"user model")
+            self.assertEqual((backup / "app/yue2_app/service.py").read_bytes(), b"old service")
+            self.assertTrue(any(item["file"] == "scripts/apply_update.py" for item in records))
+
     def test_update_preserves_user_data_and_backs_up_both_node_locations(self):
         source = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as directory:

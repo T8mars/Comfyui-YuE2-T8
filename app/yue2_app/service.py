@@ -35,6 +35,7 @@ from .io import atomic_json, public_job, within
 from .retention import RetentionManager
 from .settings import model_directory, save_model_directory, settings_info
 from . import assistant_data
+from . import updater
 
 CREDENTIALS = assistant_data.Credentials()
 ASSISTANT_KINDS = {"assistant"}
@@ -684,6 +685,11 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/health":
                 return self._json(200, {"ok": True, "version": __version__, "root": str(ROOT),
                                         "ready": runtime_ready(), **STORE.state()})
+            if path == "/api/update/check":
+                info, _ = updater.check_update(__version__)
+                return self._json(200, info)
+            if path == "/api/update/status":
+                return self._json(200, updater.update_status(ROOT))
             if path == "/api/settings":
                 return self._json(200, settings_info(ROOT))
             if path == "/api/jobs":
@@ -761,6 +767,19 @@ class Handler(BaseHTTPRequestHandler):
                 ))
             if path == "/api/retention/cleanup":
                 return self._json(200, STORE.cleanup_retention(force=True))
+            if path == "/api/update/install":
+                state = STORE.state()
+                if state.get("current_job") or int(state.get("queued", 0)):
+                    raise ValueError("有任务正在运行或排队，请等待任务结束后再更新")
+                prepared = updater.prepare_update(ROOT, __version__)
+                host, port = self.server.server_address[:2]
+                result = updater.launch_update(ROOT, prepared, os.getpid(), str(host), int(port))
+                self._json(202, result)
+                def stop_for_update():
+                    time.sleep(.6)
+                    self.server.shutdown()
+                threading.Thread(target=stop_for_update, name="yue2-update-shutdown", daemon=True).start()
+                return None
             if path == "/api/assistant/config":
                 return self._json(200, assistant_data.save_config(ROOT, self._body_json(32 * 1024)))
             if path == "/api/assistant/credentials":

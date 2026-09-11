@@ -91,7 +91,9 @@ ComfyUI/custom_nodes/yue2-t8/models/VOICE_MODEL_MANIFEST.json
 
 ### 更新
 
-GitHub Release 只包含代码，不包含模型、Python 运行时或用户作品。自动更新入口为 [最新版本清单](https://github.com/T8mars/Comfyui-YuE2-T8/releases/latest/download/update-manifest.json)：更新程序应检查版本、下载清单指定的 ZIP 并验证 SHA256，再保留清单中的模型、运行环境、作品和设置。代码包保留与 1.1.4 相同的单层顶目录结构。清单用于更新程序读取，不会自行停止正在运行的服务或安装文件。
+从 v1.2.2 开始，本地 WebUI 首页右上方的运行状态卡提供“检查更新”按钮，页面打开时也会自动检查稳定版。发现新版后点击“更新到 vX”，程序会从 [最新版本清单](https://github.com/T8mars/Comfyui-YuE2-T8/releases/latest/download/update-manifest.json) 下载代码包、验证来源与 SHA256、备份旧代码、安装并重启当前端口。更新保留 `models`、`runtime`、本地 LLM、作品、上传、导出、日志、缓存、助手草稿和设置；新版启动失败时自动恢复旧代码。运行或排队任务存在时不会开始更新。
+
+GitHub Release 只包含代码，不包含模型、Python 运行时或用户作品。v1.2.0 / v1.2.1 整合包尚无页面更新器，需要先手动安装一次 v1.2.2 代码包；从 v1.2.2 起即可直接在页面完成后续更新。
 
 手动更新前请先结束任务、运行 `stop_service.bat` 并退出 ComfyUI，将 ZIP 顶目录内的代码覆盖到原安装目录，随后重新启动。已有模型无需重新下载；原来关闭 `offload_ar` 的工作流请手动启用它，随包示例已默认启用。
 

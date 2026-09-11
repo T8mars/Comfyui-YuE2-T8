@@ -7,6 +7,8 @@ let currentJobId = null;
 let workspaceRefreshing = false;
 let modelSettingsInitialized = false;
 let displayedTerminal = null;
+let availableUpdate = null;
+let updateInstalling = false;
 const panelStates = new Map();
 const observedJobs = new Map();
 function savedValue(key, value) {
@@ -499,6 +501,83 @@ function bindUploadPreview(inputSelector, dropSelector, previewSelector, buttonS
   });
   window.addEventListener('pagehide', event => { if (!event.persisted) release(); });
 }
+
+function updateMessage(message, state = '') {
+  const action = $('.update-action');
+  action.classList.toggle('available', state === 'available');
+  action.classList.toggle('installing', state === 'installing');
+  $('#update-status').textContent = message;
+}
+
+async function checkUpdate({quiet = false} = {}) {
+  if (updateInstalling) return;
+  const button = $('#update-button');
+  button.disabled = true;
+  if (!quiet) updateMessage('正在连接 GitHub 检查新版…');
+  try {
+    const result = await api('/api/update/check');
+    availableUpdate = result.update_available ? result : null;
+    if (availableUpdate) {
+      button.textContent = `更新到 v${result.latest_version}`;
+      updateMessage(`当前 v${result.current_version} · 新版已发布`, 'available');
+    } else {
+      button.textContent = '再次检查';
+      updateMessage(`当前 v${result.current_version} · 已是最新版本`);
+    }
+  } catch (error) {
+    availableUpdate = null;
+    button.textContent = '重新检查';
+    updateMessage(`自动检查失败 · ${error.message}`);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function waitForUpdatedService(version) {
+  const deadline = Date.now() + 120000;
+  while (Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, 900));
+    try {
+      const health = await api('/api/health');
+      const status = await api('/api/update/status');
+      if (status.state === 'error') throw new Error(status.message || '更新失败');
+      if (health.version === version) {
+        updateMessage(`已更新到 v${version}，正在刷新页面`, 'installing');
+        setTimeout(() => location.reload(), 700);
+        return;
+      }
+      if (status.state === 'complete' && health.version !== version) {
+        throw new Error(`服务版本仍为 v${health.version}`);
+      }
+    } catch (error) {
+      if (!String(error.message).includes('Failed to fetch') && !String(error.message).includes('服务连接')) {
+        throw error;
+      }
+      updateMessage(`正在安装 v${version} 并重启本地服务…`, 'installing');
+    }
+  }
+  throw new Error('更新重启超过 2 分钟，请重新运行整合包启动文件');
+}
+
+async function installUpdate() {
+  if (!availableUpdate) return checkUpdate();
+  const button = $('#update-button');
+  updateInstalling = true;
+  button.disabled = true;
+  button.textContent = '正在下载…';
+  updateMessage(`正在下载并校验 v${availableUpdate.latest_version}…`, 'installing');
+  try {
+    const result = await api('/api/update/install', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'});
+    button.textContent = '正在重启…';
+    await waitForUpdatedService(result.target_version);
+  } catch (error) {
+    updateInstalling = false;
+    button.disabled = false;
+    button.textContent = '重新检查';
+    availableUpdate = null;
+    updateMessage(`更新没有完成 · ${error.message}`);
+  }
+}
 bindUploadPreview('#cover-file', '#drop-zone', '#cover-preview', '#transcribe-button');
 $('#transcribe-button').onclick = async () => {
   const file = $('#cover-file').files[0]; if (!file) return; const button = $('#transcribe-button');
@@ -595,5 +674,8 @@ $('#doctor-button').onclick = async () => {
   try { const job = await submit('doctor', {verify_hashes: true}, null, button); action.dataset.result = `自检通过 · ${job.result.gpu} · CUDA ${job.result.torch_cuda}`; }
   catch (error) { action.dataset.result = `自检未通过 · ${error.message}`; }
 };
+$('#update-button').onclick = () => availableUpdate ? installUpdate() : checkUpdate();
 
-refreshWorkspace(); loadModelSettings(); loadHistory(); loadRetention(); setInterval(refreshWorkspace, 1200);
+refreshWorkspace(); loadModelSettings(); loadHistory(); loadRetention();
+setTimeout(() => checkUpdate({quiet: true}), 500);
+setInterval(refreshWorkspace, 1200);
