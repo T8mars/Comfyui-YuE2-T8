@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.6 - 2026-09-11
+
+- Preview the source song and reference voice immediately after file selection, with native playback, seeking, duration and file replacement controls.
+- Keep players outside file-input overlays, release replaced file URLs, pause the other upload preview, and show a helpful message for unsupported browser audio formats.
+- Verify WAV/FLAC playback, replacement, seeking, cleanup and narrow-screen layout in the browser. This release does not change inference backends.
+
 ## 1.1.5 - 2026-09-11
 
 - Bound NAR attention query tiles on CUDA, select supported fused kernels explicitly, and fall back to bounded math with limited OOM retries. Enable AR offload by default without truncating songs or changing BF16, seeds, CFG, or solver steps.

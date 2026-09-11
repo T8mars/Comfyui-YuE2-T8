@@ -441,7 +441,41 @@ $('#render-plan').onclick = async () => {
 };
 $('#download-abc').onclick = () => { const blob = new Blob([$('#plan-abc').value], {type: 'text/plain;charset=utf-8'}); const anchor = document.createElement('a'); anchor.href = URL.createObjectURL(blob); anchor.download = 'score.abc'; anchor.click(); URL.revokeObjectURL(anchor.href); };
 
-$('#cover-file').onchange = event => { const file = event.target.files[0]; $('#transcribe-button').disabled = !file || Boolean($('#transcribe-button').dataset.jobId); if (file) $('#drop-zone b').textContent = file.name; };
+function bindUploadPreview(inputSelector, dropSelector, previewSelector, buttonSelector) {
+  const input = $(inputSelector), drop = $(dropSelector), preview = $(previewSelector);
+  const audio = preview.querySelector('audio'), status = preview.querySelector('[data-preview-status]');
+  const defaultName = drop.querySelector('b').textContent, defaultStatus = status.textContent;
+  let objectUrl = null;
+  const release = () => {
+    audio.pause();
+    audio.removeAttribute('src');
+    audio.load();
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
+    objectUrl = null;
+  };
+  input.onchange = () => {
+    release();
+    const file = input.files[0], button = $(buttonSelector);
+    button.disabled = !file || Boolean(button.dataset.jobId);
+    drop.querySelector('b').textContent = file ? file.name : defaultName;
+    preview.classList.toggle('hidden', !file);
+    status.textContent = defaultStatus;
+    if (file) {
+      objectUrl = URL.createObjectURL(file);
+      audio.src = objectUrl;
+      audio.load();
+    }
+  };
+  preview.querySelector('[data-replace]').onclick = () => input.click();
+  audio.addEventListener('play', () => {
+    $$('.upload-preview audio').forEach(other => { if (other !== audio) other.pause(); });
+  });
+  audio.addEventListener('error', () => {
+    if (objectUrl && audio.error) status.textContent = '浏览器无法试听此文件，可换用 WAV、MP3 或 FLAC；仍可尝试上传处理。';
+  });
+  window.addEventListener('pagehide', event => { if (!event.persisted) release(); });
+}
+bindUploadPreview('#cover-file', '#drop-zone', '#cover-preview', '#transcribe-button');
 $('#transcribe-button').onclick = async () => {
   const file = $('#cover-file').files[0]; if (!file) return; const button = $('#transcribe-button');
   try {
@@ -459,11 +493,7 @@ $('#generate-cover').onclick = async () => {
   catch (error) { $('#cover-result').innerHTML = failureMarkup(error); }
 };
 
-$('#reference-file').onchange = event => {
-  const file = event.target.files[0];
-  $('#generate-reference-cover').disabled = !file || Boolean($('#generate-reference-cover').dataset.jobId);
-  $('#reference-drop-zone b').textContent = file ? file.name : '选择 1–30 秒清晰干声';
-};
+bindUploadPreview('#reference-file', '#reference-drop-zone', '#reference-preview', '#generate-reference-cover');
 
 $('#generate-reference-cover').onclick = async () => {
   const reference = $('#reference-file').files[0];

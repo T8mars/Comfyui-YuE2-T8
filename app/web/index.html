@@ -145,6 +145,11 @@ This melody still waits for you</textarea></label>
         <b>选择 WAV、FLAC、MP3、M4A、OGG 或 AAC</b>
         <span>这里的原曲只用于提取旋律，不会直接复制原唱音色；最大 1GB</span>
       </div>
+      <div id="cover-preview" class="upload-preview hidden">
+        <div class="upload-preview-head"><b>原曲试听</b><button type="button" class="ghost" data-replace>更换文件</button></div>
+        <audio controls preload="metadata" aria-label="原曲试听"></audio>
+        <p data-preview-status role="status">可先试听，确认选中了正确的原曲。</p>
+      </div>
       <button id="transcribe-button" class="primary full" data-idle-label="上传并转谱" disabled>上传并转谱</button>
       <div id="cover-review" class="workbench hidden">
         <div class="workbench-head"><h3>第一步：核对旋律与歌词</h3><span class="badge">请先校对</span></div>
@@ -168,6 +173,11 @@ This melody still waits for you</textarea></label>
               <b>选择 1–30 秒清晰干声</b>
               <span>推荐 5–25 秒、单人、无伴奏、少混响</span>
             </label>
+            <div id="reference-preview" class="upload-preview hidden">
+              <div class="upload-preview-head"><b>参考音色试听</b><button type="button" class="ghost" data-replace>更换文件</button></div>
+              <audio controls preload="metadata" aria-label="参考音色试听"></audio>
+              <p data-preview-status role="status">可先试听，确认音色与录音内容。</p>
+            </div>
             <details class="advanced voice-settings">
               <summary>参考音色高级设置</summary>
               <div class="advanced-grid">

@@ -132,6 +132,12 @@ textarea { resize: vertical; }
 .mini-upload { position: relative; padding: 16px; gap: 4px; border: 1px dashed rgba(89, 125, 255, .5); border-radius: 10px; background: rgba(255,255,255,.8); text-align: center; cursor: pointer; }
 .mini-upload input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 .mini-upload span { color: var(--muted); font-size: 11px; font-weight: 400; }
+.upload-preview { margin: 12px 0 16px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.85); }
+.upload-preview-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.upload-preview-head button { padding: 6px 12px; font-size: 12px; }
+.upload-preview audio { display: block; width: 100%; min-width: 0; margin-top: 10px; }
+.upload-preview p { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+.upload-box b, .mini-upload b { overflow-wrap: anywhere; }
 .voice-settings { margin-top: 12px; }
 .voice-settings .advanced-grid { grid-template-columns: repeat(2, 1fr); }
 .results { display: grid; gap: 14px; margin-top: 28px; }
