@@ -6,7 +6,7 @@
 
 ## 中文说明
 
-YuE2 Music T8 把 YuE2-3B 完整歌曲生成接入 ComfyUI，并提供一个可单独使用的本地 WebUI。节点通过 `127.0.0.1:8189` 调用隔离的推理 worker，不会替换或污染 ComfyUI 自带的 Torch 环境。1.1.0 新增 Seed-VC + Demucs 零样本参考音色翻唱。
+YuE2 Music T8 把 YuE2-3B 完整歌曲生成接入 ComfyUI，并提供一个可单独使用的本地 WebUI。节点通过 `127.0.0.1:8189` 调用隔离的推理 worker，不会替换或污染 ComfyUI 自带的 Torch 环境。1.1.0 新增 Seed-VC + Demucs 零样本参考音色翻唱；1.1.1 新增 Windows EXE 启动器并修复启动窗口一闪而过的问题。
 
 主要功能：
 
@@ -56,7 +56,7 @@ ComfyUI/custom_nodes/yue2-t8/models/VOICE_MODEL_MANIFEST.json
 
 ### 使用
 
-节点位于 `YuE2 音乐` 分类。`workflows` 目录提供歌词创作、先计划再渲染、外部 ABC 重生成和参考音色翻唱四个前端工作流。双击 `start_webui.bat` 可打开本地工作室；双击 `stop_service.bat` 停止后台服务。
+节点位于 `YuE2 音乐` 分类。`workflows` 目录提供歌词创作、先计划再渲染、外部 ABC 重生成和参考音色翻唱四个前端工作流。Windows 整合包可双击 `YuE2-T8.exe` 启动；节点源码包可双击 `start_webui.bat`。启动窗口会保留并显示服务地址或失败原因，`stop_service.bat` 用于停止后台服务。
 
 参考音色翻唱需要 1–30 秒清晰单人干声，推荐 5–25 秒、无伴奏、少混响。工作流先生成或接收歌曲，再分离歌声/伴奏、转换音色并重新混音。请只使用本人声音或已经取得明确授权的声音。
 
@@ -83,7 +83,7 @@ ComfyUI/custom_nodes/yue2-t8/models/VOICE_MODEL_MANIFEST.json
 
 ## English
 
-YuE2 Music T8 integrates YuE2-3B full-song generation with ComfyUI and includes a standalone local WebUI. Its local scheduler runs models in isolated Python workers, so installing the node does not replace ComfyUI's Torch packages. Version 1.1.0 adds zero-shot reference-voice covers using Seed-VC and Demucs.
+YuE2 Music T8 integrates YuE2-3B full-song generation with ComfyUI and includes a standalone local WebUI. Its local scheduler runs models in isolated Python workers, so installing the node does not replace ComfyUI's Torch packages. Version 1.1.0 adds zero-shot reference-voice covers using Seed-VC and Demucs. Version 1.1.1 adds a native Windows launcher and keeps startup results visible instead of closing the console immediately.
 
 Install it with `comfy node install yue2-t8`, then run `install_runtime.bat` once from the node directory and restart ComfyUI. Models are downloaded from [t8star/YuE2-Comfy](https://huggingface.co/t8star/YuE2-Comfy) into `<node-directory>/models`; keep all six model subdirectories and their configuration files. Windows and an NVIDIA GPU are required, with 24GB VRAM and 45GB free disk space recommended.
 

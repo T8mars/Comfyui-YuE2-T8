@@ -1,6 +1,12 @@
 # YuE2 Music T8 validation
 
-Validation date: 2026-09-11. Host: Windows, NVIDIA GeForce RTX 5090 Laptop GPU. The current service and workers report version 1.1.0.
+Validation date: 2026-09-11. Host: Windows, NVIDIA GeForce RTX 5090 Laptop GPU. The current service and workers report version 1.1.1.
+
+## 1.1.1 launcher validation
+
+- The native Windows launcher and compatibility batch launcher both start or reuse the local service and leave a visible success or failure result.
+- Automated no-browser/no-pause checks verify exit codes without changing the normal double-click behavior.
+- A missing-runtime fixture returns a nonzero exit code with an actionable Chinese error instead of flashing and disappearing.
 
 ## 1.1.0 reference-voice validation
 

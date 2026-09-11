@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.1 - 2026-09-11
+
+- Add a native `YuE2-T8.exe` launcher for the standalone Windows bundle, while keeping the batch launcher as a compatibility entry point.
+- Keep launcher windows open after both successful and failed starts so the service URL or failure reason remains visible.
+- Show localized runtime checks, service startup progress, stale-service guidance, and log locations instead of silently closing.
+
 ## 1.1.0 - 2026-09-11
 
 - Add local zero-shot reference-voice covers with Demucs vocal separation, Seed-VC conversion, and 48 kHz stereo remixing.
