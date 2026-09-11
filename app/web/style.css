@@ -195,6 +195,9 @@ textarea { resize: vertical; }
 .queue-copy b { font-size: 13px; }
 .queue-copy p { overflow: hidden; margin: 4px 0; color: #59667a; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .hidden { display: none !important; }
+.panel > .results:empty { display: none; }
+.panel > .results:not(:empty) { margin-bottom: 24px; scroll-margin-top: 90px; }
+.audio-download { display: inline-flex; align-items: center; text-decoration: none; }
 footer { padding: 30px; border-top: 1px solid #e0e5ed; color: #8a94a5; text-align: center; font-size: 12px; }
 @media (max-width: 760px) {
   body > header { grid-template-columns: 1fr; margin: 18px; padding: 26px 22px; }

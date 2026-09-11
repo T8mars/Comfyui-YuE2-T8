@@ -12,7 +12,7 @@ from types import SimpleNamespace
 import numpy as np
 import soundfile as sf
 
-from .artifacts import write_artifact_manifest
+from .artifacts import write_artifact_manifest, verify_artifact_manifest
 from .io import atomic_json, sha256, within
 from .settings import model_directory
 from .worker_common import JobContext, configure_environment
@@ -89,7 +89,8 @@ def remix_audio(converted_vocal: Path, accompaniment: Path, destination: Path, *
     }
 
 
-def _run_seed_vc(root: Path, source: Path, reference: Path, output: Path, request: dict) -> Path:
+def _run_seed_vc(root: Path, source: Path, reference: Path, output: Path, request: dict,
+                 ctx: JobContext | None = None) -> Path:
     source_root = root / "vendor" / "seed-vc"
     model_root = model_directory(root, strict=True) / "Seed-VC"
     os.environ["SEED_VC_MODEL_ROOT"] = str(model_root)
@@ -112,6 +113,8 @@ def _run_seed_vc(root: Path, source: Path, reference: Path, output: Path, reques
             checkpoint=str(model_root / "DiT_seed_v2_uvit_whisper_base_f0_44k_bigvgan_pruned_ft_ema_v2.pth"),
             config=str(model_root / "config_dit_mel_seed_uvit_whisper_base_f0_44k.yml"),
             fp16=True,
+            progress_callback=(lambda completed, total: ctx.progress("converting_voice", completed, total)) if ctx else None,
+            cancelled=ctx.cancelled if ctx else None,
         )
         inference.main(args)
     finally:
@@ -120,6 +123,20 @@ def _run_seed_vc(root: Path, source: Path, reference: Path, output: Path, reques
     if len(candidates) != 1:
         raise RuntimeError(f"Seed-VC 未产生唯一的转换音轨（找到 {len(candidates)} 个）")
     return candidates[0]
+
+
+def restore_voice_stage(previous: Path, output: Path, stage: str, files: list[str],
+                        models: dict, source: dict) -> bool:
+    if not (previous / (stage + "_manifest.json")).is_file():
+        return False
+    manifest = verify_artifact_manifest(previous, stage + "_manifest.json",
+                                        "yue2-voice-" + stage + "-v1", set(files))
+    if manifest["models"] != models or manifest.get("source") != source:
+        return False
+    for name in files:
+        if previous.resolve() != output.resolve():
+            shutil.copy2(previous / name, output / name)
+    return True
 
 
 def _separate_vocals(root: Path, source: Path, ctx: JobContext,
@@ -191,20 +208,44 @@ def main(argv=None) -> int:
         if not torch.cuda.is_available():
             raise RuntimeError("参考音色运行时未检测到 NVIDIA CUDA")
         ctx.update("separating_vocals", pid=os.getpid(), gpu=torch.cuda.get_device_name(0))
+        ctx.memory("voice_start")
         ctx.check_cancelled()
         output = job_dir / "artifacts" / "reference_cover"
         converted = output / "converted"
         output.mkdir(parents=True, exist_ok=True)
         separated_vocal = output / "separated_vocal.wav"
         backing_path = output / "accompaniment.wav"
-        _separate_vocals(root, source, ctx, separated_vocal, backing_path)
+        voice_manifest = json.loads(
+            (model_directory(root, strict=True) / "VOICE_MODEL_MANIFEST.json").read_text(encoding="utf-8-sig"))
+        previous = output
+        if raw.get("resume_from"):
+            previous = within(root / "outputs" / "jobs", Path(raw["resume_from"])) / "artifacts" / "reference_cover"
+        separation_source = {"song_sha256": sha256(source)}
+        separation_files = ["separated_vocal.wav", "accompaniment.wav"]
+        if not restore_voice_stage(previous, output, "separation", separation_files, voice_manifest, separation_source):
+            _separate_vocals(root, source, ctx, separated_vocal, backing_path)
+        else:
+            ctx.update("separating_vocals", resumed_stage="separation")
+        write_artifact_manifest(output, "separation_manifest.json", "yue2-voice-separation-v1",
+                                separation_files, models=voice_manifest, source=separation_source)
+        ctx.update("separating_vocals", resumable=True)
+        ctx.memory("separation_saved")
 
         ctx.update("loading_voice_model")
         ctx.check_cancelled()
         ctx.update("converting_voice", diffusion_steps=request["diffusion_steps"])
-        raw_converted = _run_seed_vc(root, separated_vocal, reference, converted, request)
         converted_vocal = output / "converted_vocal.wav"
-        shutil.copy2(raw_converted, converted_vocal)
+        conversion_source = {**separation_source, "reference_sha256": sha256(reference),
+                             "settings": {k: request[k] for k in (
+                                 "diffusion_steps", "cfg_rate", "auto_f0_adjust", "semi_tone_shift")}}
+        if not restore_voice_stage(previous, output, "conversion", ["converted_vocal.wav"], voice_manifest, conversion_source):
+            raw_converted = _run_seed_vc(root, separated_vocal, reference, converted, request, ctx)
+            shutil.copy2(raw_converted, converted_vocal)
+        else:
+            ctx.update("converting_voice", resumed_stage="conversion")
+        write_artifact_manifest(output, "conversion_manifest.json", "yue2-voice-conversion-v1",
+                                ["converted_vocal.wav"], models=voice_manifest, source=conversion_source)
+        ctx.memory("conversion_saved")
         ctx.check_cancelled()
 
         ctx.update("remixing")
@@ -241,6 +282,7 @@ def main(argv=None) -> int:
             "settings": {key: value for key, value in request.items() if not key.endswith("_path")},
         }
         atomic_json(output / "job_result.json", result)
+        ctx.memory("voice_complete")
         ctx.finish(result=result)
         return 0
     except BaseException as exc:

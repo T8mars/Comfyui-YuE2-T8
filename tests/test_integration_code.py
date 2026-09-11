@@ -159,6 +159,27 @@ class IntegrationCodeTests(unittest.TestCase):
             self.assertEqual(created["kind"], "voice_convert")
             self.assertEqual(created["summary"], "参考音色翻唱 · voice.wav")
 
+    def test_result_panel_survives_resume_and_legacy_cover_is_restored(self):
+        with tempfile.TemporaryDirectory(dir=ROOT) as directory:
+            outputs = Path(directory) / "jobs"
+            outputs.mkdir()
+            store = object.__new__(JobStore)
+            store.storage_lock = threading.RLock()
+            store.lock = threading.RLock()
+            store.jobs = {}
+            store.pending = queue.Queue()
+            with mock.patch.object(service, "OUTPUTS", outputs), mock.patch.object(
+                    service, "runtime_ready", return_value={"capabilities": {"generation": True}}):
+                created = store.create("generate", {"abc": "X:1\nK:C\nC4|"}, source="webui", result_panel="cover")
+                self.assertEqual(created["result_panel"], "cover")
+                status_path = outputs / created["id"] / "status.json"
+                legacy = {**created, "status": "failed"}
+                legacy.pop("result_panel")
+                atomic_json(status_path, legacy)
+                self.assertEqual(store.get(created["id"])["result_panel"], "cover")
+                resumed = store.resume(created["id"])
+                self.assertEqual(resumed["result_panel"], "cover")
+
     def test_voice_remix_outputs_finite_48khz_stereo(self):
         import importlib.util
         if importlib.util.find_spec("scipy") is None:
@@ -522,6 +543,9 @@ class IntegrationCodeTests(unittest.TestCase):
             data = json.loads(path.read_text(encoding="utf-8"))
             node_ids = {node["id"] for node in data["nodes"]}
             self.assertIn("YuE2ModelLoader", {node["type"] for node in data["nodes"]})
+            for node in data["nodes"]:
+                if node["type"] == "YuE2ModelLoader":
+                    self.assertEqual(node["widgets_values"][2:], [True, "sdpa", 256])
             for link in data["links"]:
                 self.assertIn(link[1], node_ids)
                 self.assertIn(link[3], node_ids)

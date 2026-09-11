@@ -9,6 +9,8 @@ downloads/
 server.json
 service.lock
 retention.json
+settings.json
+yue2_home.txt
 node.zip
 vendor/seed-vc/campplus_cn_common.bin
 *.pyc

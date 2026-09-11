@@ -5,6 +5,8 @@ import json
 import os
 import sys
 import time
+import shutil
+import uuid
 from pathlib import Path
 
 import numpy as np
@@ -38,7 +40,9 @@ def create_pipe(root: Path, request: dict):
     return YuE2Pipeline.from_pretrained(
         str(paths["model"]), vae=str(paths["vae"]), device="cuda",
         memory_budget_gib=budget, backend=backend, quantization="none",
-        offload_ar=bool(request.get("offload_ar", False)), local_files_only=True,
+        offload_ar=bool(request.get("offload_ar", True)), local_files_only=True,
+        nar_attention=request.get("nar_attention", "sdpa"),
+        nar_query_chunk_size=int(request.get("nar_query_chunk_size", 256)),
         verify_hashes=bool(request.get("verify_hashes", False)), progress=False,
     )
 
@@ -61,33 +65,99 @@ def generation_kwargs(request: dict, seed: int | None = None) -> dict:
     return result
 
 
-def generate_one(pipe, ctx: JobContext, request: dict, destination: Path, seed: int):
+def generate_one(pipe, ctx: JobContext, request: dict, destination: Path, seed: int, initial_plan=None):
     from yue2.pipeline import SongResult
     from yue2.storage import identity
+    root = getattr(ctx, "root", ctx.job_dir.parents[2])
 
     kwargs = generation_kwargs(request, seed)
     request_only = {k: v for k, v in kwargs.items() if k not in {"abc_sampling", "semantic_sampling"}}
-    song_request = pipe._request(**request_only)
+    song_request = initial_plan.request if initial_plan is not None else pipe._request(**request_only)
     config = pipe.effective_config(song_request, kwargs.get("abc_sampling"), kwargs.get("semantic_sampling"))
     request_identity = identity({"request": song_request.to_dict(), "config": config, "weights": pipe.weights})
     started = time.perf_counter()
+    pipe.on_stage_progress, pipe.on_memory = ctx.progress, ctx.memory
+    ctx.memory("generation_start", device=str(pipe.device))
+    checkpoint = destination / "checkpoints"
+    resume = checkpoint
+    if request.get("resume_from"):
+        resume = within(root / "outputs" / "jobs", Path(request["resume_from"])) / "artifacts" / destination.name / "checkpoints"
+    checkpoint_identity = identity({"request": song_request.to_dict(), "weights": pipe.weights,
+                                    "generation": config["generation"]})
+    if (resume / "identity.json").is_file():
+        saved = json.loads((resume / "identity.json").read_text(encoding="utf-8"))
+        if saved.get("identity") != checkpoint_identity:
+            raise ValueError("恢复工件与当前歌词、乐谱、种子或模型配置不一致")
+    elif resume != checkpoint:
+        # Old failures without checkpoints are valid retries from the beginning.
+        resume = checkpoint
+    atomic_json(checkpoint / "identity.json", {"identity": checkpoint_identity})
     ctx.check_cancelled()
     ctx.update("planning", seed=seed, tokens=0)
-    plan = pipe.plan(request=song_request, abc_sampling=kwargs.get("abc_sampling"),
-                     cancelled=ctx.cancelled, on_token=ctx.token)
+    if (resume / "plan" / "plan_manifest.json").is_file():
+        from yue2 import SymbolicPlan
+        verify_hash_manifest(resume / "plan", "plan_manifest.json", {"plan.json", "prefix.npy", "abc_tokens.npy"})
+        plan = SymbolicPlan.load(resume / "plan")
+        if plan.request.to_dict() != song_request.to_dict():
+            raise ValueError("恢复计划与请求不一致")
+    elif initial_plan is not None:
+        plan = initial_plan
+    else:
+        plan = pipe.plan(request=song_request, abc_sampling=kwargs.get("abc_sampling"),
+                         cancelled=ctx.cancelled, on_token=ctx.token)
+    if not (checkpoint / "plan" / "plan_manifest.json").is_file():
+        atomic_stage(checkpoint / "plan", lambda temporary: plan.save(temporary))
     ctx.check_cancelled()
-    ctx.update("semantic", seed=seed, tokens=0, abc_truncated=bool(plan.truncated))
-    semantic = pipe.generate_semantic(plan, sampling=kwargs.get("semantic_sampling"),
-                                      cancelled=ctx.cancelled, on_token=ctx.token)
+    ctx.update("semantic", seed=seed, tokens=0, abc_truncated=bool(plan.truncated),
+               checkpoint=str(checkpoint), resumable=True)
+    if (resume / "semantic" / "semantic_manifest.json").is_file():
+        semantic, manifest, _ = load_semantic(resume / "semantic")
+        assert_provenance(manifest, root, pipe.weights)
+        if semantic.plan.request.to_dict() != song_request.to_dict():
+            raise ValueError("恢复结构与请求不一致")
+        ctx.update("semantic", resumed_stage="semantic")
+    else:
+        semantic = pipe.generate_semantic(plan, sampling=kwargs.get("semantic_sampling"),
+                                          cancelled=ctx.cancelled, on_token=ctx.token)
+    provenance = generation_provenance(root, pipe.weights)
+    if not (checkpoint / "semantic" / "semantic_manifest.json").is_file():
+        atomic_stage(checkpoint / "semantic", lambda temporary: save_semantic(
+            temporary, semantic, models=provenance, semantic_sampling=kwargs.get("semantic_sampling")))
+    ctx.memory("semantic_saved", frames=len(semantic.tokens))
     ctx.check_cancelled()
     nar_start = time.perf_counter()
     ctx.update("synthesis", seed=seed, semantic_truncated=bool(semantic.truncated))
-    latents = pipe.synthesize(semantic, cancelled=ctx.cancelled)
+    if (resume / "latent" / "latent_manifest.json").is_file():
+        manifest = verify_artifact_manifest(resume / "latent", "latent_manifest.json",
+                                             "yue2-latent-v1", {"latent.npy", "semantic_manifest.json"})
+        saved_semantic, _, _ = load_semantic(resume / "latent")
+        assert_provenance(manifest, root, pipe.weights)
+        if saved_semantic.tokens != semantic.tokens or saved_semantic.plan.request.to_dict() != song_request.to_dict():
+            raise ValueError("恢复声学工件与结构不一致")
+        if manifest.get("config", {}).get("effective_generation", {}).get("generation") != config["generation"]:
+            raise ValueError("恢复声学工件的生成参数不一致")
+        latents = np.load(resume / "latent" / "latent.npy", allow_pickle=False)
+        if latents.shape != (len(semantic.tokens), 64) or not np.isfinite(latents).all():
+            raise ValueError("恢复声学工件的形状或数值无效")
+        ctx.update("synthesis", resumed_stage="latent")
+    else:
+        latents = pipe.synthesize(semantic, cancelled=ctx.cancelled)
+    if not (checkpoint / "latent" / "latent_manifest.json").is_file():
+        def save_latent(temporary):
+            save_semantic(temporary, semantic, models=provenance,
+                          semantic_sampling=kwargs.get("semantic_sampling"))
+            np.save(temporary / "latent.npy", np.asarray(latents, dtype=np.float32))
+            write_artifact_manifest(temporary, "latent_manifest.json", "yue2-latent-v1",
+                                    ["latent.npy", "semantic_manifest.json"], models=provenance,
+                                    config={"effective_generation": config, "nar_stats": pipe.nar_stats})
+        atomic_stage(checkpoint / "latent", save_latent)
+    ctx.memory("latent_saved", frames=len(latents), nar_stats=pipe.nar_stats)
     nar_seconds = time.perf_counter() - nar_start
     ctx.check_cancelled()
     vae_start = time.perf_counter()
     ctx.update("decoding", seed=seed)
     audio = pipe.decode(latents)
+    ctx.memory("decoded")
     ctx.check_cancelled()
     timing = {
         "abc": plan.timing,
@@ -96,11 +166,26 @@ def generate_one(pipe, ctx: JobContext, request: dict, destination: Path, seed: 
         "vae_seconds": time.perf_counter() - vae_start,
         "load": dict(pipe.load_timing),
         "e2e_seconds": time.perf_counter() - started,
+        "nar_attention": dict(pipe.nar_stats),
+        "resume_from": request.get("resume_from"),
     }
     result = SongResult(audio, 48000, semantic, latents, config, pipe.weights, timing, request_identity)
     receipt = result.save_artifacts(destination)
     ctx.check_cancelled()
     return receipt, result
+
+
+def atomic_stage(destination: Path, writer) -> None:
+    """Expose a checkpoint only after all its files and manifests are durable."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(destination.name + ".tmp-" + uuid.uuid4().hex)
+    temporary.mkdir()
+    try:
+        writer(temporary)
+        os.replace(temporary, destination)
+    finally:
+        if temporary.exists():
+            shutil.rmtree(temporary)
 
 
 def generation_result(completed: list[dict], requested: int, failures: list[dict] | None = None) -> dict:
@@ -119,6 +204,7 @@ def generation_result(completed: list[dict], requested: int, failures: list[dict
 
 
 def run_generate(root: Path, ctx: JobContext, request: dict) -> dict:
+    ctx.root = root
     artifacts = ctx.job_dir / "artifacts"
     artifacts.mkdir(parents=True, exist_ok=True)
     count = max(1, min(8, int(request.get("candidates", 1))))
@@ -127,6 +213,7 @@ def run_generate(root: Path, ctx: JobContext, request: dict) -> dict:
     if len(seeds) != count:
         raise ValueError("seeds 数量必须与 candidates 一致")
     pipe = create_pipe(root, request)
+    pipe.on_stage_progress, pipe.on_memory = ctx.progress, ctx.memory
     completed = []
     failures = []
     try:
@@ -159,12 +246,14 @@ def run_generate(root: Path, ctx: JobContext, request: dict) -> dict:
                 return generation_result(completed, count, failures)
     finally:
         pipe.close()
+        ctx.memory("pipeline_closed")
     return generation_result(completed, count, failures)
 
 
 def run_plan(root: Path, ctx: JobContext, request: dict) -> dict:
     destination = ctx.job_dir / "artifacts" / "plan"
     pipe = create_pipe(root, request)
+    pipe.on_stage_progress, pipe.on_memory = ctx.progress, ctx.memory
     try:
         kwargs = generation_kwargs(request)
         kwargs.pop("semantic_sampling", None)
@@ -176,6 +265,7 @@ def run_plan(root: Path, ctx: JobContext, request: dict) -> dict:
                 "request": plan.request.to_dict()}
     finally:
         pipe.close()
+        ctx.memory("pipeline_closed")
 
 
 def load_semantic(source: Path):
@@ -230,6 +320,7 @@ def run_semantic(root: Path, ctx: JobContext, request: dict) -> dict:
     plan = SymbolicPlan.load(plan_path)
     destination = ctx.job_dir / "artifacts" / "semantic"
     pipe = create_pipe(root, request)
+    pipe.on_stage_progress, pipe.on_memory = ctx.progress, ctx.memory
     try:
         ctx.update("semantic", tokens=0)
         semantic = pipe.generate_semantic(plan, sampling=request.get("semantic_sampling"),
@@ -245,6 +336,7 @@ def run_semantic(root: Path, ctx: JobContext, request: dict) -> dict:
                 "tokens": len(semantic.tokens), "manifest": str(manifest)}
     finally:
         pipe.close()
+        ctx.memory("pipeline_closed")
 
 
 def run_synthesize(root: Path, ctx: JobContext, request: dict) -> dict:
@@ -253,6 +345,7 @@ def run_synthesize(root: Path, ctx: JobContext, request: dict) -> dict:
     destination = ctx.job_dir / "artifacts" / "synthesis"
     destination.mkdir(parents=True, exist_ok=True)
     pipe = create_pipe(root, request)
+    pipe.on_stage_progress, pipe.on_memory = ctx.progress, ctx.memory
     try:
         assert_provenance(semantic_manifest, root, pipe.weights)
         ctx.update("synthesis")
@@ -278,6 +371,7 @@ def run_synthesize(root: Path, ctx: JobContext, request: dict) -> dict:
                 "frames": int(latents.shape[0]), "manifest": str(latent_manifest)}
     finally:
         pipe.close()
+        ctx.memory("pipeline_closed")
 
 
 def run_decode(root: Path, ctx: JobContext, request: dict) -> dict:
@@ -304,6 +398,7 @@ def run_decode(root: Path, ctx: JobContext, request: dict) -> dict:
     destination = ctx.job_dir / "artifacts" / "decode"
     destination.mkdir(parents=True, exist_ok=True)
     pipe = create_pipe(root, request)
+    pipe.on_stage_progress, pipe.on_memory = ctx.progress, ctx.memory
     try:
         assert_provenance(latent_manifest, root, pipe.weights)
         ctx.update("decoding")
@@ -323,6 +418,7 @@ def run_decode(root: Path, ctx: JobContext, request: dict) -> dict:
                 "manifest": str(decode_manifest)}
     finally:
         pipe.close()
+        ctx.memory("pipeline_closed")
 
 
 def run_render_plan(root: Path, ctx: JobContext, request: dict) -> dict:
@@ -343,34 +439,17 @@ def run_render_plan(root: Path, ctx: JobContext, request: dict) -> dict:
     plan = SymbolicPlan.load(plan_dir)
     destination = ctx.job_dir / "artifacts" / "song"
     pipe = create_pipe(root, request)
+    pipe.on_stage_progress, pipe.on_memory = ctx.progress, ctx.memory
+    ctx.root = root
     try:
-        from yue2.pipeline import SongResult
-        from yue2.storage import identity
-        ctx.update("semantic", tokens=0)
-        semantic = pipe.generate_semantic(plan, sampling=request.get("semantic_sampling"),
-                                          cancelled=ctx.cancelled, on_token=ctx.token)
-        ctx.check_cancelled()
-        ctx.update("synthesis")
-        start = time.perf_counter()
-        latents = pipe.synthesize(semantic, cancelled=ctx.cancelled)
-        nar_seconds = time.perf_counter() - start
-        ctx.check_cancelled()
-        ctx.update("decoding")
-        start = time.perf_counter()
-        audio = pipe.decode(latents)
-        ctx.check_cancelled()
-        config = pipe.effective_config(plan.request, None, request.get("semantic_sampling"))
-        request_identity = identity({"request": plan.request.to_dict(), "config": config, "weights": pipe.weights})
-        result = SongResult(audio, 48000, semantic, latents, config, pipe.weights,
-                            {"abc": plan.timing, "semantic": semantic.timing, "nar_seconds": nar_seconds,
-                             "vae_seconds": time.perf_counter() - start, "load": dict(pipe.load_timing)},
-                            request_identity)
-        result.save_artifacts(destination)
-        ctx.check_cancelled()
+        generated = {**request, **plan.request.to_dict()}
+        receipt, result = generate_one(pipe, ctx, generated, destination, plan.request.seed, initial_plan=plan)
         return {"audio": str(destination / "audio.flac"), "artifact_dir": str(destination),
-                "truncated": result.truncated, "abc": result.abc}
+                "truncated": result.truncated, "abc": result.abc, "audio_seconds": receipt["audio_seconds"]}
+
     finally:
         pipe.close()
+        ctx.memory("pipeline_closed")
 
 
 def run_doctor(root: Path, ctx: JobContext, request: dict) -> dict:

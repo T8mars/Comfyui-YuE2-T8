@@ -62,7 +62,11 @@ ComfyUI/custom_nodes/yue2-t8/models/VOICE_MODEL_MANIFEST.json
 
 ### 更新
 
-GitHub Release 只包含代码，不包含模型、Python 运行时或用户作品。版本资产提供 SHA256 和 `update-manifest.json`；后续自动更新将读取 GitHub `releases/latest`，并保留 `models`、`outputs`、`uploads`、`exports`、`logs`、`cache`、`settings.json` 与 `retention.json`。
+GitHub Release 只包含代码，不包含模型、Python 运行时或用户作品。自动更新入口为 [最新版本清单](https://github.com/T8mars/Comfyui-YuE2-T8/releases/latest/download/update-manifest.json)：更新程序应检查版本、下载清单指定的 ZIP 并验证 SHA256，再保留清单中的模型、运行环境、作品和设置。代码包保留与 1.1.4 相同的单层顶目录结构。清单用于更新程序读取，不会自行停止正在运行的服务或安装文件。
+
+手动更新前请先结束任务、运行 `stop_service.bat` 并退出 ComfyUI，将 ZIP 顶目录内的代码覆盖到原安装目录，随后重新启动。已有模型无需重新下载；原来关闭 `offload_ar` 的工作流请手动启用它，随包示例已默认启用。
+
+1.1.5 修复 Windows 长曲声学合成的显存峰值，默认按查询分块并卸载闲置 AR 权重；参考音色翻唱改为后台持久任务，支持阶段保存和恢复。完成后当前页面直接显示播放器、时长及下载按钮，刷新或切换页面后仍保留最近作品。详见 [验证记录](VALIDATION.md)。
 
 ### 使用
 

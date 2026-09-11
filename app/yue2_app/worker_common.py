@@ -21,6 +21,7 @@ class JobContext:
         self.last_token_update = 0.0
         self.token_phase: str | None = None
         self.token_count = 0
+        self.last_stage = None
 
     def cancelled(self) -> bool:
         return self.cancel_path.exists()
@@ -30,14 +31,41 @@ class JobContext:
             raise Cancelled("用户已取消任务")
 
     def update(self, stage: str, **extra) -> None:
+        if stage != self.last_stage:
+            extra.setdefault("progress", None)
+            extra.setdefault("completed", None)
+            extra.setdefault("total", None)
+            self.last_stage = stage
         current = {}
         try:
             import json
             current = json.loads(self.status_path.read_text(encoding="utf-8"))
         except (FileNotFoundError, ValueError):
             pass
-        current.update({"status": "running", "stage": stage, "updated_at": time.time(), **extra})
+        cancelling = self.cancelled()
+        current.update({"status": "cancelling" if cancelling else "running",
+                        "stage": "cancelling" if cancelling else stage, "updated_at": time.time(), **extra})
         atomic_json(self.status_path, current)
+
+    def progress(self, stage: str, completed: int, total: int) -> None:
+        self.check_cancelled()
+        self.update(stage, completed=completed, total=total,
+                    progress=completed / max(1, total))
+
+    def memory(self, event: str, **extra) -> None:
+        import json
+        import sys
+        torch = sys.modules.get("torch")
+        if torch is None or not torch.cuda.is_available():
+            return
+        free, total = torch.cuda.mem_get_info()
+        record = {"time": time.time(), "event": event,
+                  "free_gib": free / 2**30, "total_gib": total / 2**30,
+                  "allocated_gib": torch.cuda.memory_allocated() / 2**30,
+                  "reserved_gib": torch.cuda.memory_reserved() / 2**30,
+                  "peak_allocated_gib": torch.cuda.max_memory_allocated() / 2**30, **extra}
+        with (self.job_dir / "resources.jsonl").open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(record, ensure_ascii=False) + "\n")
 
     def token(self, phase: str, _token: int) -> None:
         if phase != self.token_phase:
@@ -70,10 +98,17 @@ class JobContext:
             current = json.loads(self.status_path.read_text(encoding="utf-8"))
         except (FileNotFoundError, ValueError):
             pass
+        current["failed_stage"] = current.get("stage")
         current.update({"status": status, "stage": status, "updated_at": time.time(),
                         "finished_at": time.time(), "error_type": type(exc).__name__, "error": str(exc),
                         "traceback": traceback.format_exc()[-12000:]})
         atomic_json(self.status_path, current)
+        try:
+            self.memory("failed", failed_stage=current["failed_stage"])
+        except Exception:
+            pass
+        import sys
+        print(current["traceback"], file=sys.stderr, flush=True)
 
 
 def configure_environment(root: Path) -> None:

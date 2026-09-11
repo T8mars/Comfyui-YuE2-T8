@@ -38,6 +38,7 @@
   </nav>
 
   <main>
+    <section id="latest-task" class="results hidden" aria-live="polite" aria-label="最近任务结果"></section>
     <section id="task-center" class="task-center hidden" aria-live="polite" aria-label="任务进度">
       <header class="task-center-head">
         <div><span class="task-center-label">任务进度</span><h2>正在处理你的音乐</h2></div>
@@ -80,6 +81,7 @@
 
     <section id="create" class="panel active">
       <div class="section-title"><div><span>01</span><h2>从歌词生成完整歌曲</h2></div><p>默认先规划旋律与和弦，再合成 48 kHz 双声道音频。</p></div>
+      <div id="create-result" class="results" aria-live="polite"></div>
       <form id="create-form" class="grid-form">
         <label class="wide">风格提示<textarea name="style" rows="3" required>Mandarin pop, warm female vocal, piano, strings, emotional chorus, 92 BPM</textarea></label>
         <label class="wide">歌词<textarea name="lyrics" rows="13" required>[Verse]
@@ -100,15 +102,17 @@
         <details class="wide advanced"><summary>高级设置</summary><div class="advanced-grid">
           <label>运行后端<select name="backend"><option value="torch-eager">兼容模式</option><option value="torch">CUDA Graph 加速</option></select></label>
           <label>显存预算 GiB<input name="memory_budget_gib" type="number" step="0.5" min="12" max="24" value="23.5"></label>
-          <label class="check"><input name="offload_ar" type="checkbox">NAR 阶段卸载 AR</label>
+          <label class="check"><input name="offload_ar" type="checkbox" checked>声学合成时释放闲置模型显存</label>
+          <label>声学计算块<input name="nar_query_chunk_size" type="number" min="1" max="1024" step="1" value="256"></label>
+          <label>声学后端<select name="nar_attention"><option value="sdpa">自动（显存保护）</option><option value="math">兼容模式</option><option value="cudnn">cuDNN</option></select></label>
         </div></details>
         <button id="create-button" class="primary wide" type="submit" data-idle-label="生成歌曲">生成歌曲</button>
       </form>
-      <div id="create-result" class="results"></div>
     </section>
 
     <section id="plan" class="panel">
       <div class="section-title"><div><span>02</span><h2>先写谱，再渲染</h2></div><p>原始计划可以精确恢复；编辑后的 ABC 会作为一个新版本重新生成整首歌。</p></div>
+      <div id="plan-result" class="results" aria-live="polite"></div>
       <form id="plan-form" class="grid-form">
         <label class="wide">风格提示<textarea name="style" rows="3" required>English soul ballad, expressive lead vocal, Rhodes piano, bass, brushed drums</textarea></label>
         <label class="wide">歌词<textarea name="lyrics" rows="9" required>[Verse]
@@ -131,11 +135,11 @@ This melody still waits for you</textarea></label>
           <button id="render-plan" class="primary" data-idle-label="渲染完整歌曲">渲染完整歌曲</button>
         </div>
       </div>
-      <div id="plan-result" class="results"></div>
     </section>
 
     <section id="cover" class="panel">
       <div class="section-title"><div><span>03</span><h2>旋律重制与参考音色翻唱</h2></div><p>先从原曲提取旋律，再选择只重制歌曲，或把新歌人声转换成参考音色。</p></div>
+      <div id="cover-result" class="results" aria-live="polite"></div>
       <div class="upload-box" id="drop-zone">
         <input id="cover-file" type="file" accept="audio/*">
         <b>选择 WAV、FLAC、MP3、M4A、OGG 或 AAC</b>
@@ -180,7 +184,6 @@ This melody still waits for you</textarea></label>
         </div>
       </div>
       <div id="cover-intermediate" class="results"></div>
-      <div id="cover-result" class="results"></div>
     </section>
 
     <section id="history" class="panel">

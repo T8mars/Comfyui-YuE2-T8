@@ -1,6 +1,19 @@
 # YuE2 Music T8 validation
 
-Validation date: 2026-09-11. Host: Windows, NVIDIA GeForce RTX 5090 Laptop GPU. The release service reports version 1.1.4.
+Validation date: 2026-09-11. Host: Windows, NVIDIA GeForce RTX 5090 Laptop GPU (24 GB). Historical results below are version-specific.
+
+## 1.1.5 long-song memory and result visibility validation
+
+- Replayed the original failing generation input without shortening the 280.999-second source transcription, lyrics, style or seed. The complete generation, separation, 30-step reference conversion and remix produced a 300.399-second 48 kHz stereo FLAC in 759.93 seconds. Generated duration may differ from the source. BF16, CFG and solver steps were retained; FP8 was not used.
+- Generation peak active PyTorch allocation was 8.513 GiB; reference conversion peaked at 4.030 GiB in its separate worker. NAR offload moved 4.034 GiB of model weights to CPU and reduced active GPU allocation from 7.799 to 3.764 GiB at that boundary. Actual query tiles were at most 256 rows, with bounded math and cuDNN execution and zero OOM retries.
+- Three consecutive workflows used 30/120/30-second source excerpts and produced 29.879/103.039/30.639-second covers in 120.92/282.99/149.75 seconds, excluding queue and transcription time. Their generation peaks were 7.795/7.899/7.796 GiB. All child processes began with the same 22.495 GiB available; no task-to-task accumulation was observed. Final idle GPU usage was 404 MiB. These are observations on this host, not guarantees under arbitrary external GPU load.
+- A separate real workflow was cancelled at NAR step 2/32, then resumed from semantic checkpoints and completed. Every semantic checkpoint file retained its SHA256. Atomic checkpoint tests also cover interrupted writes and decoding failures that resume latents without repeating sampling.
+- A real browser submitted the reference-cover flow, refreshed and closed while it ran; the backend still completed. The final player appeared above the current cover form, playback advanced, its downloaded FLAC matched the backend file hash, and a reload restored the same page and result. Mock API browser checks separately cover failure/log/recovery controls, tab switching, polling without replacing the player, and 390 px layout.
+- CUDA BF16 regressions compare 128/256/512 query rows, and attention tests cover GQA, full visible keys, absolute causal masks, partial final blocks, bounded OOM retry and unavailable fused kernels. Saved ComfyUI examples now explicitly enable AR offload and use automatic attention with 256-row tiles.
+- Runtime, model weights, original recordings, generated audio and private job logs are excluded from the published source and code ZIP. Public test summaries report measurements without bundling user media.
+- The clean release checkout ran 41 automated tests: 39 passed and two skipped because model files and the voice runtime's SciPy dependency are not included in the code checkout. JavaScript syntax and Git whitespace checks passed. The development installation separately passed the model-presence check and installer preservation regression.
+
+Validation limits: the separate existing 1.1.4 desktop service has not been replaced or restarted, and the updated nodes have not yet been reloaded in that running ComfyUI installation. These local installation checks remain separate from the source release. Audio finiteness, level and whole-second silence checks passed, but subjective listening and voice-similarity review have not been performed. The release does not claim those checks.
 
 ## 1.1.4 configurable model directory validation
 

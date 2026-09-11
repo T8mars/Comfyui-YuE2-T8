@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import mimetypes
+import math
 import os
 import queue
 import re
@@ -38,6 +39,7 @@ TERMINAL = {"complete", "failed", "cancelled"}
 CORE_KINDS = {"generate", "plan", "render_plan", "semantic", "synthesize", "decode", "doctor"}
 TRANSCRIBE_KINDS = {"transcribe"}
 VOICE_KINDS = {"voice_convert"}
+WORKFLOW_KINDS = {"reference_cover"}
 GENERATION_KINDS = CORE_KINDS - {"doctor"}
 JOB_ID_PATTERN = re.compile(r"\d{8}-\d{6}-[0-9a-f]{8}")
 _LOG_LOCK = threading.Lock()
@@ -164,7 +166,7 @@ def terminate_recorded_worker(status: dict, job_id: str) -> None:
         return
     script = (
         f"$p=Get-CimInstance Win32_Process -Filter 'ProcessId={pid}' -ErrorAction SilentlyContinue;"
-        f"if($p -and $p.CommandLine -match 'app\\.yue2_app\\.(core_worker|transcribe_worker|voice_worker)' "
+        f"if($p -and $p.CommandLine -match 'app\\.yue2_app\\.(core_worker|transcribe_worker|voice_worker|workflow_worker)' "
         f"-and $p.CommandLine -like '*{job_id}*'){{taskkill.exe /PID {pid} /T /F | Out-Null}}"
     )
     subprocess.run(["powershell.exe", "-NoProfile", "-Command", script], check=False,
@@ -202,8 +204,9 @@ class JobStore:
                 continue
             if status.get("status") not in TERMINAL:
                 terminate_recorded_worker(status, directory.name)
+                status["failed_stage"] = status.get("stage")
                 status.update({"status": "failed", "stage": "failed", "finished_at": time.time(),
-                               "error": "服务重启时任务仍未结束，请重新提交"})
+                               "error": "服务重启中断了任务，可使用恢复按钮继续已保存的阶段"})
                 atomic_json(directory / "status.json", status)
             self.jobs[job["id"]] = status
 
@@ -214,7 +217,7 @@ class JobStore:
         if kind == "transcribe":
             name = Path(str(request.get("source_path", ""))).name
             return f"转谱 {name}" if name else "从音频提取旋律与乐谱"
-        if kind == "voice_convert":
+        if kind in {"voice_convert", "reference_cover"}:
             name = Path(str(request.get("reference_path", ""))).name
             return f"参考音色翻唱 · {name}" if name else "参考音色翻唱"
         if kind == "render_plan":
@@ -230,19 +233,57 @@ class JobStore:
         }.get(kind, "本地音乐任务")
 
     def create(self, kind: str, request: dict, *, source: str = "api",
-               client_request_id: str | None = None) -> dict:
-        if kind not in CORE_KINDS | TRANSCRIBE_KINDS | VOICE_KINDS:
+               client_request_id: str | None = None, result_panel: str | None = None) -> dict:
+        if kind not in CORE_KINDS | TRANSCRIBE_KINDS | VOICE_KINDS | WORKFLOW_KINDS:
             raise ValueError(f"不支持的任务类型：{kind}")
         if not isinstance(request, dict):
             raise ValueError("request 必须是对象")
         capabilities = runtime_ready().get("capabilities", {})
-        if kind in GENERATION_KINDS and not capabilities.get("generation"):
+        if kind in GENERATION_KINDS | WORKFLOW_KINDS and not capabilities.get("generation"):
             raise ValueError("歌曲生成组件不完整：缺少 YuE2 推理源码或核心模型，请重新解压完整整合包")
         if kind in TRANSCRIBE_KINDS and not capabilities.get("transcription"):
             raise ValueError("音频转谱组件不完整，请重新解压完整整合包")
-        if kind in VOICE_KINDS and not capabilities.get("voice_conversion"):
+        if kind in VOICE_KINDS | WORKFLOW_KINDS and not capabilities.get("voice_conversion"):
             raise ValueError("参考音色组件不完整：请检查 Seed-VC、Demucs 与 voice 运行环境")
+        request = json.loads(json.dumps(request))
+        generation = request.get("generate") if kind in WORKFLOW_KINDS else request
+        if kind in WORKFLOW_KINDS:
+            if not isinstance(generation, dict) or not isinstance(request.get("voice"), dict):
+                raise ValueError("翻唱需要 generate 和 voice 两组参数")
+            from .voice_worker import _audio_path, _number
+            import soundfile as sf
+            reference = _audio_path(ROOT, request["voice"].get("reference_path"), reference=True)
+            try:
+                duration = sf.info(reference).duration
+            except RuntimeError as exc:
+                raise ValueError("参考声音不是可读取的音频文件") from exc
+            if not 1 <= duration <= 30:
+                raise ValueError("参考音色需要 1–30 秒清晰干声")
+            for key, default, low, high in (
+                ("diffusion_steps", 30, 4, 50), ("cfg_rate", .7, 0, 1.5),
+                ("semi_tone_shift", 0, -12, 12), ("vocal_gain_db", 0, -18, 12),
+                ("accompaniment_gain_db", 0, -18, 12)):
+                _number(request["voice"], key, default, low, high)
+            generation["candidates"] = 1
+        if kind in GENERATION_KINDS | WORKFLOW_KINDS:
+            generation.setdefault("offload_ar", True)
+            generation.setdefault("nar_attention", "sdpa")
+            generation.setdefault("nar_query_chunk_size", 256)
+            if type(generation["offload_ar"]) is not bool:
+                raise ValueError("offload_ar 必须是布尔值")
+            if generation["nar_attention"] not in {"sdpa", "math", "flash", "cudnn"}:
+                raise ValueError("不支持的声学注意力后端")
+            rows = generation["nar_query_chunk_size"]
+            if type(rows) is not int or not 1 <= rows <= 1024:
+                raise ValueError("声学计算分块必须是 1–1024 的整数")
+            budget = float(generation.get("memory_budget_gib", 23.5))
+            if not math.isfinite(budget) or budget <= 2:
+                raise ValueError("显存预算必须是大于 2 GiB 的有限数值")
         source = source if source in {"webui", "comfyui", "api"} else "api"
+        if result_panel not in {"create", "plan", "cover"}:
+            result_panel = ("cover" if kind in {"reference_cover", "voice_convert"} or
+                            (kind == "generate" and request.get("abc")) else
+                            "plan" if kind == "render_plan" else "create")
         client_request_id = str(client_request_id or "")[:128]
         with self.storage_lock:
             with self.lock:
@@ -266,10 +307,10 @@ class JobStore:
             directory.mkdir(parents=True)
             now = time.time()
             job = {"id": job_id, "kind": kind, "request": request, "created_at": now,
-                   "source": source, "client_request_id": client_request_id}
+                   "source": source, "client_request_id": client_request_id, "result_panel": result_panel}
             status = {"id": job_id, "kind": kind, "status": "queued", "stage": "queued",
                       "created_at": now, "updated_at": now, "job_dir": str(directory),
-                      "source": source, "summary": self._summary(kind, request)}
+                      "source": source, "summary": self._summary(kind, request), "result_panel": result_panel}
             atomic_json(directory / "job.json", job)
             atomic_json(directory / "status.json", status)
             with self.lock:
@@ -286,9 +327,33 @@ class JobStore:
             status = json.loads(path.read_text(encoding="utf-8"))
             if status.get("id") != job_id:
                 raise ValueError("任务状态 ID 与目录不一致")
+            if "result_panel" not in status:
+                # Older installations stored the form context only in the request.
+                try:
+                    job = json.loads((directory / "job.json").read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    job = {}
+                kind = status.get("kind")
+                status["result_panel"] = ("cover" if kind in {"reference_cover", "voice_convert"} or
+                                          (kind == "generate" and job.get("request", {}).get("abc")) else
+                                          "plan" if kind == "render_plan" else "create")
             with self.lock:
                 self.jobs[job_id] = status
         return public_job(status)
+
+    def resume(self, job_id: str) -> dict:
+        with self.storage_lock:
+            status = self.get(job_id)
+            if status["status"] not in {"failed", "cancelled"}:
+                raise ValueError("只能恢复失败或取消的任务")
+            directory = job_directory(job_id)
+            job = json.loads((directory / "job.json").read_text(encoding="utf-8"))
+            if job["kind"] not in {"generate", "reference_cover", "voice_convert", "render_plan"}:
+                raise ValueError("这个任务类型暂不支持阶段恢复")
+            request = dict(job["request"])
+            request["resume_from"] = str(directory)
+            return self.create(job["kind"], request, source=job.get("source", "api"),
+                               result_panel=job.get("result_panel"))
 
     def list(self, limit: int = 100) -> list[dict]:
         with self.lock:
@@ -436,7 +501,9 @@ class JobStore:
                     continue
                 job = json.loads((directory / "job.json").read_text(encoding="utf-8"))
                 kind = job["kind"]
-                if kind in TRANSCRIBE_KINDS:
+                if kind in WORKFLOW_KINDS:
+                    python, module = CORE_PYTHON, "app.yue2_app.workflow_worker"
+                elif kind in TRANSCRIBE_KINDS:
                     python, module = TRANSCRIBE_PYTHON, "app.yue2_app.transcribe_worker"
                 elif kind in VOICE_KINDS:
                     python, module = VOICE_PYTHON, "app.yue2_app.voice_worker"
@@ -627,6 +694,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(202, STORE.create(
                     data.get("kind", "generate"), data.get("request", {}),
                     source=data.get("source", "api"), client_request_id=data.get("client_request_id"),
+                    result_panel=data.get("result_panel"),
                 ))
             if path == "/api/retention/cleanup":
                 return self._json(200, STORE.cleanup_retention(force=True))
@@ -657,6 +725,8 @@ class Handler(BaseHTTPRequestHandler):
                                      stderr=subprocess.DEVNULL)
                 return self._json(200, {"ok": True, "path": str(target)})
             pieces = path.split("/")
+            if len(pieces) == 5 and pieces[1:3] == ["api", "jobs"] and pieces[4] == "resume":
+                return self._json(202, STORE.resume(pieces[3]))
             if len(pieces) == 5 and pieces[1:3] == ["api", "jobs"] and pieces[4] == "cancel":
                 job_id = pieces[3]
                 data = self._body_json(1024) if int(self.headers.get("Content-Length", "0")) else {}

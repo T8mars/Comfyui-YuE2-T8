@@ -10,6 +10,7 @@ from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from numbers import Integral
 from typing import Callable, Sequence
+import gc
 
 import torch
 import torch.nn.functional as F
@@ -48,14 +49,15 @@ def song_chunks(prefix, codec, seed, context=CONTEXT):
             for a, b in ranges]
 
 
-def attention(q, k, v, *, causal=False, backend="sdpa", query_chunk_size=None):
+def attention(q, k, v, *, causal=False, backend="sdpa", query_chunk_size=None,
+              cancelled=None, stats=None):
     """Attend [tokens, heads, dim] tensors without materializing a song mask.
 
     CPU/MPS bound the number of query rows for a potential math SDPA fallback.
     CUDA normally uses PyTorch's fused SDPA without an external flash package.
     """
-    if backend not in {"sdpa", "math", "flash"}:
-        raise ValueError("attention must be sdpa, math, or flash")
+    if backend not in {"sdpa", "math", "flash", "cudnn"}:
+        raise ValueError("attention must be sdpa, math, flash, or cudnn")
     if q.ndim != 3 or k.ndim != 3 or v.shape != k.shape or q.shape[-1] != k.shape[-1]:
         raise ValueError("Expected Q/K/V [tokens, heads, dim] with matching K/V")
     if min(q.shape) < 1 or min(k.shape) < 1 or q.shape[1] % k.shape[1]:
@@ -67,7 +69,17 @@ def attention(q, k, v, *, causal=False, backend="sdpa", query_chunk_size=None):
     if query_chunk_size is not None and (isinstance(query_chunk_size, bool) or
                                         not isinstance(query_chunk_size, Integral) or query_chunk_size < 1):
         raise ValueError("query_chunk_size must be a positive integer")
-    block = query_chunk_size or (len(q) if q.device.type == "cuda" and backend != "math" else 256)
+    # A CUDA device does not imply a fused SDPA kernel (notably Windows GQA).
+    # Always bound the math fallback, retaining the complete visible key set.
+    block = min(query_chunk_size or 256, len(q))
+    if q.device.type == "cuda":
+        free, total = torch.cuda.mem_get_info(q.device)
+        fraction = getattr(torch.cuda, "get_per_process_memory_fraction", lambda device: 1.0)(q.device)
+        available = min(free, total * fraction - torch.cuda.memory_reserved(q.device))
+        # Reserve room for repeated GQA K/V, output and allocator workspaces.
+        available -= 256 * 2**20 + 2 * k.numel() * (q.shape[1] // k.shape[1]) * 4
+        row_bytes = 4 * q.shape[1] * len(k) * 4
+        block = min(block, max(1, int(max(0, available) / row_bytes)))
     query = q.transpose(0, 1).unsqueeze(0)
     key = k.transpose(0, 1).unsqueeze(0)
     value = v.transpose(0, 1).unsqueeze(0)
@@ -76,35 +88,77 @@ def attention(q, k, v, *, causal=False, backend="sdpa", query_chunk_size=None):
         groups = query.shape[1] // key.shape[1]
         key, value = key.repeat_interleave(groups, 1), value.repeat_interleave(groups, 1)
         grouped = False
-    context = nullcontext()
-    if backend != "sdpa":
-        from torch.nn.attention import SDPBackend, sdpa_kernel
-        context = sdpa_kernel(SDPBackend.MATH if backend == "math" else SDPBackend.FLASH_ATTENTION)
-    outputs = []
-    with context:
-        for start in range(0, len(q), block):
-            end = min(start + block, len(q))
-            used_key = key[..., :end, :] if causal else key
-            used_value = value[..., :end, :] if causal else value
-            # is_causal on a rectangular Q/K uses an upper-left triangle, so a
-            # later query block needs its absolute query positions explicitly.
-            mask = None
-            if causal and start:
-                mask = (torch.arange(end, device=q.device)[None, :] <=
-                        torch.arange(start, end, device=q.device)[:, None])
-            outputs.append(F.scaled_dot_product_attention(
-                query[..., start:end, :], used_key, used_value,
-                attn_mask=mask, is_causal=causal and start == 0, enable_gqa=grouped,
-            ))
-    return torch.cat(outputs, dim=-2)[0].transpose(0, 1)
+    from torch.nn.attention import SDPBackend, sdpa_kernel
+    selected = backend
+    if selected == "sdpa":
+        selected = "math"
+        if q.device.type == "cuda":
+            params = torch.backends.cuda.SDPAParams(query, key, value, None, 0., causal, grouped)
+            if torch.backends.cuda.can_use_flash_attention(params):
+                selected = "flash"
+            elif not causal and torch.backends.cuda.can_use_cudnn_attention(params):
+                selected = "cudnn"
+    kernels = {"math": SDPBackend.MATH, "flash": SDPBackend.FLASH_ATTENTION,
+               "cudnn": SDPBackend.CUDNN_ATTENTION}
+    output = torch.empty_like(query)
+    start, retries = 0, 0
+    while start < len(q):
+        if cancelled is not None and cancelled():
+            raise InterruptedError("Cancelled during acoustic attention")
+        end = min(start + block, len(q))
+        used_key = key[..., :end, :] if causal else key
+        used_value = value[..., :end, :] if causal else value
+        mask = None
+        if causal and start:
+            mask = (torch.arange(end, device=q.device)[None, :] <=
+                    torch.arange(start, end, device=q.device)[:, None])
+        retry = False
+        try:
+            with sdpa_kernel(kernels[selected]):
+                output[..., start:end, :] = F.scaled_dot_product_attention(
+                    query[..., start:end, :], used_key, used_value,
+                    attn_mask=mask, is_causal=causal and start == 0, enable_gqa=grouped)
+        except torch.OutOfMemoryError as exc:
+            if block <= 1 or retries >= 3:
+                raise
+            exc.__traceback__ = None
+            retries += 1
+            block = max(1, block // 2)
+            retry = True
+        except RuntimeError as exc:
+            # Unsupported fused shapes must not fall back to an unbounded call.
+            unsupported = any(s in str(exc).lower() for s in (
+                "no available kernel", "no viable backend", "not supported", "not_supported",
+                "no execution plans", "no valid execution plans"))
+            if backend != "sdpa" or selected == "math" or not unsupported:
+                raise
+            exc.__traceback__ = None
+            selected = "math"
+            retry = True
+        if retry:
+            del mask
+            gc.collect()
+            if q.device.type == "cuda":
+                torch.cuda.empty_cache()
+            continue
+        if stats is not None:
+            stats[selected] = stats.get(selected, 0) + 1
+            stats["max_query_rows"] = max(stats.get("max_query_rows", 0), end - start)
+            stats["min_query_rows"] = min(stats.get("min_query_rows", end - start), end - start)
+        start = end
+    if stats is not None:
+        stats["oom_retries"] = stats.get("oom_retries", 0) + retries
+    return output[0].transpose(0, 1)
 
 
 class CachedNAR:
     """One original acoustic chunk; AR prefix KV is invariant during the ODE."""
 
-    def __init__(self, model, chunk: Chunk, attention="sdpa", query_chunk_size=None):
+    def __init__(self, model, chunk: Chunk, attention="sdpa", query_chunk_size=None,
+                 cancelled=None, stats=None):
         self.model, self.chunk = model, chunk
         self.backend, self.query_chunk_size = attention, query_chunk_size
+        self.cancelled, self.stats = cancelled, stats
         weight = next(model.vae2llm.parameters())
         self.device, self.dtype = weight.device, weight.dtype
         if chunk.noise.ndim != 2 or chunk.noise.shape[1] != 64 or len(chunk.noise) < 1:
@@ -127,7 +181,8 @@ class CachedNAR:
         self._prefill()
 
     def _attention(self, q, k, v, causal=False):
-        return attention(q, k, v, causal=causal, backend=self.backend, query_chunk_size=self.query_chunk_size)
+        return attention(q, k, v, causal=causal, backend=self.backend,
+                         query_chunk_size=self.query_chunk_size, cancelled=self.cancelled, stats=self.stats)
 
     @torch.inference_mode()
     def _prefill(self):
@@ -228,7 +283,8 @@ def _offload_ar(model, enabled):
 def synthesize(model, prefix: Sequence[int], codec: Sequence[int], seed: int,
                steps=32, context=CONTEXT, attention="sdpa", offload_ar=False,
                cancelled=None, query_chunk_size=None,
-               on_progress: Callable[[int, int], None] | None = None):
+               on_progress: Callable[[int, int], None] | None = None,
+               on_memory=None, stats=None):
     """Return CPU FP32 [frames,64] latents, solving original chunks serially.
 
     Defaults preserve the release protocol. Explicit steps/context overrides
@@ -245,11 +301,20 @@ def synthesize(model, prefix: Sequence[int], codec: Sequence[int], seed: int,
     for chunk_index, chunk in enumerate(chunks):
         if cancelled is not None and cancelled():
             raise InterruptedError("Cancelled before acoustic prefill")
-        engine = CachedNAR(model, chunk, attention, query_chunk_size)
+        engine = CachedNAR(model, chunk, attention, query_chunk_size, cancelled, stats)
+        if on_memory:
+            on_memory("nar_prefill", chunk=chunk_index + 1, chunks=len(chunks))
         # Drop the prefix cache before restoring AR weights, including on
         # cancellation/failure, to keep the restoration memory peak bounded.
         with _offload_ar(model, offload_ar):
             try:
+                if on_memory:
+                    sizes = {}
+                    for parameter in model.parameters():
+                        device = parameter.device.type
+                        sizes[device] = sizes.get(device, 0) + parameter.numel() * parameter.element_size()
+                    on_memory("nar_offloaded", offload_ar=offload_ar,
+                              model_gib_by_device={device: size / 2**30 for device, size in sizes.items()})
                 progress = None
                 if on_progress is not None:
                     def progress(completed, total):

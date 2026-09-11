@@ -374,6 +374,10 @@ def main(args):
     generated_wave_chunks = []
     # generate chunk by chunk and stream the output
     while processed_frames < cond.size(1):
+        if getattr(args, "cancelled", None) and args.cancelled():
+            raise InterruptedError("Cancelled during voice conversion")
+        if getattr(args, "progress_callback", None):
+            args.progress_callback(int(processed_frames), int(cond.size(1)))
         chunk_cond = cond[:, processed_frames:processed_frames + max_source_window]
         is_last_chunk = processed_frames + max_source_window >= cond.size(1)
         cat_condition = torch.cat([prompt_condition, chunk_cond], dim=1)
@@ -406,6 +410,8 @@ def main(args):
             generated_wave_chunks.append(output_wave)
             previous_chunk = vc_wave[0, -overlap_wave_len:]
             processed_frames += vc_target.size(2) - overlap_frame_len
+    if getattr(args, "progress_callback", None):
+        args.progress_callback(int(cond.size(1)), int(cond.size(1)))
     vc_wave = torch.tensor(np.concatenate(generated_wave_chunks))[None, :].float()
     time_vc_end = time.time()
     print(f"RTF: {(time_vc_end - time_vc_start) / vc_wave.size(-1) * sr}")

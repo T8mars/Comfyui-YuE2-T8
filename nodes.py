@@ -12,7 +12,9 @@ CATEGORY = "YuE2 音乐"
 
 def base_request(model: dict) -> dict:
     return {"backend": model["backend"], "memory_budget_gib": model["memory_budget_gib"],
-            "offload_ar": model.get("offload_ar", False)}
+            "offload_ar": model.get("offload_ar", True),
+            "nar_attention": model.get("nar_attention", "sdpa"),
+            "nar_query_chunk_size": model.get("nar_query_chunk_size", 256)}
 
 
 def audio_value(path: str):
@@ -55,14 +57,17 @@ class YuE2ModelLoader:
         return {"required": {
             "backend": (["torch-eager", "torch"], {"default": "torch-eager"}),
             "memory_budget_gib": ("FLOAT", {"default": 23.5, "min": 12.0, "max": 24.0, "step": 0.5}),
-            "offload_ar": ("BOOLEAN", {"default": False}),
+            "offload_ar": ("BOOLEAN", {"default": True}),
+        }, "optional": {
+            "nar_attention": (["sdpa", "math", "cudnn"], {"default": "sdpa"}),
+            "nar_query_chunk_size": ("INT", {"default": 256, "min": 1, "max": 1024}),
         }}
     RETURN_TYPES = ("YUE2_MODEL", "STRING")
     RETURN_NAMES = ("model", "status")
     FUNCTION = "load"
     CATEGORY = CATEGORY
 
-    def load(self, backend, memory_budget_gib, offload_ar):
+    def load(self, backend, memory_budget_gib, offload_ar, nar_attention="sdpa", nar_query_chunk_size=256):
         health = client.ensure_service()
         ready = health["ready"]
         missing = [name for name in ("model", "vae") if not ready["models"].get(name)]
@@ -76,7 +81,8 @@ class YuE2ModelLoader:
                 details.append("模型 " + ", ".join(missing))
             raise RuntimeError("YuE2 生成环境未就绪：缺少 " + "、".join(details))
         handle = {"backend": backend, "memory_budget_gib": float(memory_budget_gib),
-                  "offload_ar": bool(offload_ar), "service": client.SERVICE}
+                  "offload_ar": bool(offload_ar), "service": client.SERVICE,
+                  "nar_attention": nar_attention, "nar_query_chunk_size": int(nar_query_chunk_size)}
         return (handle, json.dumps(health, ensure_ascii=False))
 
 

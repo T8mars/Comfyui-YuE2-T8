@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.5 - 2026-09-11
+
+- Bound NAR attention query tiles on CUDA, select supported fused kernels explicitly, and fall back to bounded math with limited OOM retries. Enable AR offload by default without truncating songs or changing BF16, seeds, CFG, or solver steps.
+- Save verified plan, semantic and latent checkpoints; resume failed generation and exact-plan rendering without repeating completed stages.
+- Run reference-cover generation and conversion as a persistent backend workflow with sequential GPU workers, cancellation, stage progress and resource logs.
+- Save and verify voice separation/conversion checkpoints; preserve a visible result or failure card across browser refreshes and provide recovery buttons.
+- Show completed audio, duration and a direct download above the current page's form. Persist its page association and selected tab, restore older cover results, and preserve the player during polling.
+- Add regressions for attention correctness, OOM bounds, cancellation, checkpoint integrity, workflow ordering, page refresh and mobile failure display.
+
 ## 1.1.4 - 2026-09-11
 
 - Add an in-page model directory setting with the active path, bundled-default reset, folder opener, model layout guidance, and a direct Hugging Face link.

@@ -121,10 +121,19 @@ class SongResult:
 class YuE2Pipeline:
     def __init__(self, model_dir, vae_dir, *, device="auto", memory_budget_gib=24,
                  backend="torch", generation_config=None, verify_hashes=True,
-                 vae_core_frames=None, quantization="none", offload_ar=False, progress=True):
+                 vae_core_frames=None, quantization="none", offload_ar=True, progress=True,
+                 nar_attention="sdpa", nar_query_chunk_size=256, on_stage_progress=None,
+                 on_memory=None):
         if not isinstance(progress, bool):
             raise TypeError("progress must be True or False")
         self.progress = progress
+        if nar_attention not in {"sdpa", "math", "flash", "cudnn"}:
+            raise ValueError("Invalid NAR attention backend")
+        if type(nar_query_chunk_size) is not int or not 1 <= nar_query_chunk_size <= 1024:
+            raise ValueError("nar_query_chunk_size must be in 1..1024")
+        self.nar_attention, self.nar_query_chunk_size = nar_attention, nar_query_chunk_size
+        self.on_stage_progress, self.on_memory = on_stage_progress, on_memory
+        self.nar_stats = {}
         if backend not in {"torch", "torch-eager", "vllm"}:
             raise ValueError("backend must be torch, torch-eager, or vllm")
         if quantization not in {"none", "fp8"}:
@@ -296,11 +305,17 @@ class YuE2Pipeline:
             restore_ar(self._model)
         model = self._load_model(for_nar=True)
         with self._status("Synthesizing audio", unit="steps") as status:
-            report = (lambda completed, total: status.update(completed, total=total)) if self.progress else None
+            def report(completed, total):
+                if self.progress:
+                    status.update(completed, total=total)
+                if self.on_stage_progress:
+                    self.on_stage_progress("synthesis", completed, total)
             result = synthesize(model, semantic.plan.prefix, semantic.tokens,
                                 semantic.plan.request.seed, steps=self.generation_config.ode_steps,
                                 context=self.generation_config.context, offload_ar=self.offload_ar,
-                                cancelled=cancelled, on_progress=report)
+                                attention=self.nar_attention, query_chunk_size=self.nar_query_chunk_size,
+                                cancelled=cancelled, on_progress=report, on_memory=self.on_memory,
+                                stats=self.nar_stats)
             return result.detach().float().cpu().numpy()
 
     def close(self):
@@ -339,7 +354,11 @@ class YuE2Pipeline:
         try:
             tiles = 1 if full else (z.shape[-1] + self.vae_core_frames - 1) // self.vae_core_frames
             with self._status("Decoding audio", total=tiles, unit="chunks") as status:
-                report = (lambda completed, total: status.update(completed, total=total)) if self.progress else None
+                def report(completed, total):
+                    if self.progress:
+                        status.update(completed, total=total)
+                    if self.on_stage_progress:
+                        self.on_stage_progress("decoding", completed, total)
                 with torch.inference_mode():
                     if full:
                         audio = model.decode(z.to(self.device)).cpu()
@@ -372,6 +391,7 @@ class YuE2Pipeline:
                 "vae_core_frames": self.vae_core_frames, "vae_halo_frames": 16,
                 "device": str(self.device), "memory_budget_gib": self.memory_budget_gib,
                 "offload_ar": self.offload_ar, "runtime_sha256": self.runtime_sha256,
+                "nar_attention": self.nar_attention, "nar_query_chunk_size": self.nar_query_chunk_size,
                 "decoder_release": json.loads((self.vae_dir / "config.json").read_text()).get("release_variant"),
                 "validation_status": "unvalidated"}
 
