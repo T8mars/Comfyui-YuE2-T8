@@ -1,6 +1,11 @@
 # YuE2 Music T8 validation
 
-Validation date: 2026-09-11. Host: Windows, NVIDIA GeForce RTX 5090 Laptop GPU. The current service and workers report version 1.1.1.
+Validation date: 2026-09-11. Host: Windows, NVIDIA GeForce RTX 5090 Laptop GPU. The current service and workers report version 1.1.2.
+
+## 1.1.2 multi-installation launcher validation
+
+- When a different idle YuE2 installation owns port 8189, the launcher verifies its state file, service command line, and exact Python executable before switching to the requested installation.
+- Running and queued jobs prevent automatic switching and remain untouched; the launcher reports the protected job and queue size.
 
 ## 1.1.1 launcher validation
 

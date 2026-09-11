@@ -10,7 +10,7 @@ from pathlib import Path
 
 SERVICE_CONFIGURED = bool(os.environ.get("YUE2_SERVICE"))
 SERVICE = os.environ.get("YUE2_SERVICE", "http://127.0.0.1:8189").rstrip("/")
-__version__ = "1.1.1"
+__version__ = "1.1.2"
 
 
 def find_root() -> Path:

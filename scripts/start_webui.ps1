@@ -27,13 +27,47 @@ try { $Health = Invoke-RestMethod -Uri "$ServiceUrl/api/health" -TimeoutSec 2 } 
 if ($Health -and $Health.ok -eq $true) {
     $ActualRoot = [IO.Path]::GetFullPath([string]$Health.root).TrimEnd('\')
     if ($ActualRoot -ine $KitRoot.TrimEnd('\')) {
-        throw "端口 8189 已被另一套 YuE2 占用：$ActualRoot"
+        $Queued = [int]$Health.queued
+        $CurrentJob = $Health.current_job
+        if ($CurrentJob -or $Queued -gt 0) {
+            $JobId = if ($CurrentJob -and $CurrentJob.id) { [string]$CurrentJob.id } else { '等待中的任务' }
+            throw "另一套 YuE2 正在处理 $JobId，后面还有 $Queued 个排队任务。为避免中断任务，本次没有自动切换；请任务结束后重新启动。"
+        }
+        Write-Host "[YuE2] 检测到另一套空闲服务：$ActualRoot" -ForegroundColor Yellow
+        Write-Host '[YuE2] 正在安全切换到当前节点目录...' -ForegroundColor Cyan
+        $OtherStatePath = Join-Path $ActualRoot 'server.json'
+        if (-not (Test-Path -LiteralPath $OtherStatePath)) {
+            throw "无法确认另一套服务的进程信息，请在 $ActualRoot 中先运行停止脚本。"
+        }
+        $OtherState = Get-Content -LiteralPath $OtherStatePath -Raw | ConvertFrom-Json
+        $OtherPid = [int]$OtherState.pid
+        $OtherProcess = Get-CimInstance Win32_Process -Filter "ProcessId=$OtherPid" -ErrorAction SilentlyContinue
+        $ExpectedOtherPython = [IO.Path]::GetFullPath((Join-Path $ActualRoot 'runtime\core\python.exe'))
+        if (-not $OtherProcess -or
+            $OtherProcess.CommandLine -notmatch 'app\.yue2_app\.service' -or
+            [IO.Path]::GetFullPath([string]$OtherProcess.ExecutablePath) -ine $ExpectedOtherPython) {
+            throw "无法安全识别占用端口的进程，请在 $ActualRoot 中先运行停止脚本。"
+        }
+        & taskkill.exe /PID $OtherPid /T /F | Out-Null
+        if ($LASTEXITCODE -ne 0 -and (Get-Process -Id $OtherPid -ErrorAction SilentlyContinue)) {
+            throw "无法停止另一套 YuE2 服务进程 $OtherPid。"
+        }
+        Remove-Item -LiteralPath $OtherStatePath -Force -ErrorAction SilentlyContinue
+        $SwitchDeadline = (Get-Date).AddSeconds(10)
+        do {
+            Start-Sleep -Milliseconds 300
+            $OtherStillRunning = $false
+            try { $OtherStillRunning = (Invoke-RestMethod -Uri "$ServiceUrl/api/health" -TimeoutSec 1).ok -eq $true } catch { }
+        } while ($OtherStillRunning -and (Get-Date) -lt $SwitchDeadline)
+        if ($OtherStillRunning) { throw '另一套 YuE2 服务未能在 10 秒内停止。' }
+        Write-Host '[YuE2] 已切换，正在启动当前节点目录。' -ForegroundColor Green
+    } else {
+        if ([string]$Health.version -ne $ExpectedVersion) {
+            throw "后台服务版本为 $($Health.version)，当前节点版本为 $ExpectedVersion。请先运行 stop_service.bat 后重试。"
+        }
+        $Running = $true
+        Write-Host "[YuE2] 后台服务已在运行，版本 $ExpectedVersion。" -ForegroundColor Green
     }
-    if ([string]$Health.version -ne $ExpectedVersion) {
-        throw "后台服务版本为 $($Health.version)，当前节点版本为 $ExpectedVersion。请先运行 stop_service.bat 后重试。"
-    }
-    $Running = $true
-    Write-Host "[YuE2] 后台服务已在运行，版本 $ExpectedVersion。" -ForegroundColor Green
 }
 if (-not $Running) {
     Write-Host "[YuE2] 正在启动后台服务，版本 $ExpectedVersion..." -ForegroundColor Cyan

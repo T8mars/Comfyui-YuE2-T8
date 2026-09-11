@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.2 - 2026-09-11
+
+- Automatically switch from another idle YuE2 installation that already owns port 8189 after verifying the exact service process and executable path.
+- Refuse to switch while the other installation has a running or queued task, and identify the protected task in the launcher message.
+
 ## 1.1.1 - 2026-09-11
 
 - Add a native `YuE2-T8.exe` launcher for the standalone Windows bundle, while keeping the batch launcher as a compatibility entry point.
