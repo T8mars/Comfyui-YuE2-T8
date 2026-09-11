@@ -6,6 +6,7 @@ import hashlib
 from pathlib import Path
 
 from .model_verify import PINNED_MODELS
+from .settings import model_directory, settings_info
 
 
 def kit_root() -> Path:
@@ -14,7 +15,6 @@ def kit_root() -> Path:
 
 
 ROOT = kit_root()
-MODELS = ROOT / "models"
 OUTPUTS = ROOT / "outputs" / "jobs"
 UPLOADS = ROOT / "uploads"
 LOGS = ROOT / "logs"
@@ -37,8 +37,8 @@ def upstream_path(root: Path | None = None) -> Path:
     return next((path for path in candidates if (path / "yue2").is_dir()), candidates[0])
 
 
-def model_paths(root: Path | None = None) -> dict[str, Path]:
-    models = (root / "models") if root is not None else MODELS
+def model_paths(root: Path | None = None, *, strict: bool = True) -> dict[str, Path]:
+    models = model_directory((root or ROOT).resolve(), strict=strict)
     return {
         "model": models / "YuE2-3B",
         "vae": models / "YuE2-Vae",
@@ -47,8 +47,8 @@ def model_paths(root: Path | None = None) -> dict[str, Path]:
     }
 
 
-def voice_model_paths(root: Path | None = None) -> dict[str, Path]:
-    models = (root / "models") if root is not None else MODELS
+def voice_model_paths(root: Path | None = None, *, strict: bool = True) -> dict[str, Path]:
+    models = model_directory((root or ROOT).resolve(), strict=strict)
     return {"seed_vc": models / "Seed-VC", "demucs": models / "Demucs"}
 
 
@@ -89,8 +89,10 @@ def _render_assets_ready(directory: Path) -> bool:
 def runtime_ready(root: Path | None = None) -> dict[str, object]:
     base = root.resolve() if root is not None else ROOT
     runtime = base / "runtime"
-    paths = model_paths(base)
-    voice_paths = voice_model_paths(base)
+    configured = settings_info(base)
+    paths = model_paths(base, strict=False)
+    voice_paths = voice_model_paths(base, strict=False)
+    models_root = Path(str(configured["model_directory"]))
     required = {
         "model": ("model.safetensors", "config.json", "qwen.tiktoken", "yue2_generation_config.json"),
         "vae": ("model.safetensors", "config.json", "modeling_vae.py"),
@@ -125,7 +127,7 @@ def runtime_ready(root: Path | None = None) -> dict[str, object]:
         voice_paths["demucs"] / "955717e8.safetensors",
         voice_paths["demucs"] / "955717e8.json",
         voice_paths["demucs"] / "htdemucs.yaml",
-        base / "models" / "VOICE_MODEL_MANIFEST.json",
+        models_root / "VOICE_MODEL_MANIFEST.json",
     )
     voice_models = all(_nonempty(path) for path in voice_files)
     voice_source = all(_nonempty(base / "vendor" / "seed-vc" / filename)
@@ -140,14 +142,17 @@ def runtime_ready(root: Path | None = None) -> dict[str, object]:
         "voice_models": voice_models,
         "voice_source": voice_source,
         "upstream_source": all(_nonempty(source / filename) for filename in ("__init__.py", "pipeline.py")),
+        "model_directory": str(models_root),
+        "model_repository": configured["model_repository"],
+        "settings_error": configured["error"],
     }
     result["capabilities"] = {
-        "generation": bool(result["core_python"] and result["upstream_source"]
+        "generation": bool(not configured["error"] and result["core_python"] and result["upstream_source"]
                            and models["model"] and models["vae"]),
-        "transcription": bool(result["transcribe_python"] and result["ffmpeg"]
+        "transcription": bool(not configured["error"] and result["transcribe_python"] and result["ffmpeg"]
                               and models["sheetsage"] and models["mert"]),
-        "score_renderer": bool(result["renderer"]),
-        "voice_conversion": bool(voice_python and voice_models and voice_source
+        "score_renderer": bool(not configured["error"] and result["renderer"]),
+        "voice_conversion": bool(not configured["error"] and voice_python and voice_models and voice_source
                                  and result["ffmpeg"]),
     }
     return result

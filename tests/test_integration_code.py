@@ -20,6 +20,7 @@ from app.yue2_app.core_worker import generation_kwargs, generation_result, run_d
 from app.yue2_app.io import atomic_json, public_job, within
 from app.yue2_app.model_verify import PINNED_MODELS, REQUIRED_FILES, verify_bundle
 from app.yue2_app.retention import RetentionManager
+from app.yue2_app.settings import model_directory, save_model_directory, settings_info
 from app.yue2_app.service import (
     JobStore,
     acquire_instance_lock,
@@ -34,6 +35,30 @@ from app.yue2_app.voice_worker import remix_audio
 
 
 class IntegrationCodeTests(unittest.TestCase):
+    def test_model_directory_setting_supports_another_drive_layout(self):
+        with tempfile.TemporaryDirectory(dir=ROOT) as directory:
+            root = Path(directory)
+            external = root / "external-models"
+            info = save_model_directory(root, external)
+            self.assertEqual(model_directory(root), external.resolve())
+            self.assertEqual(model_paths(root)["model"], external.resolve() / "YuE2-3B")
+            self.assertFalse(info["using_default"])
+            self.assertEqual(info["model_repository"], "https://huggingface.co/t8star/YuE2-Comfy")
+            self.assertEqual(json.loads((root / "settings.json").read_text())["schema"], 1)
+            default = save_model_directory(root, "")
+            self.assertTrue(default["using_default"])
+            self.assertEqual(model_directory(root), (root / "models").resolve())
+
+    def test_invalid_model_directory_setting_is_visible_and_disables_capabilities(self):
+        with tempfile.TemporaryDirectory(dir=ROOT) as directory:
+            root = Path(directory)
+            (root / "settings.json").write_text("[]", encoding="utf-8")
+            info = settings_info(root)
+            ready = runtime_ready(root)
+            self.assertIn("JSON 对象", info["error"])
+            self.assertTrue(ready["settings_error"])
+            self.assertFalse(any(ready["capabilities"].values()))
+
     def test_worker_failure_uses_final_exception_message(self):
         with tempfile.TemporaryDirectory(dir=ROOT) as directory:
             log = Path(directory) / "job.log"

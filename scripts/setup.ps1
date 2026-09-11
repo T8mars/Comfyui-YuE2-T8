@@ -1,10 +1,27 @@
 param(
     [switch]$SkipRenderer,
-    [switch]$Force
+    [switch]$Force,
+    [string]$ModelsDirectory = ''
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $KitRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$SettingsPath = Join-Path $KitRoot 'settings.json'
+$DefaultModels = Join-Path $KitRoot 'models'
+if (-not $ModelsDirectory -and (Test-Path -LiteralPath $SettingsPath)) {
+    $SavedSettings = Get-Content -LiteralPath $SettingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($SavedSettings.model_directory) { $ModelsDirectory = [string]$SavedSettings.model_directory }
+}
+if (-not $ModelsDirectory) { $ModelsDirectory = $DefaultModels }
+if (-not [IO.Path]::IsPathRooted($ModelsDirectory)) { $ModelsDirectory = Join-Path $KitRoot $ModelsDirectory }
+$Models = [IO.Path]::GetFullPath($ModelsDirectory)
+if ((Test-Path -LiteralPath $Models) -and -not (Get-Item -LiteralPath $Models).PSIsContainer) {
+    throw "模型路径不是文件夹：$Models"
+}
+New-Item -ItemType Directory -Force $Models | Out-Null
+if ($PSBoundParameters.ContainsKey('ModelsDirectory')) {
+    [ordered]@{schema = 1; model_directory = $Models} | ConvertTo-Json | Set-Content -LiteralPath $SettingsPath -Encoding utf8
+}
 $Downloads = Join-Path $KitRoot 'downloads'
 $Runtime = Join-Path $KitRoot 'runtime'
 $Core = Join-Path $Runtime 'core'
@@ -81,8 +98,9 @@ Assert-ExitCode 'Core Torch install'
 & $CorePython -m pip install -r (Join-Path $KitRoot 'requirements-core.txt')
 Assert-ExitCode 'YuE2 core dependencies install'
 
-Write-Host 'Downloading YuE2 model bundle from Hugging Face'
-& $CorePython -X utf8 -m huggingface_hub.commands.huggingface_cli download t8star/YuE2-Comfy --revision a083f106499daead99259dd0c443a5494254cfc5 --local-dir (Join-Path $KitRoot 'models')
+Write-Host "Downloading YuE2 model bundle to $Models"
+Write-Host 'Model repository: https://huggingface.co/t8star/YuE2-Comfy'
+& $CorePython -X utf8 -m huggingface_hub.commands.huggingface_cli download t8star/YuE2-Comfy --revision a083f106499daead99259dd0c443a5494254cfc5 --local-dir $Models
 Assert-ExitCode 'YuE2 model bundle download'
 & $CorePython -X utf8 (Join-Path $KitRoot 'scripts\verify_models.py') --root $KitRoot
 Assert-ExitCode 'YuE2 model bundle verification'
@@ -148,4 +166,5 @@ $Manifest = [ordered]@{
     ffmpeg = (Join-Path $FfmpegDir 'ffmpeg.exe')
 }
 $Manifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Runtime 'installed.json') -Encoding utf8
-Write-Host "`nInstallation complete. Run the local launcher in $KitRoot" -ForegroundColor Green
+Write-Host "`nInstallation complete. Models: $Models" -ForegroundColor Green
+Write-Host "Run the local launcher in $KitRoot" -ForegroundColor Green

@@ -14,6 +14,7 @@ import soundfile as sf
 
 from .artifacts import write_artifact_manifest
 from .io import atomic_json, sha256, within
+from .settings import model_directory
 from .worker_common import JobContext, configure_environment
 
 
@@ -90,7 +91,7 @@ def remix_audio(converted_vocal: Path, accompaniment: Path, destination: Path, *
 
 def _run_seed_vc(root: Path, source: Path, reference: Path, output: Path, request: dict) -> Path:
     source_root = root / "vendor" / "seed-vc"
-    model_root = root / "models" / "Seed-VC"
+    model_root = model_directory(root, strict=True) / "Seed-VC"
     os.environ["SEED_VC_MODEL_ROOT"] = str(model_root)
     sys.path.insert(0, str(source_root))
     previous = Path.cwd()
@@ -129,7 +130,7 @@ def _separate_vocals(root: Path, source: Path, ctx: JobContext,
     from demucs.apply import BagOfModels
     from demucs.hf import load_safetensors_model
 
-    model_root = root / "models" / "Demucs"
+    model_root = model_directory(root, strict=True) / "Demucs"
     bag_config = yaml.safe_load((model_root / "htdemucs.yaml").read_text(encoding="utf-8"))
     model = load_safetensors_model(model_root / "955717e8.safetensors")
     bag = BagOfModels([model], bag_config.get("weights"), bag_config.get("segment"))
@@ -220,7 +221,9 @@ def main(argv=None) -> int:
                 "duration_seconds": round(reference_seconds, 3),
             },
         }
-        voice_manifest = json.loads((root / "models" / "VOICE_MODEL_MANIFEST.json").read_text(encoding="utf-8-sig"))
+        voice_manifest = json.loads(
+            (model_directory(root, strict=True) / "VOICE_MODEL_MANIFEST.json").read_text(encoding="utf-8-sig")
+        )
         manifest_path, _ = write_artifact_manifest(
             output, "reference_cover_manifest.json", "yue2-reference-cover-v1",
             ["audio.flac", "converted_vocal.wav", "separated_vocal.wav", "accompaniment.wav"],

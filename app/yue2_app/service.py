@@ -32,6 +32,7 @@ from .config import (
 )
 from .io import atomic_json, public_job, within
 from .retention import RetentionManager
+from .settings import model_directory, save_model_directory, settings_info
 
 TERMINAL = {"complete", "failed", "cancelled"}
 CORE_KINDS = {"generate", "plan", "render_plan", "semantic", "synthesize", "decode", "doctor"}
@@ -564,6 +565,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/health":
                 return self._json(200, {"ok": True, "version": __version__, "root": str(ROOT),
                                         "ready": runtime_ready(), **STORE.state()})
+            if path == "/api/settings":
+                return self._json(200, settings_info(ROOT))
             if path == "/api/jobs":
                 limit = int(urllib.parse.parse_qs(parsed.query).get("limit", ["100"])[0])
                 return self._json(200, {"jobs": STORE.list(limit)})
@@ -627,10 +630,22 @@ class Handler(BaseHTTPRequestHandler):
                 ))
             if path == "/api/retention/cleanup":
                 return self._json(200, STORE.cleanup_retention(force=True))
+            if path == "/api/settings":
+                data = self._body_json(16 * 1024)
+                state = STORE.state()
+                if state.get("current_job") or int(state.get("queued", 0)):
+                    raise ValueError("有任务正在运行或排队，请等待任务结束后再更改模型路径")
+                configured = save_model_directory(ROOT, data.get("model_directory"))
+                return self._json(200, {**configured, "ready": runtime_ready()})
             if path == "/api/open-directory":
                 data = self._body_json(1024)
                 directory = str(data.get("directory", ""))
-                choices = {"logs": LOGS, "outputs": ROOT / "outputs", "exports": ROOT / "exports"}
+                choices = {
+                    "logs": LOGS,
+                    "outputs": ROOT / "outputs",
+                    "exports": ROOT / "exports",
+                    "models": model_directory(ROOT, strict=True),
+                }
                 if directory not in choices:
                     raise ValueError("不支持打开这个目录")
                 target = choices[directory].resolve()

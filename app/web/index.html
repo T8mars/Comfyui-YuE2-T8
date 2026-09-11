@@ -54,6 +54,30 @@
       </div>
     </section>
 
+    <details id="model-settings" class="model-settings">
+      <summary>
+        <span><b>模型位置与安装说明</b><small id="model-path-summary">正在读取当前模型目录…</small></span>
+        <span class="settings-action">查看 / 更改</span>
+      </summary>
+      <div class="model-settings-body">
+        <div class="model-settings-copy">
+          <h3>模型文件夹</h3>
+          <p>默认使用整合包内的 <code>models</code>。需要节省当前磁盘空间时，可以填写其他硬盘上的绝对路径；更改前请先等待所有任务结束。</p>
+          <p>所选文件夹需要直接包含 <code>YuE2-3B</code>、<code>YuE2-Vae</code>、<code>SheetSage2</code>、<code>MERT-v2-FullSong</code>、<code>Seed-VC</code>、<code>Demucs</code> 以及两个模型清单。</p>
+          <a href="https://huggingface.co/t8star/YuE2-Comfy" target="_blank" rel="noreferrer">打开 Hugging Face 模型仓库</a>
+        </div>
+        <form id="model-settings-form" class="model-settings-form">
+          <label>当前模型目录<input id="model-directory" name="model_directory" type="text" spellcheck="false" autocomplete="off" placeholder="例如 D:\AI\YuE2-models"></label>
+          <div class="model-settings-actions">
+            <button id="save-model-directory" class="primary" type="submit">保存并检查</button>
+            <button id="default-model-directory" class="ghost" type="button">恢复默认目录</button>
+            <button class="ghost" type="button" onclick="openDirectory('models')">打开当前目录</button>
+          </div>
+          <small id="model-settings-result" class="meta" aria-live="polite"></small>
+        </form>
+      </div>
+    </details>
+
     <section id="create" class="panel active">
       <div class="section-title"><div><span>01</span><h2>从歌词生成完整歌曲</h2></div><p>默认先规划旋律与和弦，再合成 48 kHz 双声道音频。</p></div>
       <form id="create-form" class="grid-form">

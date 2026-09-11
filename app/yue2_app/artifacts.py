@@ -6,18 +6,19 @@ from pathlib import Path
 from . import __version__
 from .io import atomic_json, sha256, within
 from .model_verify import pinned_entries
+from .settings import model_directory
 
 ARTIFACT_SCHEMA = 1
 
 
 def declared_model_provenance(root: Path, names) -> dict:
-    manifest_path = root.resolve() / "models" / "MODEL_MANIFEST.json"
+    manifest_path = model_directory(root.resolve(), strict=True) / "MODEL_MANIFEST.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
     return {"bundle": manifest.get("bundle"), "models": pinned_entries(manifest, names)}
 
 
 def generation_provenance(root: Path, runtime_weights: dict) -> dict:
-    manifest_path = root.resolve() / "models" / "MODEL_MANIFEST.json"
+    manifest_path = model_directory(root.resolve(), strict=True) / "MODEL_MANIFEST.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
     selected = pinned_entries(manifest, ("YuE2-3B", "YuE2-Vae"))
     expected = {

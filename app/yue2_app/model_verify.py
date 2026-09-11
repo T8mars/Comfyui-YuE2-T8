@@ -5,6 +5,8 @@ import hashlib
 import json
 from pathlib import Path
 
+from .settings import model_directory
+
 REQUIRED_FILES = {
     "YuE2-3B": ("config.json", "qwen.tiktoken", "yue2_generation_config.json"),
     "YuE2-Vae": ("config.json", "modeling_vae.py"),
@@ -76,7 +78,7 @@ def sha256(path: Path) -> str:
 
 
 def verify_bundle(root: Path, progress: bool = True) -> dict:
-    models = root.resolve() / "models"
+    models = model_directory(root.resolve(), strict=True)
     manifest_path = models / "MODEL_MANIFEST.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
     entries = manifest.get("models")

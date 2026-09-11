@@ -6,7 +6,7 @@
 
 ## 中文说明
 
-YuE2 Music T8 把 YuE2-3B 完整歌曲生成接入 ComfyUI，并提供一个可单独使用的本地 WebUI。节点通过 `127.0.0.1:8189` 调用隔离的推理 worker，不会替换或污染 ComfyUI 自带的 Torch 环境。1.1.0 新增 Seed-VC + Demucs 零样本参考音色翻唱；1.1.1 新增 Windows EXE 启动器；1.1.2 可在端口被另一套空闲 YuE2 占用时自动安全切换；1.1.3 修复独立整合包缺少 YuE2 推理源码的问题，并可在页面直接查看任务日志。
+YuE2 Music T8 把 YuE2-3B 完整歌曲生成接入 ComfyUI，并提供一个可单独使用的本地 WebUI。节点通过 `127.0.0.1:8189` 调用隔离的推理 worker，不会替换或污染 ComfyUI 自带的 Torch 环境。1.1.0 新增 Seed-VC + Demucs 零样本参考音色翻唱；1.1.1 新增 Windows EXE 启动器；1.1.2 可在端口被另一套空闲 YuE2 占用时自动安全切换；1.1.3 修复独立整合包缺少 YuE2 推理源码的问题并提供页面日志；1.1.4 新增模型目录设置和无模型 GitHub Release 更新清单。
 
 主要功能：
 
@@ -39,7 +39,7 @@ git clone https://github.com/T8mars/Comfyui-YuE2-T8.git
 
 ### 模型放置路径
 
-模型统一发布在 [t8star/YuE2-Comfy](https://huggingface.co/t8star/YuE2-Comfy)。安装脚本固定使用已验证的模型提交 [`a083f1064`](https://huggingface.co/t8star/YuE2-Comfy/commit/a083f106499daead99259dd0c443a5494254cfc5)，并自动放到当前节点目录的 `models` 下。Registry 默认目录名为 `yue2-t8`，完整路径为：
+模型统一发布在 [t8star/YuE2-Comfy](https://huggingface.co/t8star/YuE2-Comfy)。安装脚本固定使用已验证的模型提交 [`a083f1064`](https://huggingface.co/t8star/YuE2-Comfy/commit/a083f106499daead99259dd0c443a5494254cfc5)。默认放到当前节点目录的 `models` 下；也可以在 WebUI 顶部展开“模型位置与安装说明”填写其他硬盘的绝对路径，或者双击 `configure_models.bat` 后再安装。当前路径保存在 `settings.json`。
 
 ```text
 ComfyUI/custom_nodes/yue2-t8/models/YuE2-3B/model.safetensors
@@ -53,6 +53,16 @@ ComfyUI/custom_nodes/yue2-t8/models/VOICE_MODEL_MANIFEST.json
 ```
 
 手动 Git clone 时，把上面的 `yue2-t8` 换成实际仓库目录名 `Comfyui-YuE2-T8`。不要把权重直接放入 ComfyUI 的 `checkpoints` 目录；代码需要保留六个模型子目录、配置文件及两个清单。
+
+如果使用自定义目录，该目录本身就是上面路径中的 `models`：六个子目录和 `MODEL_MANIFEST.json`、`VOICE_MODEL_MANIFEST.json` 必须直接位于其中。命令行安装也可使用：
+
+```powershell
+.\install_runtime.bat -ModelsDirectory "D:\AI\YuE2-models"
+```
+
+### 更新
+
+GitHub Release 只包含代码，不包含模型、Python 运行时或用户作品。版本资产提供 SHA256 和 `update-manifest.json`；后续自动更新将读取 GitHub `releases/latest`，并保留 `models`、`outputs`、`uploads`、`exports`、`logs`、`cache`、`settings.json` 与 `retention.json`。
 
 ### 使用
 
@@ -83,9 +93,9 @@ ComfyUI/custom_nodes/yue2-t8/models/VOICE_MODEL_MANIFEST.json
 
 ## English
 
-YuE2 Music T8 integrates YuE2-3B full-song generation with ComfyUI and includes a standalone local WebUI. Its local scheduler runs models in isolated Python workers, so installing the node does not replace ComfyUI's Torch packages. Version 1.1.0 adds zero-shot reference-voice covers using Seed-VC and Demucs. Version 1.1.1 adds a native Windows launcher. Version 1.1.2 safely switches from another idle YuE2 installation on port 8189 while protecting running and queued tasks. Version 1.1.3 restores the vendored YuE2 inference source in standalone bundles and exposes task logs directly in the WebUI.
+YuE2 Music T8 integrates YuE2-3B full-song generation with ComfyUI and includes a standalone local WebUI. Its local scheduler runs models in isolated Python workers, so installing the node does not replace ComfyUI's Torch packages. Version 1.1.4 adds a configurable model directory and code-only GitHub Release update metadata.
 
-Install it with `comfy node install yue2-t8`, then run `install_runtime.bat` once from the node directory and restart ComfyUI. Models are downloaded from [t8star/YuE2-Comfy](https://huggingface.co/t8star/YuE2-Comfy) into `<node-directory>/models`; keep all six model subdirectories and their configuration files. Windows and an NVIDIA GPU are required, with 24GB VRAM and 45GB free disk space recommended.
+Install it with `comfy node install yue2-t8`, then run `install_runtime.bat` once from the node directory and restart ComfyUI. Models are downloaded from [t8star/YuE2-Comfy](https://huggingface.co/t8star/YuE2-Comfy) into `<node-directory>/models`; use the WebUI model settings or `configure_models.bat` to place them on another drive. Keep all six model subdirectories and their configuration files. Windows and an NVIDIA GPU are required, with 24GB VRAM and 45GB free disk space recommended.
 
 The node pack supports Chinese and English lyrics, editable ABC plans, multi-candidate generation, SheetSage2 transcription, melody remake, Seed-VC reference-voice conversion, staged inference, per-task cancellation, history, and artifact export. The reference-voice workflow accepts a 1–30 second clean voice sample, separates the generated song with Demucs, converts the vocal, and remixes a 48 kHz stereo FLAC. Its page-integrated progress section identifies the current job and every queued job with stage, source, summary, and queue position. Example front-end workflows are in `workflows`.
 

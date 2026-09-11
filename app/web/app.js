@@ -5,6 +5,7 @@ const buttonBindings = new Map();
 let planState = null;
 let currentJobId = null;
 let workspaceRefreshing = false;
+let modelSettingsInitialized = false;
 
 async function api(path, options = {}) {
   const response = await fetch(path, options);
@@ -103,6 +104,39 @@ async function openDirectory(directory) {
 window.toggleJobLog = toggleJobLog;
 window.openDirectory = openDirectory;
 
+function renderModelSettings(data) {
+  $('#model-directory').value = data.model_directory || '';
+  $('#model-path-summary').textContent = `${data.using_default ? '默认目录' : '自定义目录'} · ${data.model_directory}`;
+  if (data.error) {
+    $('#model-settings-result').textContent = `配置有误，已临时使用默认目录：${data.error}`;
+    $('#model-settings').open = true;
+  }
+}
+
+async function loadModelSettings() {
+  try { renderModelSettings(await api('/api/settings')); }
+  catch (error) { $('#model-settings-result').textContent = `模型路径读取失败：${error.message}`; }
+}
+
+async function saveModelDirectory(value) {
+  const button = $('#save-model-directory');
+  button.disabled = true;
+  $('#model-settings-result').textContent = '正在保存并检查模型目录…';
+  try {
+    const data = await api('/api/settings', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({model_directory: value})
+    });
+    renderModelSettings(data);
+    const ready = data.ready?.capabilities || {};
+    const usable = ready.generation && ready.transcription && ready.voice_conversion;
+    $('#model-settings-result').textContent = usable ? '模型目录已保存，生成、转谱和参考音色均可用。' : '路径已保存，但模型尚不完整；请按左侧说明放置全部文件后运行自检。';
+    await refreshWorkspace();
+  } catch (error) {
+    $('#model-settings-result').textContent = `保存失败：${error.message}`;
+  } finally { button.disabled = false; }
+}
+
 function stepsFor(job) {
   const steps = {
     generate: [['starting', '加载模型'], ['planning', '创作乐谱'], ['semantic', '生成结构'], ['synthesis', '合成人声与伴奏'], ['decoding', '输出音频']],
@@ -196,7 +230,13 @@ function renderHealth(data) {
   const missing = [];
   if (!data.ready.capabilities?.generation) missing.push(data.ready.upstream_source ? '歌曲模型未就绪' : '缺少 YuE2 推理源码');
   if (!data.ready.capabilities?.transcription) missing.push('音频转谱未就绪');
+  if (data.ready.settings_error) missing.unshift('模型路径配置有误');
   $('#health-detail').textContent = `${missing.length ? missing.join(' · ') : '歌曲生成与音频转谱可用'} · ${voice} · ${renderer}`;
+  $('#model-path-summary').textContent = `当前目录 · ${data.ready.model_directory}`;
+  if (!modelSettingsInitialized) {
+    $('#model-settings').open = Boolean(data.ready.settings_error || !data.ready.capabilities?.generation);
+    modelSettingsInitialized = true;
+  }
 }
 
 async function refreshWorkspace() {
@@ -277,6 +317,17 @@ document.addEventListener('click', event => {
 });
 $('#open-history').onclick = openHistory;
 $('#task-center-jump').onclick = openTaskCenter;
+$('#model-settings-form').onsubmit = event => {
+  event.preventDefault();
+  saveModelDirectory($('#model-directory').value);
+};
+$('#default-model-directory').onclick = async () => {
+  try {
+    const data = await api('/api/settings');
+    $('#model-directory').value = data.default_model_directory;
+    await saveModelDirectory(data.default_model_directory);
+  } catch (error) { $('#model-settings-result').textContent = `恢复失败：${error.message}`; }
+};
 
 $('#create-form').onsubmit = async event => {
   event.preventDefault(); $('#create-result').innerHTML = '';
@@ -402,4 +453,4 @@ $('#doctor-button').onclick = async () => {
   catch (error) { action.dataset.result = `自检未通过 · ${error.message}`; }
 };
 
-refreshWorkspace(); loadHistory(); loadRetention(); setInterval(refreshWorkspace, 1200);
+refreshWorkspace(); loadModelSettings(); loadHistory(); loadRetention(); setInterval(refreshWorkspace, 1200);

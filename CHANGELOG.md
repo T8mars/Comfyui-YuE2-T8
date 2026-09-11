@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.4 - 2026-09-11
+
+- Add an in-page model directory setting with the active path, bundled-default reset, folder opener, model layout guidance, and a direct Hugging Face link.
+- Apply the configured model root consistently to generation, transcription, score rendering, reference-voice conversion, provenance, verification, and model downloads.
+- Add a command-line model path configurator and prepare code-only GitHub Release assets with checksums and a machine-readable update manifest that preserves models and user data.
+
 ## 1.1.3 - 2026-09-11
 
 - Restore the vendored YuE2 inference package in standalone archives so generation and reference-voice cover flows can start.

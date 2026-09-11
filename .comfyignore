@@ -5,3 +5,17 @@ CHANGELOG.md
 .vscode/
 vendor/seed-vc/campplus_cn_common.bin
 YuE2-T8.exe
+settings.json
+runtime/
+models/
+downloads/
+cache/
+outputs/
+uploads/
+exports/
+logs/
+server.json
+service.lock
+retention.json
+*.zip
+*.sha256

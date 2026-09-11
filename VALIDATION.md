@@ -1,6 +1,13 @@
 # YuE2 Music T8 validation
 
-Validation date: 2026-09-11. Host: Windows, NVIDIA GeForce RTX 5090 Laptop GPU. The current service and workers report version 1.1.3.
+Validation date: 2026-09-11. Host: Windows, NVIDIA GeForce RTX 5090 Laptop GPU. The release service reports version 1.1.4.
+
+## 1.1.4 configurable model directory validation
+
+- Added one page-integrated model setting shared by the WebUI, service workers, ComfyUI nodes, model verifiers, score renderer, and runtime installer. The setting stores only the chosen directory in `settings.json`; the default remains the bundle-local `models` folder.
+- A live 1.1.4 service switched from `E:\\yue2\\models` to the separate installed model folder `E:\\YuE2-T8-Local-v1.1.3-Windows-NVIDIA-20260911\\models`. Health reported generation, transcription, score rendering, and reference-voice conversion ready from the external path, then reported all four ready again after resetting to the default.
+- Release tests passed 25 checks with two expected environment skips. JavaScript syntax, Python compilation, PowerShell parsing, Git whitespace validation, and live settings API reads/writes passed.
+- Browser validation at 1280 px confirmed the collapsed setting shows the active path, the expanded panel exposes the exact six-subdirectory layout and Hugging Face link, and the page has no horizontal overflow or console errors.
 
 ## 1.1.3 standalone source and diagnostics validation
 

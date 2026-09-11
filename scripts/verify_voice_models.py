@@ -3,7 +3,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from app.yue2_app.settings import model_directory
 
 
 def digest(path: Path) -> str:
@@ -18,7 +23,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
     args = parser.parse_args()
-    models = args.root.resolve() / "models"
+    models = model_directory(args.root.resolve(), strict=True)
     manifest = json.loads((models / "VOICE_MODEL_MANIFEST.json").read_text(encoding="utf-8-sig"))
     checked = 0
     for component in manifest["components"].values():
