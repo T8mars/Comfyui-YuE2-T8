@@ -240,6 +240,45 @@ class AssistantTests(unittest.TestCase):
         for base in ("https://example.com", "https://example.com/v1", "https://example.com/v1/chat/completions"):
             self.assertEqual(data.endpoint({"provider": "compatible", "base_url": base}), "https://example.com/v1/chat/completions")
 
+    def test_provider_defaults_signup_links_and_model_list_routes_match_reference_node(self):
+        self.assertEqual(data.PROVIDERS["seedance"]["default_model"], "bytedance/doubao-seed-evolving")
+        self.assertEqual(data.PROVIDERS["workshop"]["default_model"], "gemini-3.5-flash")
+        self.assertEqual(data.PROVIDERS["seedance"]["signup_url"], "https://api.seedance.nz/sign-up?aff=5f4w")
+        self.assertEqual(data.PROVIDERS["workshop"]["signup_url"], "https://ai.t8star.org/register?aff=dP7j")
+        self.assertEqual(data.models_endpoint({"provider": "seedance"}), "https://api.seedance.nz/v1/models")
+        self.assertEqual(data.models_endpoint({"provider": "workshop"}), "https://ai.t8star.org/v1/models")
+        self.assertEqual(data.models_endpoint({"provider": "compatible", "base_url": "https://example.com/api/v3"}),
+                         "https://example.com/api/v3/models")
+        self.assertEqual(data.normalize_config({"provider": "workshop", "model": ""})["model"], "gemini-3.5-flash")
+
+    def test_remote_model_list_is_bounded_deduplicated_and_does_not_follow_redirects(self):
+        response = Mock(status_code=200)
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        response.iter_content.return_value = [json.dumps({"data": [
+            {"id": "model-b"}, {"id": "model-a"}, {"id": "model-b"}, {"missing": "id"}, "model-c"]}).encode()]
+        session = Mock()
+        session.get.return_value = response
+        result = data.fetch_remote_models({"provider": "compatible", "base_url": "http://127.0.0.1:9999/v1",
+                                           "model": "fixture"}, "fixture-secret", session=session)
+        self.assertEqual(result["models"], ["model-b", "model-a", "model-c"])
+        call = session.get.call_args
+        self.assertEqual(call.args[0], "http://127.0.0.1:9999/v1/models")
+        self.assertEqual(call.kwargs["headers"]["Authorization"], "Bearer fixture-secret")
+        self.assertFalse(call.kwargs["allow_redirects"])
+        self.assertTrue(call.kwargs["stream"])
+
+    def test_remote_model_list_rejects_errors_without_exposing_response_body(self):
+        response = Mock(status_code=401)
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        session = Mock()
+        session.get.return_value = response
+        with self.assertRaisesRegex(ValueError, "HTTP 401") as captured:
+            data.fetch_remote_models({"provider": "seedance"}, "fixture-secret", session=session)
+        self.assertNotIn("fixture-secret", str(captured.exception))
+        self.assertNotIn("upstream", str(captured.exception))
+
     def test_retry_score_uses_manually_edited_text_even_original_mode_generate(self):
         request = self.request(lyrics_mode=engine.GENERATE, abc_source=engine.ABC_GENERATE)
         request["final_fields"] = {"lyrics": "[Verse]\nMy edited words", "style": "English folk, edited guitar", "instrumental": False}

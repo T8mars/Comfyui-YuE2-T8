@@ -13,4 +13,6 @@
 .assistant-transfer-notice { position: fixed; z-index: 20; bottom: 24px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 16px; padding: 16px 22px; max-width: calc(100vw - 24px); background: #fff; box-shadow: 0 8px 40px #24274133; border: 1px solid #ddc2cf; border-radius: 14px; }
 .assistant-transfer-notice.hidden { display: none; }
 .assistant-inline-note { padding: 12px 0; }
-@media (max-width: 680px) { .assistant-settings-grid { grid-template-columns: 1fr; } .assistant-send { align-items: stretch; } .assistant-send button { width: 100%; } .assistant-transfer-notice { flex-wrap: wrap; bottom: 10px; width: calc(100vw - 24px); } }
+.assistant-provider-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.assistant-provider-actions a.ghost { display: inline-flex; align-items: center; text-decoration: none; }
+@media (max-width: 680px) { .assistant-settings-grid { grid-template-columns: 1fr; } .assistant-provider-actions .ghost { width: 100%; justify-content: center; } .assistant-send { align-items: stretch; } .assistant-send button { width: 100%; } .assistant-transfer-notice { flex-wrap: wrap; bottom: 10px; width: calc(100vw - 24px); } }

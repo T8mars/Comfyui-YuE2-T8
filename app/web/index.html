@@ -206,6 +206,11 @@ This melody still waits for you</textarea></label>
           <label>渠道<select name="provider" id="assistant-provider"></select></label>
           <label>API 模型名 / GGUF 文件<input name="model" id="assistant-model" list="assistant-models" autocomplete="off" placeholder="填写渠道模型名，或选择已有 GGUF"></label>
           <datalist id="assistant-models"></datalist>
+          <div class="assistant-provider-actions wide">
+            <button type="button" id="assistant-refresh-models" class="ghost compact">获取模型 LIST</button>
+            <a id="assistant-signup" class="ghost compact" target="_blank" rel="noopener noreferrer"></a>
+            <span id="assistant-model-list-status" class="meta" role="status"></span>
+          </div>
           <label class="wide" data-api-config>OpenAI 兼容地址<input name="base_url" id="assistant-base-url" type="url" placeholder="https://example.com/v1"></label>
           <label data-api-config>API Key<input id="assistant-key" type="password" autocomplete="new-password" placeholder="已保存的密钥不回显"></label>
           <div data-api-config><label class="check"><input id="assistant-remember-key" type="checkbox">在本机记住密钥</label><button type="button" id="assistant-delete-key" class="ghost compact">删除已保存凭据</button></div>

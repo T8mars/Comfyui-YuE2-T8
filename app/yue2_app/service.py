@@ -771,6 +771,11 @@ class Handler(BaseHTTPRequestHandler):
                 config = assistant_data.normalize_config(data.get("config", {}))
                 ident = CREDENTIALS.put(data.get("api_key"), assistant_data.endpoint(config), data.get("remember") is True)
                 return self._json(200, {"credential_id": ident})
+            if path == "/api/assistant/models":
+                data = self._body_json(32 * 1024)
+                config = assistant_data.normalize_config(data.get("config", {}))
+                secret = CREDENTIALS.get(config.get("credential_id", ""), assistant_data.endpoint(config))
+                return self._json(200, assistant_data.fetch_remote_models(config, secret))
             if path == "/api/assistant/drafts":
                 return self._json(200, assistant_data.save_draft(ROOT, self._body_json(1024 * 1024)))
             if path == "/api/assistant/validate-abc":

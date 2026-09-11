@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.1 - 2026-09-12
+
+- Add channel-specific default models: `bytedance/doubao-seed-evolving` for ZhenZhen Affordable AI Shop and `gemini-3.5-flash` for ZhenZhen AI Workshop.
+- Add searchable provider model choices and a bounded OpenAI-compatible `/models` refresh. A failed LIST request keeps the defaults and manual model-ID input available.
+- Add the two provider registration links beside the channel settings so users can obtain the matching API key without searching elsewhere.
+
 ## 1.2.0 - 2026-09-11
 
 - Add a standalone AI creation tab with the T8 project's pinned YuE2 skill rules, API provider options and isolated local GGUF support; no new ComfyUI nodes.

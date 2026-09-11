@@ -10,7 +10,7 @@ import re
 import threading
 import uuid
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from .io import atomic_json, within
 from .settings import model_directory
@@ -21,12 +21,20 @@ from .assistant_rules.provider_capabilities import normalize_extra_parameters
 LOCK = threading.RLock()
 PANELS = {"assistant", "create", "plan", "cover"}
 PROVIDERS = {
-    "seedance": {"label": "贞贞平价小屋", "base_url": "https://api.seedance.nz/v1"},
-    "workshop": {"label": "贞贞的 AI 工坊", "base_url": "https://ai.t8star.org/v1"},
-    "compatible": {"label": "OpenAI 兼容接口", "base_url": ""},
-    "local": {"label": "本地 GGUF · 离线", "base_url": ""},
+    "seedance": {"label": "贞贞平价小屋", "base_url": "https://api.seedance.nz/v1",
+                  "default_model": "bytedance/doubao-seed-evolving",
+                  "models": ["bytedance/doubao-seed-evolving"],
+                  "signup_url": "https://api.seedance.nz/sign-up?aff=5f4w"},
+    "workshop": {"label": "贞贞的 AI 工坊", "base_url": "https://ai.t8star.org/v1",
+                 "default_model": "gemini-3.5-flash", "models": ["gemini-3.5-flash"],
+                 "signup_url": "https://ai.t8star.org/register?aff=dP7j"},
+    "compatible": {"label": "OpenAI 兼容接口", "base_url": "", "default_model": "",
+                   "models": [], "signup_url": ""},
+    "local": {"label": "本地 GGUF · 离线", "base_url": "",
+              "default_model": "Qwen3.8-27B-Q4_K_M.gguf", "models": [], "signup_url": ""},
 }
-DEFAULT_CONFIG = {"provider": "seedance", "base_url": "https://api.seedance.nz/v1", "model": "",
+DEFAULT_CONFIG = {"provider": "seedance", "base_url": "https://api.seedance.nz/v1",
+                  "model": "bytedance/doubao-seed-evolving",
                   "credential_id": "", "max_tokens": 4096, "context_size": 16384,
                   "gpu_layers": 24, "threads": 4, "think": False, "temperature_policy": "auto",
                   "extra_parameters": {}, "stream": True, "llm_directory": ""}
@@ -57,11 +65,81 @@ def endpoint(config: dict) -> str:
     return value + ("/chat/completions" if re.search(r"/v\d+$", parsed.path, re.I) else "/v1/chat/completions")
 
 
+def models_endpoint(config: dict) -> str:
+    """Derive the standard OpenAI model-list route from the validated chat route."""
+    chat = endpoint(config)
+    if not chat:
+        raise ValueError("本地 GGUF 使用本机目录列表，不请求云端模型 LIST")
+    parsed = urlsplit(chat)
+    suffix = "/chat/completions"
+    if not parsed.path.endswith(suffix):
+        raise ValueError("无法从聊天地址推导模型 LIST 地址")
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path[:-len(suffix)] + "/models", "", ""))
+
+
+def fetch_remote_models(config: dict, secret: str, session=None) -> dict:
+    """Fetch a bounded OpenAI-compatible model list without exposing upstream bodies."""
+    import requests
+    config = normalize_config(config)
+    if config["provider"] == "local":
+        raise ValueError("本地模式请刷新 GGUF 目录")
+    own_session = session is None
+    client = session or requests.Session()
+    if own_session:
+        client.trust_env = False
+    url = models_endpoint(config)
+    headers = {"Accept": "application/json"}
+    if secret:
+        headers["Authorization"] = "Bearer " + secret
+    try:
+        try:
+            with client.get(url, headers=headers, timeout=(15, 60), allow_redirects=False, stream=True) as response:
+                if response.status_code != 200:
+                    raise ValueError(f"模型 LIST 接口返回 HTTP {response.status_code}；请检查渠道、Key 或改为手动填写模型 ID")
+                raw = bytearray()
+                for block in response.iter_content(64 * 1024):
+                    raw.extend(block)
+                    if len(raw) > 2 * 1024 * 1024:
+                        raise ValueError("模型 LIST 响应超过 2 MiB，已停止读取")
+        except requests.RequestException:
+            raise ValueError("模型 LIST 网络请求失败；已保留默认模型和手动填写") from None
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError):
+            raise ValueError("模型 LIST 接口没有返回有效 JSON") from None
+        source = payload.get("data") if isinstance(payload, dict) else None
+        if source is None and isinstance(payload, dict):
+            source = payload.get("models")
+        if not isinstance(source, list):
+            raise ValueError("模型 LIST 响应缺少 data/models 数组")
+        models = []
+        for item in source[:1000]:
+            identifier = item.get("id") if isinstance(item, dict) else item
+            if not isinstance(identifier, str):
+                continue
+            identifier = identifier.strip()
+            if (not identifier or len(identifier) > 512 or any(ch in identifier for ch in "\r\n")
+                    or engine.API_KEY_PATTERN.search(identifier)):
+                continue
+            if identifier not in models:
+                models.append(identifier)
+            if len(models) == 500:
+                break
+        if not models:
+            raise ValueError("模型 LIST 为空；仍可手动填写模型 ID")
+        return {"provider": config["provider"], "models": models, "source": "remote", "count": len(models)}
+    finally:
+        if own_session:
+            client.close()
+
+
 def normalize_config(value: dict) -> dict:
     if not isinstance(value, dict) or set(value) - set(DEFAULT_CONFIG):
         raise ValueError("LLM 配置包含未知字段；密钥请使用独立凭据入口")
     config = {**DEFAULT_CONFIG, **value}
     endpoint(config)
+    if not str(config.get("model", "")).strip():
+        config["model"] = PROVIDERS[config["provider"]]["default_model"]
     for key, low, high in (("max_tokens", 64, 32768), ("context_size", 512, 131072),
                            ("gpu_layers", -1, 200), ("threads", 1, 64)):
         item = config[key]

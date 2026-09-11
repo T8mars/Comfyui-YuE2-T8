@@ -1,6 +1,7 @@
 /* Standalone WebUI only. Drafts are revisioned; credentials never enter them. */
 const assistant = {config: null, defaults: {}, result: null, job: null, polling: false, originalLyrics: '', resultEdited: false, resultJobId: null,
-  drafts: {}, ticks: {assistant: 0, create: 0, plan: 0, cover: 0}, queues: {}, timers: {}, undo: null, sending: null};
+  drafts: {}, providers: {}, localModels: [], remoteModels: {}, providerSelections: {}, providerBaseUrls: {}, providerCredentials: {}, activeProvider: null,
+  ticks: {assistant: 0, create: 0, plan: 0, cover: 0}, queues: {}, timers: {}, undo: null, sending: null};
 const assistantPost = (path, value) => api(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(value)});
 const assistantText = (id, text) => { $(id).textContent = text; };
 const cloneText = value => JSON.parse(JSON.stringify(value));
@@ -123,17 +124,55 @@ function renderAbcState() {
 }
 function configFromForm() {
   const values = formFields($('#assistant-config-form'));
-  values.credential_id = assistant.config?.credential_id || '';
+  values.credential_id = assistant.providerCredentials[values.provider] || '';
   values.extra_parameters = JSON.parse($('#assistant-extra').value || '{}');
   return values;
 }
+function renderAssistantModels() {
+  const provider = $('#assistant-provider').value;
+  const details = assistant.providers[provider] || {};
+  const items = provider === 'local' ? assistant.localModels :
+    (assistant.remoteModels[provider] || (details.models || []).map(id => ({id, label: id})));
+  const seen = new Set(), options = [];
+  for (const item of items) {
+    const id = typeof item === 'string' ? item : item.id;
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const opt = document.createElement('option'); opt.value = id;
+    opt.label = typeof item === 'string' ? item : item.label || id;
+    options.push(opt);
+  }
+  $('#assistant-models').replaceChildren(...options);
+}
 function providerChanged() {
   const provider = $('#assistant-provider').value;
+  const previous = assistant.activeProvider;
+  if (previous) {
+    assistant.providerSelections[previous] = $('#assistant-model').value;
+    assistant.providerBaseUrls[previous] = $('#assistant-base-url').value;
+  }
+  assistant.activeProvider = provider;
+  const details = assistant.providers[provider] || {};
   $$('[data-api-config]').forEach(el => el.classList.toggle('hidden', provider === 'local'));
   $$('[data-local-config]').forEach(el => el.classList.toggle('hidden', provider !== 'local'));
   $('#assistant-base-url').disabled = provider !== 'compatible';
-  if (provider === 'seedance') $('#assistant-base-url').value = 'https://api.seedance.nz/v1';
-  if (provider === 'workshop') $('#assistant-base-url').value = 'https://ai.t8star.org/v1';
+  $('#assistant-base-url').value = details.base_url || assistant.providerBaseUrls[provider] || '';
+  if (previous !== provider || !$('#assistant-model').value.trim()) {
+    const localDefault = assistant.localModels.find(item => item.id === details.default_model)?.id || assistant.localModels[0]?.id;
+    $('#assistant-model').value = assistant.providerSelections[provider] || details.default_model || (provider === 'local' ? localDefault || '' : '');
+  }
+  const signup = $('#assistant-signup');
+  signup.classList.toggle('hidden', !details.signup_url);
+  signup.href = details.signup_url || '#';
+  signup.textContent = provider === 'seedance' ? '获取贞贞平价小屋 API Key' : provider === 'workshop' ? '获取贞贞 AI 工坊 API Key' : '';
+  $('#assistant-refresh-models').textContent = provider === 'local' ? '刷新本地 GGUF' : '获取模型 LIST';
+  $('#assistant-model').placeholder = provider === 'local' ? '选择扫描到的 GGUF 文件' :
+    provider === 'compatible' ? '填写模型 ID，或获取模型 LIST' : '选择默认模型，或填写其他模型 ID';
+  renderAssistantModels();
+  assistantText('#assistant-model-list-status', details.models?.length && provider !== 'local' ? `已提供 ${details.models.length} 个渠道默认模型` : '');
+  if (previous && previous !== provider && assistant.config?.provider !== provider) {
+    assistantText('#assistant-config-status', provider === 'local' ? '已切换为本地模式，请保存设置' : '已切换渠道，请填写该渠道对应的 API Key');
+  }
 }
 async function saveAssistantConfig() {
   let config = configFromForm();
@@ -141,6 +180,7 @@ async function saveAssistantConfig() {
   if (key) {
     const saved = await assistantPost('/api/assistant/credentials', {api_key: key, config, remember: $('#assistant-remember-key').checked});
     config.credential_id = saved.credential_id;
+    assistant.providerCredentials[config.provider] = saved.credential_id;
     $('#assistant-key').value = '';
   }
   const info = await assistantPost('/api/assistant/config', config);
@@ -150,11 +190,32 @@ async function saveAssistantConfig() {
   return config;
 }
 function updateModelInfo(info) {
-  $('#assistant-models').replaceChildren(...info.models.map(model => {
-    const opt = document.createElement('option'); opt.value = model.id;
-    opt.label = [model.architecture, `${(model.bytes / 2**30).toFixed(1)} GiB`, model.context_length ? `上下文 ${model.context_length}` : '', model.shards > 1 ? `${model.shards} 个分片` : '', model.error].filter(Boolean).join(' · '); return opt;
-  }));
+  assistant.providers = info.providers || assistant.providers;
+  assistant.localModels = info.models.map(model => ({id: model.id,
+    label: [model.architecture, `${(model.bytes / 2**30).toFixed(1)} GiB`, model.context_length ? `上下文 ${model.context_length}` : '', model.shards > 1 ? `${model.shards} 个分片` : '', model.error].filter(Boolean).join(' · ')}));
+  renderAssistantModels();
   assistantText('#assistant-capability', info.local_runtime ? `${info.local_gpu_offload ? '本地 CUDA 环境已就绪' : '本地环境仅通过 CPU 检查'}，需通过模型连接测试` : '本地 GGUF 环境未完成安装 · API 可用');
+}
+async function refreshAssistantModels() {
+  const provider = $('#assistant-provider').value;
+  const button = $('#assistant-refresh-models');
+  button.disabled = true;
+  try {
+    const config = await saveAssistantConfig();
+    if (provider === 'local') {
+      assistantText('#assistant-model-list-status', `已扫描到 ${assistant.localModels.length} 个本地 GGUF`);
+      return;
+    }
+    assistantText('#assistant-model-list-status', '正在读取渠道模型 LIST…');
+    const result = await assistantPost('/api/assistant/models', {config});
+    assistant.remoteModels[provider] = result.models.map(id => ({id, label: id}));
+    renderAssistantModels();
+    if (!result.models.includes($('#assistant-model').value)) $('#assistant-model').value = result.models[0];
+    assistant.providerSelections[provider] = $('#assistant-model').value;
+    assistantText('#assistant-model-list-status', `已读取 ${result.count} 个模型；仍可手动填写 ID`);
+  } catch (error) {
+    assistantText('#assistant-model-list-status', `${error.message}；已保留默认模型和手动填写`);
+  } finally { button.disabled = false; }
 }
 function updateCostHint() {
   const v = assistantValues(), score = v.abc_source?.includes('Compose') && v.cot !== 'off';
@@ -320,7 +381,10 @@ async function initAssistant() {
   for (const panel of ['create', 'plan']) addInstrumentalControl(panel);
   try {
     const [info, drafts] = await Promise.all([api('/api/assistant/config'), api('/api/assistant/drafts')]);
-    assistant.config = info.config; assistant.defaults = info.defaults; assistant.drafts = drafts;
+    assistant.config = info.config; assistant.defaults = info.defaults; assistant.drafts = drafts; assistant.providers = info.providers;
+    assistant.providerSelections[info.config.provider] = info.config.model;
+    assistant.providerBaseUrls[info.config.provider] = info.config.base_url;
+    assistant.providerCredentials[info.config.provider] = info.config.credential_id || '';
     for (const [id, provider] of Object.entries(info.providers)) { const opt = document.createElement('option'); opt.value = id; opt.textContent = provider.label; $('#assistant-provider').append(opt); }
     for (const [selector, values] of [['#assistant-lyrics-mode', info.options.lyrics_modes], ['#assistant-abc-source', info.options.abc_sources]]) {
       for (const value of values) { const opt = document.createElement('option'); opt.value = value; opt.textContent = value; $(selector).append(opt); }
@@ -378,7 +442,9 @@ async function initAssistant() {
 }
 $('#assistant-config-form').onsubmit = event => { event.preventDefault(); saveAssistantConfig().catch(error => assistantText('#assistant-config-status', error.message)); };
 $('#assistant-provider').onchange = providerChanged;
-$('#assistant-delete-key').onclick = async () => { try { await assistantPost('/api/assistant/credentials', {delete: true, credential_id: assistant.config?.credential_id}); assistant.config.credential_id = ''; await saveAssistantConfig(); } catch (error) { assistantText('#assistant-config-status', error.message); } };
+$('#assistant-model').oninput = () => { assistant.providerSelections[$('#assistant-provider').value] = $('#assistant-model').value; };
+$('#assistant-refresh-models').onclick = refreshAssistantModels;
+$('#assistant-delete-key').onclick = async () => { try { const provider = $('#assistant-provider').value, credential = assistant.providerCredentials[provider] || ''; await assistantPost('/api/assistant/credentials', {delete: true, credential_id: credential}); assistant.providerCredentials[provider] = ''; if (assistant.config?.provider === provider) assistant.config.credential_id = ''; await saveAssistantConfig(); } catch (error) { assistantText('#assistant-config-status', error.message); } };
 $('#assistant-form').onsubmit = event => { event.preventDefault(); startAssistant(); };
 $('#assistant-test').onclick = () => startAssistant(true);
 $('#assistant-retry').onclick = () => startAssistant(false, true);
