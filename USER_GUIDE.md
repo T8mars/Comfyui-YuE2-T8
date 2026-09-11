@@ -2,7 +2,7 @@
 
 ## 安装与启动
 
-1. 完整整合包已经带好模型和三个隔离运行环境，直接双击 `YuE2-T8.exe`，浏览器会打开 `http://127.0.0.1:8189`。如果系统拦截 EXE，也可双击兼容入口 `启动本地整合包.bat`。
+1. 完整整合包已经带好音乐模型和隔离的音乐运行环境；v1.2.0 完整包另含独立本地 LLM 环境，直接双击 `YuE2-T8.exe`，浏览器会打开 `http://127.0.0.1:8189`。如果系统拦截 EXE，也可双击兼容入口 `启动本地整合包.bat`。
 2. 首次使用可点右上角“重新进行完整自检”。服务只监听本机回环地址。
 3. `安装运行环境.bat` 用于修复、重新安装或下载缺失组件，正常首次启动不需要运行。
 
@@ -76,7 +76,7 @@
 
 ## ComfyUI
 
-双击 `安装到ComfyUI.bat` 会安装到默认的 `E:\comfyui-t8-onekey-5x\ComfyUI`。其他目录请在 PowerShell 运行：
+在 v1.2.0 完整包中运行 `安装到ComfyUI.bat`，按提示填写自己的 ComfyUI 目录。也可在 PowerShell 中显式指定目录：
 
 ```powershell
 .\scripts\install_comfyui.ps1 -ComfyUIPath "D:\你的ComfyUI\ComfyUI"
