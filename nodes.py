@@ -68,9 +68,12 @@ class YuE2ModelLoader:
         missing = [name for name in ("model", "vae") if not ready["models"].get(name)]
         if not ready.get("capabilities", {}).get("generation"):
             details = []
-            if not ready.get("core_python"): details.append("核心运行时")
-            if not ready.get("upstream_source"): details.append("推理源码")
-            if missing: details.append("模型 " + ", ".join(missing))
+            if not ready.get("core_python"):
+                details.append("核心运行时")
+            if not ready.get("upstream_source"):
+                details.append("推理源码")
+            if missing:
+                details.append("模型 " + ", ".join(missing))
             raise RuntimeError("YuE2 生成环境未就绪：缺少 " + "、".join(details))
         handle = {"backend": backend, "memory_budget_gib": float(memory_budget_gib),
                   "offload_ar": bool(offload_ar), "service": client.SERVICE}
@@ -99,7 +102,8 @@ class YuE2GenerateSong:
             raise ValueError("off 模式不能输入 ABC")
         payload = {**base_request(model), "style": style, "lyrics": lyrics, "cot": cot,
                    "seed": int(seed), "cfg_scale": float(cfg_scale), "candidates": int(candidates)}
-        if abc.strip(): payload["abc"] = abc
+        if abc.strip():
+            payload["abc"] = abc
         status = client.run("generate", payload)
         result = {"job_id": status["id"], **status["result"]}
         return (audio_value(first_audio(status)), result, json.dumps(status, ensure_ascii=False),
@@ -122,7 +126,8 @@ class YuE2PlanSong:
 
     def plan(self, model, style, lyrics, cot, seed, abc=""):
         payload = {**base_request(model), "style": style, "lyrics": lyrics, "cot": cot, "seed": int(seed)}
-        if abc.strip(): payload["abc"] = abc
+        if abc.strip():
+            payload["abc"] = abc
         status = client.run("plan", payload)
         handle = {"job_id": status["id"], "model": model, **status["result"]}
         return (handle, status["result"].get("abc") or "", json.dumps(status, ensure_ascii=False))
@@ -170,7 +175,9 @@ class YuE2Transcribe:
             raise RuntimeError("YuE2 转谱环境未就绪：请安装转谱运行时、模型和 FFmpeg")
         if render_score != "none" and not ready.get("capabilities", {}).get("score_renderer"):
             raise RuntimeError("YuE2 乐谱渲染器未安装；请重新运行安装脚本且不要使用 -SkipRenderer")
-        root = client.find_root(); uploads = root / "uploads"; uploads.mkdir(parents=True, exist_ok=True)
+        root = client.find_root()
+        uploads = root / "uploads"
+        uploads.mkdir(parents=True, exist_ok=True)
         path = uploads / f"comfy-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}.wav"
         batch = audio["waveform"]
         if int(batch.shape[0]) != 1:
@@ -204,7 +211,8 @@ class YuE2GenerateCover:
         payload = {**base_request(model), "style": style, "lyrics": lyrics,
                    "abc": abc, "cot": "melody", "seed": int(seed),
                    "cfg_scale": 1.0, "candidates": 1}
-        status = client.run("generate", payload); result={"job_id":status["id"],**status["result"]}
+        status = client.run("generate", payload)
+        result = {"job_id": status["id"], **status["result"]}
         return (audio_value(first_audio(status)), result, json.dumps(status, ensure_ascii=False))
 
 
@@ -249,56 +257,106 @@ class YuE2ReferenceVoiceCover:
 
 class YuE2GenerateSemantic:
     @classmethod
-    def INPUT_TYPES(cls): return {"required": {"model": ("YUE2_MODEL",), "plan": ("YUE2_PLAN",)}}
-    RETURN_TYPES=("YUE2_SEMANTIC","STRING"); RETURN_NAMES=("semantic","metadata"); FUNCTION="run"; CATEGORY=CATEGORY+"/高级"
+    def INPUT_TYPES(cls):
+        return {"required": {"model": ("YUE2_MODEL",), "plan": ("YUE2_PLAN",)}}
+
+    RETURN_TYPES = ("YUE2_SEMANTIC", "STRING")
+    RETURN_NAMES = ("semantic", "metadata")
+    FUNCTION = "run"
+    CATEGORY = CATEGORY + "/高级"
+
     def run(self, model, plan):
-        status=client.run("semantic",{**base_request(model),"plan_dir":plan["plan_dir"]})
-        return ({"job_id":status["id"],"model":model,**status["result"]},json.dumps(status,ensure_ascii=False))
+        status = client.run("semantic", {**base_request(model), "plan_dir": plan["plan_dir"]})
+        return ({"job_id": status["id"], "model": model, **status["result"]},
+                json.dumps(status, ensure_ascii=False))
 
 
 class YuE2Synthesize:
     @classmethod
-    def INPUT_TYPES(cls): return {"required": {"model": ("YUE2_MODEL",), "semantic": ("YUE2_SEMANTIC",)}}
-    RETURN_TYPES=("YUE2_LATENTS","STRING"); RETURN_NAMES=("latents","metadata"); FUNCTION="run"; CATEGORY=CATEGORY+"/高级"
+    def INPUT_TYPES(cls):
+        return {"required": {"model": ("YUE2_MODEL",), "semantic": ("YUE2_SEMANTIC",)}}
+
+    RETURN_TYPES = ("YUE2_LATENTS", "STRING")
+    RETURN_NAMES = ("latents", "metadata")
+    FUNCTION = "run"
+    CATEGORY = CATEGORY + "/高级"
+
     def run(self, model, semantic):
-        status=client.run("synthesize",{**base_request(model),"semantic_dir":semantic["semantic_dir"]})
-        return ({"job_id":status["id"],"model":model,**status["result"]},json.dumps(status,ensure_ascii=False))
+        status = client.run("synthesize", {**base_request(model), "semantic_dir": semantic["semantic_dir"]})
+        return ({"job_id": status["id"], "model": model, **status["result"]},
+                json.dumps(status, ensure_ascii=False))
 
 
 class YuE2Decode:
     @classmethod
-    def INPUT_TYPES(cls): return {"required": {"model": ("YUE2_MODEL",), "latents": ("YUE2_LATENTS",)}}
-    RETURN_TYPES=("AUDIO","YUE2_RESULT","STRING"); RETURN_NAMES=("audio","result","metadata"); FUNCTION="run"; CATEGORY=CATEGORY+"/高级"
+    def INPUT_TYPES(cls):
+        return {"required": {"model": ("YUE2_MODEL",), "latents": ("YUE2_LATENTS",)}}
+
+    RETURN_TYPES = ("AUDIO", "YUE2_RESULT", "STRING")
+    RETURN_NAMES = ("audio", "result", "metadata")
+    FUNCTION = "run"
+    CATEGORY = CATEGORY + "/高级"
+
     def run(self, model, latents):
-        status=client.run("decode",{**base_request(model),"latent_dir":latents["latent_dir"]})
-        result={"job_id":status["id"],**status["result"]}
-        return (audio_value(status["result"]["audio"]),result,json.dumps(status,ensure_ascii=False))
+        status = client.run("decode", {**base_request(model), "latent_dir": latents["latent_dir"]})
+        result = {"job_id": status["id"], **status["result"]}
+        return (audio_value(status["result"]["audio"]), result,
+                json.dumps(status, ensure_ascii=False))
 
 
 class YuE2SaveArtifacts:
     @classmethod
-    def INPUT_TYPES(cls): return {"required": {"result": ("YUE2_RESULT",),
-            "destination": ("STRING", {"default": ""})}}
-    RETURN_TYPES=("STRING",); RETURN_NAMES=("export_directory",); FUNCTION="save"; CATEGORY=CATEGORY
+    def INPUT_TYPES(cls):
+        return {"required": {
+            "result": ("YUE2_RESULT",),
+            "destination": ("STRING", {"default": ""}),
+        }}
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("export_directory",)
+    FUNCTION = "save"
+    CATEGORY = CATEGORY
     OUTPUT_NODE = True
+
     @classmethod
-    def IS_CHANGED(cls, **_kwargs): return float("nan")
+    def IS_CHANGED(cls, **_kwargs):
+        return float("nan")
+
     def save(self, result, destination):
-        response=client.request("/api/export",method="POST",data={"job_id":result["job_id"],"destination":destination})
+        response = client.request(
+            "/api/export", method="POST",
+            data={"job_id": result["job_id"], "destination": destination},
+        )
         return (response["destination"],)
 
 
 class YuE2Unload:
     @classmethod
-    def INPUT_TYPES(cls): return {"required": {"model": ("YUE2_MODEL",), "cancel_current": ("BOOLEAN", {"default": False})},
-                                  "optional": {"force_cancel": ("BOOLEAN", {"default": False})}}
-    RETURN_TYPES=("STRING",); RETURN_NAMES=("status",); FUNCTION="unload"; CATEGORY=CATEGORY
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "model": ("YUE2_MODEL",),
+                "cancel_current": ("BOOLEAN", {"default": False}),
+            },
+            "optional": {"force_cancel": ("BOOLEAN", {"default": False})},
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("status",)
+    FUNCTION = "unload"
+    CATEGORY = CATEGORY
     OUTPUT_NODE = True
+
     @classmethod
-    def IS_CHANGED(cls, **_kwargs): return float("nan")
+    def IS_CHANGED(cls, **_kwargs):
+        return float("nan")
+
     def unload(self, model, cancel_current, force_cancel=False):
-        response=client.request("/api/unload",method="POST",data={"cancel_current":bool(cancel_current),"force":bool(force_cancel)})
-        return (json.dumps(response,ensure_ascii=False),)
+        response = client.request(
+            "/api/unload", method="POST",
+            data={"cancel_current": bool(cancel_current), "force": bool(force_cancel)},
+        )
+        return (json.dumps(response, ensure_ascii=False),)
 
 
 NODE_CLASS_MAPPINGS = {

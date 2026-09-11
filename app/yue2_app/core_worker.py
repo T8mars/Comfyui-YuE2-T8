@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -424,7 +425,7 @@ def main(argv=None) -> int:
     ctx = JobContext(job_dir)
     job = json.loads((job_dir / "job.json").read_text(encoding="utf-8-sig"))
     try:
-        ctx.update("starting", pid=__import__("os").getpid())
+        ctx.update("starting", pid=os.getpid())
         add_upstream(root)
         result = HANDLERS[job["kind"]](root, ctx, job.get("request", {}))
         ctx.finish(result=result)
