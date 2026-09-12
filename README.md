@@ -10,6 +10,8 @@
 
 Windows / NVIDIA 完整包，包含运行环境与模型。完整解压后，双击 `YuE2-T8.exe` 即可启动。
 
+v1.3.0 完整包也可从 [GitHub Release](https://github.com/T8mars/Comfyui-YuE2-T8/releases/tag/v1.3.0) 下载：选择名称以 `YuE2-T8-Local-v1.3.0` 开头的全部 `.7z.001`、`.7z.002` 等分卷，放在同一目录，用 7-Zip 打开 `.001` 解压。完整包包含一套 Python 3.12.10、七组基础模型和 GGUF 后端；GGUF 权重按需另下。`code.zip` 是更新用的代码包，不含运行环境与模型。
+
 ## 模型网盘
 
 模型网盘：[夸克网盘下载](https://pan.quark.cn/s/6c40eac8af6c)
@@ -44,7 +46,7 @@ YuE2 Music T8 把 YuE2-3B 完整歌曲生成接入 ComfyUI，并提供一个可�
 - 翻唱页可直接转换已有歌曲，也可先由 YuE2 重制再转换；选择 Seed-VC、RVC 或同曲对比。对比共用分轨缓存，完成后当前页和历史页都保留可试听结果。
 - 训练项目/缓存、素材和用户音色库可指定目录并校验迁移；原数据保留备份。更新器支持旧多环境迁移和失败回滚。
 
-RVC 的训练和换声已做兼容性实测，少量轮次样例不代表成熟音色质量。未完成多歌手盲听评估，不能承诺 RVC 一定优于 Seed-VC。完整包附带已编译并验证的可选 FlashAttention 轮子；当前歌曲推理未接入独立 `flash_attn`，无需安装，也不宣称整曲提速。
+RVC 的训练和换声已做实际验证；少数样本不能证明所有音色效果，不能承诺 RVC 一定优于 Seed-VC。公开素材的对比指标和人工盲听状态见发布附件 [RVC_EVALUATION.md](https://github.com/T8mars/Comfyui-YuE2-T8/releases/download/v1.3.0/RVC_EVALUATION.md)。完整包附带已编译并验证的可选 FlashAttention 轮子；当前歌曲推理未接入独立 `flash_attn`，无需安装，也不宣称整曲提速。
 
 ### AI 创作助手（独立 WebUI）
 
