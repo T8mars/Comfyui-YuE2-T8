@@ -394,7 +394,9 @@ function relativeAudio(job, path) {
 function voiceDescription(result) {
   if (!result.backend) return '';
   if (result.backend === 'compare') return 'Seed-VC / RVC 同曲对比';
-  return escapeHtml((result.backend === 'rvc' ? 'RVC 专属音色' : 'Seed-VC 参考音色') + (result.voice_name ? ` · ${result.voice_name}` : ''));
+  const shift = result.settings?.semi_tone_shift;
+  const pitch = result.backend === 'rvc' && Number.isInteger(shift) ? ` · ${shift === 0 ? '原调' : (shift > 0 ? '+' : '') + shift + ' 半音'}` : '';
+  return escapeHtml((result.backend === 'rvc' ? 'RVC 专属音色' : 'Seed-VC 参考音色') + (result.voice_name ? ` · ${result.voice_name}` : '') + pitch);
 }
 
 function stemPlayers(job, result) {
@@ -687,6 +689,7 @@ $('#generate-reference-cover').onclick = async () => {
     const voice = {backend, reference_path: upload?.path,
       voice_id: $('#rvc-cover-model').value, speaker_id: Number($('#rvc-cover-speaker').value),
       index_rate: Number($('#rvc-index-rate').value), protect: Number($('#rvc-protect').value),
+      rvc_pitch_shift: Number($('#rvc-pitch-shift').value),
       diffusion_steps: Number($('#voice-steps').value), cfg_rate: Number($('#voice-cfg').value),
       semi_tone_shift: Number($('#voice-shift').value), auto_f0_adjust: $('#voice-auto-f0').checked,
       vocal_gain_db: Number($('#voice-gain').value), accompaniment_gain_db: Number($('#backing-gain').value)};

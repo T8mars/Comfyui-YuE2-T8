@@ -70,6 +70,22 @@ class VoiceAdmission(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError,'独占任务队列'):
                     self.store.create(kind,{})
 
+    def test_rvc_pitch_rejected_before_queue_and_kept_separate_for_comparison(self):
+        for value in (-13, 1.5, None, True):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'RVC 移调'):
+                self.store.create('voice_convert', {**self.request(), 'rvc_pitch_shift':value})
+        self.assertFalse(self.store.jobs)
+        job = self.store.create('voice_convert', {**self.request(), 'semi_tone_shift':0, 'rvc_pitch_shift':-12})
+        saved = json.loads((self.root/'outputs/jobs'/job['id']/'job.json').read_text())['request']
+        self.assertEqual(saved['semi_tone_shift'], 0)
+        self.assertEqual(saved['rvc_pitch_shift'], -12)
+
+    def test_no_f0_model_cannot_silently_ignore_a_requested_pitch_change(self):
+        with patch('app.yue2_app.rvc_library.verify_voice', return_value={'indices':{'1':'index'}, 'f0':False}):
+            with self.assertRaisesRegex(ValueError, '未启用音高条件'):
+                self.store.create('voice_convert', {**self.request(), 'rvc_pitch_shift':-12})
+        self.assertFalse(self.store.jobs)
+
 
 if __name__ == '__main__':
     unittest.main()

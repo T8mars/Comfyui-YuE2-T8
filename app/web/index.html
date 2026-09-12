@@ -184,8 +184,13 @@ This melody still waits for you</textarea></label>
             <div id="rvc-cover-settings" class="hidden">
               <label>我的音色<select id="rvc-cover-model"></select></label>
               <label>说话人<select id="rvc-cover-speaker"></select></label>
+              <p id="rvc-pitch-profile" class="meta">选择音色后查看训练音域。</p>
+              <label>RVC 演唱音高（半音）<input id="rvc-pitch-shift" type="number" min="-12" max="12" step="1" value="0"></label>
+              <div class="toolbar"><button type="button" class="ghost compact" data-rvc-pitch="0">保留原调</button><button type="button" class="ghost compact" data-rvc-pitch="-12">低一个八度</button><button type="button" class="ghost compact" data-rvc-pitch="12">高一个八度</button></div>
+              <p class="meta">高音超出训练素材的主要音域时，可能失真。可明确选择低八度再试听；这会改变演唱音高。对比模式下，此项只影响 RVC。</p>
               <div class="toolbar"><button id="rvc-cover-train" class="ghost compact" type="button">没有模型？去训练音色</button></div>
               <div class="advanced-grid"><label>检索贴合度<input id="rvc-index-rate" type="number" min="0" max="1" step="0.05" value="0.75"></label><label>辅音保护<input id="rvc-protect" type="number" min="0" max="0.5" step="0.01" value="0.33"></label></div>
+              <p class="meta">检索贴合度并非越高越好。听到咬字异常或杂音时，可先关闭检索进行对照。</p><button id="rvc-disable-index" type="button" class="ghost compact">关闭检索，保留当前音高</button>
             </div>
             <label class="mini-upload" id="reference-drop-zone">
               <input id="reference-file" type="file" accept="audio/*">
@@ -202,7 +207,7 @@ This melody still waits for you</textarea></label>
               <div class="advanced-grid">
                 <label>转换精度（步数）<input id="voice-steps" type="number" min="4" max="50" step="1" value="30"></label>
                 <label>音色贴合度<input id="voice-cfg" type="number" min="0" max="1.5" step="0.05" value="0.7"></label>
-                <label>整体移调（半音）<input id="voice-shift" type="number" min="-12" max="12" step="1" value="0"></label>
+                <label>Seed-VC 演唱音高（半音）<input id="voice-shift" type="number" min="-12" max="12" step="1" value="0"></label>
                 <label>人声音量 dB<input id="voice-gain" type="number" min="-18" max="12" step="0.5" value="0"></label>
                 <label>伴奏音量 dB<input id="backing-gain" type="number" min="-18" max="12" step="0.5" value="0"></label>
                 <label class="check"><input id="voice-auto-f0" type="checkbox">自动匹配参考音域</label>

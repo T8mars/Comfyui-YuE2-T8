@@ -52,11 +52,20 @@
   function updateCover() {
     const rvc = $('#voice-backend').value === 'rvc', compare = $('#voice-backend').value === 'compare';
     $('#rvc-cover-settings').classList.toggle('hidden', !(rvc || compare));
+    const selectedVoice = voices.find(v => v.id === $('#rvc-cover-model').value);
+    const profile = selectedVoice?.training?.pitch_profiles?.[$('#rvc-cover-speaker').value];
+    const range = profile && profile.basis === 'training_continuous_f0' &&
+      [profile.p5_hz,profile.median_hz,profile.p95_hz].every(Number.isFinite) &&
+      profile.p5_hz >= 50 && profile.p5_hz <= profile.median_hz && profile.median_hz <= profile.p95_hz && profile.p95_hz <= 1100;
+    $('#rvc-pitch-profile').textContent = !selectedVoice ? '选择音色后查看训练音域。' : selectedVoice.f0 === false ? '此模型未启用音高条件，不支持指定移调。' : range ? `训练素材主要音域约 ${Math.round(profile.p5_hz)}–${Math.round(profile.p95_hz)} Hz。由训练音高曲线估计，不是音色能演唱的硬性上下限。` : '此音色暂未记录训练音域。旧训练项目可点击继续训练，复用已完成结果并补充统计；导入模型可先试听原调与不同八度。';
+    $('#rvc-pitch-shift').disabled = selectedVoice?.f0 === false;
+    for (const button of document.querySelectorAll('[data-rvc-pitch]')) button.disabled = selectedVoice?.f0 === false;
+    if (selectedVoice?.f0 === false) $('#rvc-pitch-shift').value = '0';
     $('#voice-compare-hint').classList.toggle('hidden', !compare);
     $('#reference-drop-zone').classList.toggle('hidden', rvc);
     $('#reference-preview').classList.toggle('hidden', rvc || !$('#reference-file').files[0]);
     if (rvc) $('#reference-preview audio').pause();
-    for (const id of ['voice-steps','voice-cfg','voice-auto-f0']) $(`#${id}`).closest('label').classList.toggle('hidden', rvc);
+    for (const id of ['voice-steps','voice-cfg','voice-auto-f0','voice-shift']) $(`#${id}`).closest('label').classList.toggle('hidden', rvc);
     if (!$('#generate-reference-cover').dataset.jobId) restoreButton($('#generate-reference-cover'));
     savedValue('voice-backend', $('#voice-backend').value);
   }
@@ -190,6 +199,9 @@
   $('#voice-backend').value = ['rvc','compare'].includes(savedValue('voice-backend')) ? savedValue('voice-backend') : 'seed-vc';
   $('#voice-backend').onchange = updateCover;
   $('#rvc-cover-model').onchange = () => { savedValue('rvc-voice',$('#rvc-cover-model').value); renderCoverSpeakers(); };
+  $('#rvc-cover-speaker').onchange = updateCover;
+  for (const button of document.querySelectorAll('[data-rvc-pitch]')) button.onclick = () => { $('#rvc-pitch-shift').value = button.dataset.rvcPitch; };
+  $('#rvc-disable-index').onclick = () => { $('#rvc-index-rate').value = '0'; };
   $('#rvc-cover-train').onclick = () => $('.tab[data-tab="voices"]').click();
   window.addEventListener('rvc-voice-selected', event => {
     $('#voice-backend').value = 'rvc'; $('#rvc-cover-model').value = event.detail.id;

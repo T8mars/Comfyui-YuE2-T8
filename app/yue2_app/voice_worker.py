@@ -253,11 +253,15 @@ def main(argv=None) -> int:
         reference = None
         if request['backend'] == 'rvc':
             from .rvc_library import verify_voice
+            from .rvc_pitch import rvc_pitch_shift
+            request['semi_tone_shift'] = rvc_pitch_shift(raw)
             request.update(voice_id=str(raw.get('voice_id', '')),
                            speaker_id=int(_number(raw, 'speaker_id', 0, 0, 109)),
                            index_rate=_number(raw, 'index_rate', .75, 0, 1),
                            protect=_number(raw, 'protect', .33, 0, .5))
             voice = verify_voice(root, request['voice_id'])
+            if not voice.get('f0', True) and request['semi_tone_shift']:
+                raise ValueError('所选 RVC 模型未启用音高条件，不支持指定移调')
             if str(request['speaker_id']) not in voice['indices']:
                 raise ValueError('所选音色没有该说话人的模型索引')
             reference_info = {'voice_id': voice['id'], 'name': voice['name'], 'files': voice['files']}

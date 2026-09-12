@@ -59,6 +59,11 @@ def get_voice(root: Path, voice_id: str) -> dict:
         raise ValueError('音色记录损坏')
     value['directory'] = str(directory)
     value['model_path'] = str(directory / 'model.pth')
+    if isinstance(value.get('training'), dict):
+        from .rvc_pitch import voice_pitch_profile
+        profiles = {str(s['id']): profile for s in value.get('speakers', [])
+                    if (profile := voice_pitch_profile(value, int(s['id']))) is not None}
+        value['training'] = {**value['training'], 'pitch_profiles': profiles}
     return value
 
 
@@ -138,7 +143,14 @@ def register_voice(root: Path, model: Path, indices: dict[int, Path], *, name: s
         for existing in list_voices(root):
             if existing.get('project_id') == project_id and existing.get('files') == expected:
                 try:
-                    return verify_voice(root, existing['id'])
+                    reused = verify_voice(root, existing['id'])
+                    # Re-running an already completed project can enrich metadata without retraining or duplicating its voice.
+                    if training and training.get('pitch_profiles'):
+                        saved = json.loads((Path(reused['directory']) / 'voice.json').read_text(encoding='utf-8'))
+                        saved['training'] = training
+                        atomic_json(Path(reused['directory']) / 'voice.json', saved)
+                        reused = get_voice(root, existing['id'])
+                    return reused
                 except (ValueError, OSError):
                     continue
     voice_id = uuid.uuid4().hex

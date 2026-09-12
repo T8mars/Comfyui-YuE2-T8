@@ -313,10 +313,14 @@ class JobStore:
             if backend not in {'rvc', 'seed-vc', 'compare'}:
                 raise ValueError('不支持的音色转换方式')
             if backend in {'rvc', 'compare'}:
+                from .rvc_pitch import rvc_pitch_shift
+                rvc_pitch_shift(voice_request)
                 if not capabilities.get('rvc_inference') or not capabilities.get('vocal_separation'):
                     raise ValueError('RVC 或人声分离组件尚未安装完整')
                 from .rvc_library import verify_voice
                 selected_voice = verify_voice(ROOT, str(voice_request.get('voice_id', '')))
+                if not selected_voice.get('f0', True) and rvc_pitch_shift(voice_request):
+                    raise ValueError('所选 RVC 模型未启用音高条件，不支持指定移调')
                 sid = str(int(voice_request.get('speaker_id', 0)))
                 if sid not in selected_voice['indices']:
                     raise ValueError('音色中不存在对应的说话人索引')

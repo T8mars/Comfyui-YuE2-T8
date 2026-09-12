@@ -198,10 +198,13 @@ def train_voice(root, project, request, ctx):
     if inspect_audio(preview)['peak'] < 1e-6:
         raise RuntimeError('训练后的试听音频无声，请检查素材和训练日志')
     complete('preview', [preview])
+    from .rvc_pitch import training_pitch_profiles
+    pitch_profiles = training_pitch_profiles(directory, entries)
     voice = register_voice(root, model, indices, name=project['name'], project_id=project['id'], preview=preview,
                            reuse_project=True,
                            training={'options': options, 'duration': sum(item['duration'] for item in materials),
-                                     'materials': len(materials), 'segments': len(wavs), 'batch_size': batch})
+                                     'materials': len(materials), 'segments': len(wavs), 'batch_size': batch,
+                                     'pitch_profiles': pitch_profiles})
     project.update(state='trained', voice_id=voice['id'])
     save_project(root, project)
     return {'voice': voice, 'project_id': project['id']}
