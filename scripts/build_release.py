@@ -41,6 +41,7 @@ def build(output):
                          "scripts/install_unified_runtime.py", "scripts/apply_unified_update.ps1",
                          "scripts/runtime_paths.ps1", "scripts/install_staged_models.py",
                          "scripts/download_rvc_models.py", "vendor/rvc/LICENSE",
+                         "vendor/msvc-runtime/manifest.json", "vendor/msvc-runtime/msvcp140.dll",
                          "app/yue2_app/rvc_worker.py", "app/yue2_app/rvc_assets.json", "app/web/rvc.js"):
             assert required in names, required
     digest = hashlib.sha256(asset.read_bytes()).hexdigest()

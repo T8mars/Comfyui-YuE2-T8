@@ -64,6 +64,13 @@ def runtime_files(runtime):
     installed = json.loads((runtime/'installed.json').read_text(encoding='utf-8-sig'))
     if installed.get('layout')!='unified' or installed.get('python')!='3.12.10':
         raise ValueError('Full bundle requires the validated unified CPython3.12.10 runtime')
+    crt_manifest = Path(__file__).resolve().parents[1]/'vendor/msvc-runtime/manifest.json'
+    if installed.get('msvc_runtime_manifest_sha256') != digest(crt_manifest):
+        raise ValueError('Full bundle requires verified app-local Microsoft CRT files')
+    for entry in json.loads(crt_manifest.read_text(encoding='utf-8-sig'))['files']:
+        path = runtime/entry['name']
+        if not path.is_file() or digest(path) != entry['sha256']:
+            raise ValueError('Full bundle Microsoft CRT hash mismatch: '+entry['name'])
     files = list(plain_files(runtime))
     interpreters = [p.relative_to(runtime).as_posix() for p in files if p.name.lower()=='python.exe']
     if interpreters!=['python.exe']:

@@ -79,6 +79,13 @@ class UpdateTransaction(unittest.TestCase):
             (source / 'app/yue2_app').mkdir(parents=True)
             (source / 'app/yue2_app/rvc_assets.json').write_text('{}')
             self.assertEqual(updater.update_requirements(target, source), (False, True))
+            crt = source / 'vendor/msvc-runtime/manifest.json'
+            crt.parent.mkdir(parents=True)
+            crt.write_text('{"version":"fixture"}')
+            self.assertEqual(updater.update_requirements(target, source), (True, True))
+            state.write_text(json.dumps({'layout':'unified','runtime_lock_sha256':updater.digest(lock),
+                                        'msvc_runtime_manifest_sha256':updater.digest(crt)}))
+            self.assertEqual(updater.update_requirements(target, source), (False, True))
 
 
 if __name__ == '__main__':

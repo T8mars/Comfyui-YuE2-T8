@@ -64,6 +64,9 @@ def update_requirements(target: Path, source: Path) -> tuple[bool, bool]:
         installed = {}
     runtime = (not (target / 'runtime/python.exe').is_file() or installed.get('layout') != 'unified'
                or installed.get('runtime_lock_sha256') != digest(lock))
+    crt = source / 'vendor/msvc-runtime/manifest.json'
+    if crt.is_file():
+        runtime = runtime or installed.get('msvc_runtime_manifest_sha256') != digest(crt)
     new_models, old_models = source / 'app/yue2_app/rvc_assets.json', target / 'app/yue2_app/rvc_assets.json'
     models = new_models.is_file() and (not old_models.is_file() or digest(new_models) != digest(old_models))
     return runtime, models

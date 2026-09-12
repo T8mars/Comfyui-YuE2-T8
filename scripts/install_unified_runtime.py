@@ -20,6 +20,29 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def local_crt(source, runtime, *, install=False):
+    """Keep the Microsoft CRT beside python.exe, without changing Windows."""
+    directory = source / 'vendor/msvc-runtime'
+    manifest = directory / 'manifest.json'
+    entries = json.loads(manifest.read_text(encoding='utf-8-sig'))['files']
+    for entry in entries:
+        name = entry['name']
+        if Path(name).name != name or not name.endswith('.dll'):
+            raise ValueError('Invalid CRT manifest path')
+        original, destination = directory / name, runtime / name
+        if digest(original) != entry['sha256']:
+            raise RuntimeError('Bundled Microsoft CRT hash mismatch: ' + name)
+        matches = destination.is_file() and digest(destination) == entry['sha256']
+        if not matches and install:
+            # Identical Python-bundled DLLs are skipped: they may already be loaded.
+            # Different loaded DLLs fail normally; never replace them via reboot tricks.
+            shutil.copy2(original, destination)
+            matches = digest(destination) == entry['sha256']
+        if not matches:
+            raise RuntimeError('Local Microsoft CRT missing or changed: ' + name)
+    return digest(manifest)
+
+
 def run(command, *, root, environment, capture=False):
     print('Running:', ' '.join(map(str, command[:5])), flush=True)
     result = subprocess.run(list(map(str, command)), cwd=root, env=environment,
@@ -36,6 +59,7 @@ def run(command, *, root, environment, capture=False):
 
 def verify(root, runtime, environment, renderer, source=None):
     source = source or root
+    crt_sha = local_crt(source, runtime)
     python = runtime / 'python.exe'
     run([python, '-m', 'pip', 'check'], root=root, environment=environment)
     for line in (source / 'requirements-unified.lock.txt').read_text(encoding='utf-8').splitlines():
@@ -59,6 +83,14 @@ def verify(root, runtime, environment, renderer, source=None):
         if component == 'rvc':
             paths.insert(0, str(source / 'vendor/rvc'))
         code = 'import sys; sys.path[:0] = ' + repr(paths) + '; ' + snippet
+        if component == 'core':
+            code += ('; import ctypes; from pathlib import Path; '
+                     'crt = ctypes.CDLL("msvcp140.dll"); '
+                     'buffer = ctypes.create_unicode_buffer(32768); '
+                     'get_path = ctypes.windll.kernel32.GetModuleFileNameW; '
+                     'get_path.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_uint]; '
+                     'assert get_path(crt._handle, buffer, len(buffer)); '
+                     'assert Path(buffer.value).resolve() == Path(sys.executable).parent / "msvcp140.dll", buffer.value')
         result = run([python, '-X', 'utf8', '-c', code], root=root, environment=environment, capture=True)
         reports[component] = result.stdout.strip().splitlines()[-1]
     if renderer:
@@ -73,6 +105,7 @@ def verify(root, runtime, environment, renderer, source=None):
     probe['module'] = 'runtime/Lib/site-packages/llama_cpp/__init__.py'
     return {'schema': 2, 'layout': 'unified', 'python': '3.12.10', 'torch': '2.10.0+cu128',
             'runtime_lock_sha256': digest(source / 'requirements-unified.lock.txt'),
+            'msvc_runtime_manifest_sha256': crt_sha,
             'installed_at': time.time(), 'checks': reports, 'renderer': renderer,
             'ffmpeg': 'runtime/ffmpeg/ffmpeg.exe', 'llm': {'probe': probe},
             'note': 'Component import and browser verification; inference regression is recorded separately.'}
@@ -101,6 +134,7 @@ def main():
                        YUE2_KIT=str(root), PLAYWRIGHT_BROWSERS_PATH=str(runtime / 'playwright'))
     python = runtime / 'python.exe'
     if not args.verify_only:
+        local_crt(source, runtime, install=True)
         run([python, '-m', 'pip', 'install', '--prefer-binary', '-r', source / 'requirements-unified.lock.txt'],
             root=root, environment=environment)
         result = run([python, '-c', 'import imageio_ffmpeg;print(imageio_ffmpeg.get_ffmpeg_exe())'],

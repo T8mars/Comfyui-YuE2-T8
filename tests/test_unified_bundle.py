@@ -3,6 +3,7 @@ import importlib.util
 from pathlib import Path
 import tempfile
 import unittest
+import shutil
 
 spec = importlib.util.spec_from_file_location('bundle_builder',Path(__file__).resolve().parents[1]/'scripts/build_unified_bundle.py')
 builder = importlib.util.module_from_spec(spec)
@@ -22,7 +23,11 @@ class PortableBundleBoundary(unittest.TestCase):
     def test_runtime_rejects_multiple_python_and_development_paths(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            (root/'installed.json').write_text(json.dumps({'layout':'unified','python':'3.12.10'}))
+            crt = Path(__file__).resolve().parents[1]/'vendor/msvc-runtime/manifest.json'
+            (root/'installed.json').write_text(json.dumps({'layout':'unified','python':'3.12.10',
+                'msvc_runtime_manifest_sha256':builder.digest(crt)}))
+            for entry in json.loads(crt.read_text(encoding='utf-8-sig'))['files']:
+                shutil.copy2(crt.parent/entry['name'],root/entry['name'])
             (root/'python.exe').write_bytes(b'fixture, not executable')
             (root/'python312._pth').write_text('python312.zip\n.\nLib\\site-packages\n..\nimport site\n')
             files,_ = runtime_files(root)

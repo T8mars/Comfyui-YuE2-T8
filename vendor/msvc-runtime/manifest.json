@@ -1,0 +1,61 @@
+{
+  "schema": 1,
+  "version": "14.42.34438.0",
+  "architecture": "x64",
+  "source": "Visual Studio Community 2022 / VC/Redist/MSVC/14.42.34433/x64/Microsoft.VC143.CRT",
+  "redistribution": "https://learn.microsoft.com/en-us/visualstudio/releases/2022/redistribution",
+  "deployment": "https://learn.microsoft.com/en-us/cpp/windows/determining-which-dlls-to-redistribute?view=msvc-170",
+  "signatures_verified": "Microsoft Corporation / Valid",
+  "files": [
+    {
+      "name": "concrt140.dll",
+      "bytes": 322672,
+      "sha256": "1cccd0f5553d6c4eaf452c5524b4312db7edb206c5d06fdcb6052e9586f6c611"
+    },
+    {
+      "name": "msvcp140_1.dll",
+      "bytes": 35920,
+      "sha256": "576d2ab235e32acc129eda78a3b9a3d3e78b0c97a01940d962cb8502acd030d1"
+    },
+    {
+      "name": "msvcp140_2.dll",
+      "bytes": 267888,
+      "sha256": "9c9e06d56add83e08f0c530de6f0a82c5bfbee2b6ffa8b71e7b0446ec08e8970"
+    },
+    {
+      "name": "msvcp140_atomic_wait.dll",
+      "bytes": 50288,
+      "sha256": "5ec85a18501af700e3ee748daed242b8e33040f090371a2759217cb71ff26469"
+    },
+    {
+      "name": "msvcp140_codecvt_ids.dll",
+      "bytes": 31856,
+      "sha256": "a12581d37f291121346e8ba2fdfec64a3d72c07aec6350ea0cd2f7aac2f750a4"
+    },
+    {
+      "name": "msvcp140.dll",
+      "bytes": 575568,
+      "sha256": "b99eb28a471311113f5c4109cb3c463f39cfd9bdb3b07f706204dedddb4516a1"
+    },
+    {
+      "name": "vccorlib140.dll",
+      "bytes": 351824,
+      "sha256": "dca072ee3c9f5dae8c0de6b432600dd766c5d851a1a14a572185ed48ebcf37aa"
+    },
+    {
+      "name": "vcruntime140_1.dll",
+      "bytes": 49776,
+      "sha256": "6a99bc0128e0c7d6cbbf615fcc26909565e17d4ca3451b97f8987f9c6acbc6c8"
+    },
+    {
+      "name": "vcruntime140_threads.dll",
+      "bytes": 38480,
+      "sha256": "fcf24d7fdea131ec60e59e281fe4cebd0b5f54a49180c40bba43f859f7bc47f3"
+    },
+    {
+      "name": "vcruntime140.dll",
+      "bytes": 120400,
+      "sha256": "052ad6a20d375957e82aa6a3c441ea548d89be0981516ca7eb306e063d5027f4"
+    }
+  ]
+}

@@ -60,3 +60,12 @@ commit 060c9188beec3a8b62b33a3bfa6d5d2d44975fab. The multi-architecture wheel is
 published by https://github.com/mjun0812/flash-attention-prebuild-wheels;
 the separate SM120 wheel was compiled locally. Bundle extras include the
 upstream license and build/verification provenance. They are not enabled by default.
+
+Microsoft Visual C++ x64 runtime 14.42.34438.0 is redistributed unmodified from
+Visual Studio Community 2022's `VC/Redist/MSVC` directory, under its original
+Microsoft Software License Terms, not this project's MIT license. Microsoft
+signatures and SHA-256 hashes were checked; see `vendor/msvc-runtime/manifest.json`.
+The installer places these DLLs beside the bundled Python executable. It does
+not install another Python or modify the Windows system runtime.
+Redistribution list: https://learn.microsoft.com/en-us/visualstudio/releases/2022/redistribution
+License terms: https://visualstudio.microsoft.com/license-terms/vs2022-ga-community/
