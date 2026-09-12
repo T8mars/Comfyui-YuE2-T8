@@ -365,9 +365,16 @@ class JobStore:
             rows = generation["nar_query_chunk_size"]
             if type(rows) is not int or not 1 <= rows <= 1024:
                 raise ValueError("声学计算分块必须是 1–1024 的整数")
-            budget = float(generation.get("memory_budget_gib", 23.5))
+            raw_budget = generation.get("memory_budget_gib", 23.5)
+            try:
+                if isinstance(raw_budget, bool):
+                    raise ValueError()
+                budget = float(raw_budget)
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise ValueError("显存预算必须是大于 2 GiB 的有限数值") from exc
             if not math.isfinite(budget) or budget <= 2:
                 raise ValueError("显存预算必须是大于 2 GiB 的有限数值")
+            generation["memory_budget_gib"] = budget
         source = source if source in {"webui", "comfyui", "api"} else "api"
         if result_panel not in {"create", "plan", "cover", "assistant", "voices"}:
             result_panel = ("cover" if kind in {"reference_cover", "voice_convert"} or

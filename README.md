@@ -10,7 +10,7 @@
 
 Windows / NVIDIA 完整包，包含运行环境与模型。完整解压后，双击 `YuE2-T8.exe` 即可启动。
 
-v1.3.0 完整包也可从 [GitHub Release](https://github.com/T8mars/Comfyui-YuE2-T8/releases/tag/v1.3.0) 下载：选择名称以 `YuE2-T8-Local-v1.3.0` 开头的全部 `.7z.001`、`.7z.002` 等分卷，放在同一目录，用 7-Zip 打开 `.001` 解压。完整包包含一套 Python 3.12.10、七组基础模型和 GGUF 后端；GGUF 权重按需另下。`code.zip` 是更新用的代码包，不含运行环境与模型。
+[GitHub Release](https://github.com/T8mars/Comfyui-YuE2-T8/releases/tag/v1.3.0) 仅提供代码与自动更新附件，不包含 Python 或模型。完整整合包从上方夸克网盘获取；模型和可选 GGUF 权重也可通过下方网盘单独下载。旧版升级涉及统一运行环境迁移时，更新器会按需另外下载依赖。
 
 ## 模型网盘
 

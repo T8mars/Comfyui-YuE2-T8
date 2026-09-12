@@ -108,7 +108,8 @@
         <label>候选数量<select name="candidates"><option>1</option><option>2</option><option>3</option><option>4</option></select></label>
         <details class="wide advanced"><summary>高级设置</summary><div class="advanced-grid">
           <label>运行后端<select name="backend"><option value="torch-eager">兼容模式</option><option value="torch">CUDA Graph 加速</option></select></label>
-          <label>显存预算 GiB<input name="memory_budget_gib" type="number" step="0.5" min="12" max="24" value="23.5"></label>
+          <label>显存预算 GiB<input name="memory_budget_gib" data-generation-memory type="number" step="any" min="2" required value="23.5"></label>
+          <p class="meta wide">可自行修改，三个创作页面同步并在当前浏览器记住。请大于 2 GiB，按显卡可用显存设置；预算内含 2 GiB 预留，调低不保证模型能运行。</p>
           <label class="check"><input name="offload_ar" type="checkbox" checked>声学合成时释放闲置模型显存</label>
           <label>声学计算块<input name="nar_query_chunk_size" type="number" min="1" max="1024" step="1" value="256"></label>
           <label>声学后端<select name="nar_attention"><option value="sdpa">自动（显存保护）</option><option value="math">兼容模式</option><option value="cudnn">cuDNN</option></select></label>
@@ -131,6 +132,8 @@ Come home across the midnight blue
 This melody still waits for you</textarea></label>
         <label>规划模式<select name="cot"><option value="full">旋律 + 和弦</option><option value="melody">仅旋律</option></select></label>
         <label>随机种子<input name="seed" type="number" min="0" max="9007199254740991" step="1" value="831001"></label>
+        <label>显存预算 GiB<input name="memory_budget_gib" data-generation-memory type="number" step="any" min="2" required value="23.5"></label>
+        <p class="meta wide">可自行修改，三个创作页面同步并在当前浏览器记住。请大于 2 GiB，按显卡可用显存设置；预算内含 2 GiB 预留，调低不保证模型能运行。</p>
         <button id="plan-button" class="primary wide" type="submit" data-idle-label="生成 ABC 计划">生成 ABC 计划</button>
       </form>
       <div id="plan-workbench" class="workbench hidden">
@@ -166,6 +169,8 @@ This melody still waits for you</textarea></label>
         <label>旋律 ABC<textarea id="cover-abc" rows="16" spellcheck="false"></textarea></label>
         <label>目标风格<textarea id="cover-style" rows="3">Jazz-funk, warm lead vocal, Rhodes piano, electric bass, tight drums</textarea></label>
         <label>歌词<textarea id="cover-lyrics" rows="10" placeholder="粘贴并按 [Verse] / [Chorus] 整理歌词"></textarea></label>
+        <label>显存预算 GiB<input name="memory_budget_gib" data-generation-memory type="number" step="any" min="2" required value="23.5"></label>
+        <p class="meta wide">可自行修改，三个创作页面同步并在当前浏览器记住。请大于 2 GiB，按显卡可用显存设置；预算内含 2 GiB 预留，调低不保证模型能运行。</p>
         <label>随机种子<input id="cover-seed" type="number" min="0" max="9007199254740991" step="1" value="831001"></label>
         </div>
         <div class="creation-options">

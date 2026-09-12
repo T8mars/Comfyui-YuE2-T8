@@ -17,6 +17,27 @@ function savedValue(key, value) {
     return localStorage.getItem(`yue2:${key}`);
   } catch { return null; }
 }
+// Remember one editable budget across all YuE2 generation pages.
+const memoryInputs = $$('[data-generation-memory]');
+const rememberedBudget = Number(savedValue('generation-memory-gib'));
+for (const input of memoryInputs) {
+  if (Number.isFinite(rememberedBudget) && rememberedBudget > 2) input.value = String(rememberedBudget);
+  input.addEventListener('input', () => {
+    const value = Number(input.value);
+    for (const other of memoryInputs) {
+      other.value = input.value;
+      other.setCustomValidity(Number.isFinite(value) && value > 2 ? '' : '显存预算必须大于 2 GiB');
+    }
+    if (Number.isFinite(value) && value > 2) savedValue('generation-memory-gib', input.value);
+  });
+}
+function generationMemoryBudget() {
+  const input = $('.panel.active [data-generation-memory]') || memoryInputs[0];
+  const budget = Number(input.value);
+  if (!Number.isFinite(budget) || budget <= 2) throw new Error('显存预算必须是大于 2 GiB 的有限数值');
+  savedValue('generation-memory-gib', String(budget));
+  return budget;
+}
 function resultPanel(job) {
   return savedValue(`job-panel:${job.id}`) || job.result_panel ||
     (['reference_cover', 'voice_convert'].includes(job.kind) ? 'cover' : job.kind === 'render_plan' ? 'plan' : 'create');
@@ -357,6 +378,8 @@ async function refreshWorkspace() {
 async function submit(kind, request, resultTarget, button = null) {
   setSubmitting(button);
   try {
+    if (['generate', 'plan', 'render_plan'].includes(kind)) request.memory_budget_gib = generationMemoryBudget();
+    if (kind === 'reference_cover') request.generate.memory_budget_gib = generationMemoryBudget();
     const clientRequestId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
     const job = await api('/api/jobs', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({kind, request, source: 'webui', client_request_id: clientRequestId, result_panel: resultTarget?.closest('.panel')?.id})});
     rememberResult(job, resultTarget);
@@ -468,7 +491,7 @@ $('#plan-form').onsubmit = async event => {
   event.preventDefault();
   const revision = window.assistantDraftRevision?.('plan');
   try {
-    const request = formObject(event.target); request.backend = 'torch-eager'; request.memory_budget_gib = 23.5;
+    const request = formObject(event.target); request.backend = 'torch-eager';
     const job = await submit('plan', request, null, $('#plan-button'));
     const apply = () => {
       planState = {...job.result, request, source: 'saved_exact'};
@@ -497,7 +520,7 @@ $('#render-plan').onclick = async () => {
     } catch (error) { $('#plan-result').innerHTML = failureMarkup(error); }
     return;
   }
-  const exact = $('#plan-exact').checked; const request = {plan_dir: planState.plan_dir, exact, backend: 'torch-eager', memory_budget_gib: 23.5};
+  const exact = $('#plan-exact').checked; const request = {plan_dir: planState.plan_dir, exact, backend: 'torch-eager'};
   if (!exact) Object.assign(request, planState.request, {abc: $('#plan-abc').value, candidates: 1});
   try { await submit('render_plan', request, $('#plan-result'), $('#render-plan')); }
   catch (error) { $('#plan-result').innerHTML = failureMarkup(error); }
@@ -656,7 +679,7 @@ $('#transcribe-button').onclick = async () => {
 };
 $('#generate-cover').onclick = async () => {
   let seed; try { seed = safeSeed($('#cover-seed').value); } catch (error) { return alert(error.message); }
-  const request = {style: $('#cover-style').value, lyrics: $('#cover-lyrics').value, abc: $('#cover-abc').value, cot: 'melody', seed, cfg_scale: 1, backend: 'torch-eager', memory_budget_gib: 23.5, candidates: 1};
+  const request = {style: $('#cover-style').value, lyrics: $('#cover-lyrics').value, abc: $('#cover-abc').value, cot: 'melody', seed, cfg_scale: 1, backend: 'torch-eager', candidates: 1};
   if (!request.lyrics.trim() && $('#cover').dataset.instrumental !== 'true') return alert('请先填写并核对歌词');
   if (!request.abc.trim()) return alert('请先转谱或导入有效的旋律 ABC');
   try { await submit('generate', request, $('#cover-result'), $('#generate-cover')); }
@@ -677,8 +700,8 @@ $('#generate-reference-cover').onclick = async () => {
   if (backend !== 'rvc' && !reference) return alert('请先选择参考音色');
   if (backend !== 'seed-vc' && !$('#rvc-cover-model').value) return alert('请先到“我的音色 / 训练”创建或导入音色模型');
   let seed;
-  try { if (!direct) seed = safeSeed($('#cover-seed').value); } catch (error) { return alert(error.message); }
-  const generate = {style: $('#cover-style').value, lyrics: $('#cover-lyrics').value, abc: $('#cover-abc').value, cot: 'melody', seed, cfg_scale: 1, backend: 'torch-eager', memory_budget_gib: 23.5, candidates: 1, offload_ar: true, nar_query_chunk_size: 256, nar_attention: 'sdpa'};
+  try { if (!direct) { seed = safeSeed($('#cover-seed').value); generationMemoryBudget(); } } catch (error) { return alert(error.message); }
+  const generate = {style: $('#cover-style').value, lyrics: $('#cover-lyrics').value, abc: $('#cover-abc').value, cot: 'melody', seed, cfg_scale: 1, backend: 'torch-eager', candidates: 1, offload_ar: true, nar_query_chunk_size: 256, nar_attention: 'sdpa'};
   if (!direct && !generate.lyrics.trim()) return alert('请先填写并核对歌词');
   if (!direct && !generate.abc.trim()) return alert('请先转谱或导入有效的旋律 ABC');
   const button = $('#generate-reference-cover');
