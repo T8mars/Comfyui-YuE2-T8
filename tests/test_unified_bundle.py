@@ -30,8 +30,16 @@ class PortableBundleBoundary(unittest.TestCase):
                 shutil.copy2(crt.parent/entry['name'],root/entry['name'])
             (root/'python.exe').write_bytes(b'fixture, not executable')
             (root/'python312._pth').write_text('python312.zip\n.\nLib\\site-packages\n..\nimport site\n')
+            browser = root/'playwright/browser'
+            browser.mkdir(parents=True)
+            (browser/'debug.log').write_text('mutable browser diagnostics')
+            links = root/'playwright/.links'
+            links.mkdir()
+            (links/'installation').write_text('development install path')
             files,_ = runtime_files(root)
             self.assertIn(root/'python.exe',files)
+            self.assertNotIn(browser/'debug.log',files)
+            self.assertNotIn(links/'installation',files)
             (root/'voice').mkdir()
             (root/'voice/python.exe').write_bytes(b'old runtime')
             with self.assertRaisesRegex(ValueError,'one Python'):

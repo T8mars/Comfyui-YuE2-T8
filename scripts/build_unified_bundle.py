@@ -71,7 +71,10 @@ def runtime_files(runtime):
         path = runtime/entry['name']
         if not path.is_file() or digest(path) != entry['sha256']:
             raise ValueError('Full bundle Microsoft CRT hash mismatch: '+entry['name'])
-    files = list(plain_files(runtime))
+    files = [path for path in plain_files(runtime)
+             if not (path.relative_to(runtime).parts[0]=='playwright'
+                     and ('.links' in path.relative_to(runtime).parts
+                          or path.name.lower() in {'debug.log','chrome_debug.log'}))]
     interpreters = [p.relative_to(runtime).as_posix() for p in files if p.name.lower()=='python.exe']
     if interpreters!=['python.exe']:
         raise ValueError(f'Expected exactly one Python executable: {interpreters}')
