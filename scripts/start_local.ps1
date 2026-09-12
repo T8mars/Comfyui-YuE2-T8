@@ -1,7 +1,7 @@
-﻿param([switch]$NoBrowser)
+﻿param([switch]$NoBrowser, [ValidateRange(1024,65535)][int]$Port = 8189, [switch]$NoSwitch)
 $ErrorActionPreference = 'Stop'
 $KitRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$ServiceUrl = 'http://127.0.0.1:8189'
+$ServiceUrl = "http://127.0.0.1:$Port"
 trap {
     Write-Host ''
     Write-Host "[启动失败] $($_.Exception.Message)" -ForegroundColor Red
@@ -27,6 +27,7 @@ try { $Health = Invoke-RestMethod -Uri "$ServiceUrl/api/health" -TimeoutSec 2 } 
 if ($Health -and $Health.ok -eq $true) {
     $ActualRoot = [IO.Path]::GetFullPath([string]$Health.root).TrimEnd('\')
     if ($ActualRoot -ine $KitRoot.TrimEnd('\')) {
+        if ($NoSwitch) { throw "端口 $Port 已被另一套 YuE2 占用，请选择其他端口。" }
         $Queued = [int]$Health.queued
         $CurrentJob = $Health.current_job
         if ($CurrentJob -or $Queued -gt 0) {
@@ -85,7 +86,7 @@ if (-not $Running) {
             Move-Item -LiteralPath $LogPath -Destination "$LogPath.1" -Force
         }
     }
-    $Process = Start-Process -FilePath $Python -ArgumentList '-X','utf8','-m','app.yue2_app.service','--host','127.0.0.1','--port','8189' `
+    $Process = Start-Process -FilePath $Python -ArgumentList '-X','utf8','-m','app.yue2_app.service','--host','127.0.0.1','--port',([string]$Port) `
         -WorkingDirectory $KitRoot -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput (Join-Path $KitRoot 'logs\server.stdout.log') `
         -RedirectStandardError (Join-Path $KitRoot 'logs\server.stderr.log')

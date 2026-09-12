@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
@@ -13,6 +13,16 @@ internal static class YuE2Launcher
 
         bool noPause = HasArgument(args, "--no-pause") || Console.IsInputRedirected;
         bool noBrowser = HasArgument(args, "--no-browser");
+        bool noSwitch = HasArgument(args, "--no-switch");
+        int port = 8189;
+        for (int i = 0; i < args.Length; i++)
+        {
+            if (string.Equals(args[i], "--port", StringComparison.OrdinalIgnoreCase))
+            {
+                if (++i >= args.Length || !int.TryParse(args[i], out port) || port < 1024 || port > 65535)
+                    return Finish(5, "[启动失败] --port 需要 1024–65535 之间的端口。", noPause);
+            }
+        }
         string kitRoot = AppDomain.CurrentDomain.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
         string script = Path.Combine(kitRoot, "scripts", "start_local.ps1");
         if (!File.Exists(script))
@@ -32,10 +42,10 @@ internal static class YuE2Launcher
         Console.WriteLine("[YuE2] 正在启动本地工作室，请稍候...");
         ProcessStartInfo startInfo = new ProcessStartInfo();
         startInfo.FileName = "powershell.exe";
-        startInfo.Arguments = "-NoProfile -ExecutionPolicy Bypass -File \"" + script + "\"" + (noBrowser ? " -NoBrowser" : "");
+        startInfo.Arguments = "-NoProfile -ExecutionPolicy Bypass -File \"" + script + "\"" + (noBrowser ? " -NoBrowser" : "") + " -Port " + port + (noSwitch ? " -NoSwitch" : "");
         startInfo.WorkingDirectory = kitRoot;
         startInfo.UseShellExecute = false;
-        startInfo.CreateNoWindow = false;
+        startInfo.CreateNoWindow = noPause;
 
         try
         {
@@ -53,7 +63,7 @@ internal static class YuE2Launcher
 
         Console.WriteLine();
         Console.ForegroundColor = ConsoleColor.Green;
-        Console.WriteLine("[启动成功] 本地工作室地址：http://127.0.0.1:8189");
+        Console.WriteLine("[启动成功] 本地工作室地址：http://127.0.0.1:" + port);
         Console.ResetColor();
         Console.WriteLine("关闭此窗口不会停止后台服务；需要停止时请运行“停止本地服务.ps1”。");
         return Finish(0, null, noPause);
