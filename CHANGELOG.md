@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.3.0 - 2026-09-12
+
+- Unify generation, transcription, Seed-VC, RVC and GGUF under CPython 3.12.10 / Torch 2.10.0 + CUDA 12.8; keep sequential subprocess model release.
+- Add an RVC training workbench with material preview/review, separation, preflight, progress/logs, cancellation/resume, paired checkpoints, indexes and a versioned voice library.
+- Add validated storage migration for training projects/cache, datasets and voices, preserving original backups and resumable migration state.
+- Convert existing songs directly or compare Seed-VC and RVC sequentially using a verified shared Demucs cache. Preserve playable successful candidates when the other backend fails.
+- Migrate legacy runtimes transactionally during updates, verify new service startup, and roll back code/runtime on failure. Retire the old code-only patch installer.
+- Package optional prebuilt/local SM120 FlashAttention wheels; standalone flash_attn is not enabled in song generation.
+- Verify GPU/CPU compatibility, long repeated-audio conversion, checkpoint recovery and browser workflows. Voice-quality benchmarks and physical low-VRAM GPU support are not claimed.
+
 ## 1.2.2 - 2026-09-12
 
 - Add a visible update control to the WebUI status card and automatically check the stable GitHub Release channel when the page opens.

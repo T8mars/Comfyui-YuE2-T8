@@ -190,7 +190,7 @@ def local_model_identity(root: Path, config: dict) -> list:
 def config_info(root: Path) -> dict:
     config = normalize_config(read(root / "userdata/assistant/config.json", {}))
     try:
-        runtime_probe = read(root / "runtime/llm/installed.json", {}).get("probe", {})
+        runtime_probe = read(root / "runtime/installed.json", {}).get("llm", {}).get("probe", {})
     except (OSError, ValueError, AttributeError):
         runtime_probe = {}
     directory = llm_directory(root, config)
@@ -219,7 +219,7 @@ def config_info(root: Path) -> dict:
             "options": {"lyrics_modes": engine.LYRIC_MODES, "quality_modes": [engine.STANDARD, engine.REVIEW],
                         "abc_sources": [engine.ABC_DOWNSTREAM, engine.ABC_GENERATE]},
             "llm_directory": str(directory), "models": models,
-            "local_runtime": (root / "runtime/llm/python.exe").is_file() and bool(runtime_probe),
+            "local_runtime": (root / "runtime/python.exe").is_file() and bool(runtime_probe),
             "local_gpu_offload": runtime_probe.get("gpu_offload") is True,
             "official_source": engine.official_snapshot()}
 
@@ -266,7 +266,7 @@ def normalize_request(root: Path, value: dict) -> dict:
         path = within(llm_directory(root, config), llm_directory(root, config) / config["model"])
         if not path.is_file() or path.suffix.lower() != ".gguf" or "mmproj" in path.name.lower():
             raise ValueError("请选择存在的 GGUF 语言模型")
-        if not (root / "runtime/llm/python.exe").is_file():
+        if not (root / "runtime/python.exe").is_file():
             raise ValueError("本地 LLM 环境未安装，请先运行安装脚本；API 创作仍可用")
         local_model_identity(root, config)
     if value.get("resume_from"):

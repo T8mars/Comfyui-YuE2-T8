@@ -19,11 +19,16 @@ def run_stage(root: Path, ctx: JobContext, name: str, kind: str, request: dict) 
     atomic_json(directory / "job.json", {"id": job_id, "kind": kind, "request": request})
     atomic_json(directory / "status.json", {"id": job_id, "kind": kind, "status": "queued",
                                            "stage": "starting", "created_at": time.time()})
-    runtime, module = ("voice", "voice_worker") if kind == "voice_convert" else ("core", "core_worker")
-    command = [str(root / "runtime" / runtime / "python.exe"), "-X", "utf8", "-m",
+    module = "voice_worker" if kind == "voice_convert" else "core_worker"
+    command = [str(root / "runtime" / "python.exe"), "-X", "utf8", "-m",
                "app.yue2_app." + module, "--root", str(root), "--job-dir", str(directory)]
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    process = subprocess.Popen(command, cwd=root, creationflags=flags)
+    log = (directory / 'worker.log').open('ab', buffering=0)
+    try:
+        process = subprocess.Popen(command, cwd=root, stdout=log, stderr=subprocess.STDOUT, creationflags=flags)
+    except BaseException:
+        log.close()
+        raise
     last_update = None
     try:
         while True:
@@ -38,23 +43,36 @@ def run_stage(root: Path, ctx: JobContext, name: str, kind: str, request: dict) 
                 fields = {key: state[key] for key in (
                     "tokens", "progress", "completed", "total", "checkpoint", "resumed_stage",
                     "resumable", "candidate", "candidates") if key in state}
+                if state.get('result', {}).get('comparison'):
+                    fields['result'] = state['result']
+                for key in ('comparison_backend', 'separation_cache_hit'):
+                    if key in state:
+                        fields[key] = state[key]
                 ctx.update(state.get("failed_stage") or state.get("stage", "starting"),
                            workflow_stage=name, child_pid=process.pid, **fields)
             if process.poll() is not None:
                 break
             time.sleep(0.5)
+        state = json.loads((directory / "status.json").read_text(encoding="utf-8"))
+        if state.get('result', {}).get('comparison'):
+            ctx.update(state.get('failed_stage', 'converting_voice'), result=state['result'], resumable=True)
         ctx.check_cancelled()
         if process.returncode != 0 or state.get("status") != "complete":
             # Re-read after exit: the final atomic status can race the last poll.
             state = json.loads((directory / "status.json").read_text(encoding="utf-8"))
             if process.returncode != 0 or state.get("status") != "complete":
+                if state.get('result', {}).get('comparison'):
+                    ctx.update(state.get('failed_stage', 'converting_voice'), result=state['result'], resumable=True)
                 raise RuntimeError(state.get("error") or f"{name} worker exited: {process.returncode}")
         return state["result"]
     finally:
-        if process.poll() is None:
-            from .service import terminate_process_tree
-            terminate_process_tree(process.pid)
-            process.wait(timeout=30)
+        try:
+            if process.poll() is None:
+                from .service import terminate_process_tree
+                terminate_process_tree(process.pid)
+                process.wait(timeout=30)
+        finally:
+            log.close()
 
 
 def run_workflow(root: Path, ctx: JobContext, request: dict) -> dict:

@@ -1,4 +1,4 @@
-param([string]$ModelsDirectory = '')
+﻿param([string]$ModelsDirectory = '')
 $ErrorActionPreference = 'Stop'
 $KitRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $SettingsPath = Join-Path $KitRoot 'settings.json'

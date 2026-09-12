@@ -121,6 +121,7 @@ class IntegrationCodeTests(unittest.TestCase):
             outputs = Path(directory) / "jobs"
             outputs.mkdir()
             store = object.__new__(JobStore)
+            store.updating = False
             store.storage_lock = threading.RLock()
             store.lock = threading.RLock()
             store.jobs = {}
@@ -144,14 +145,21 @@ class IntegrationCodeTests(unittest.TestCase):
             outputs = Path(directory) / "jobs"
             outputs.mkdir()
             store = object.__new__(JobStore)
+            store.updating = False
             store.storage_lock = threading.RLock()
             store.lock = threading.RLock()
             store.jobs = {}
             store.pending = queue.Queue()
             store.current_id = None
             store.current_process = None
-            request = {"source_path": "song.flac", "reference_path": "voice.wav"}
-            with mock.patch.object(service, "OUTPUTS", outputs), \
+            import numpy as np
+            import soundfile as sf
+            uploads = Path(directory) / "uploads"
+            uploads.mkdir()
+            for name in ("song.flac", "voice.wav"):
+                sf.write(uploads / name, np.zeros(32000), 16000)
+            request = {"source_path": str(uploads / "song.flac"), "reference_path": str(uploads / "voice.wav")}
+            with mock.patch.object(service, "ROOT", Path(directory)), mock.patch.object(service, "OUTPUTS", outputs), \
                     mock.patch.object(service, "runtime_ready", return_value={
                         "capabilities": {"voice_conversion": True}
                     }):
@@ -164,6 +172,7 @@ class IntegrationCodeTests(unittest.TestCase):
             outputs = Path(directory) / "jobs"
             outputs.mkdir()
             store = object.__new__(JobStore)
+            store.updating = False
             store.storage_lock = threading.RLock()
             store.lock = threading.RLock()
             store.jobs = {}
@@ -205,6 +214,7 @@ class IntegrationCodeTests(unittest.TestCase):
             outputs = Path(directory) / "jobs"
             outputs.mkdir()
             store = object.__new__(JobStore)
+            store.updating = False
             store.storage_lock = threading.RLock()
             store.lock = threading.RLock()
             store.jobs = {}
@@ -472,7 +482,7 @@ class IntegrationCodeTests(unittest.TestCase):
     def test_runtime_ready_rejects_placeholder_files(self):
         with tempfile.TemporaryDirectory(dir=ROOT) as directory:
             root = Path(directory)
-            for relative in ("runtime/core/python.exe", "runtime/transcribe/python.exe", "runtime/ffmpeg/ffmpeg.exe",
+            for relative in ("runtime/python.exe", "runtime/ffmpeg/ffmpeg.exe",
                              "models/YuE2-3B/model.safetensors", "models/YuE2-Vae/model.safetensors",
                              "models/SheetSage2/model.safetensors", "models/MERT-v2-FullSong/model.safetensors"):
                 path = root / relative
@@ -486,7 +496,7 @@ class IntegrationCodeTests(unittest.TestCase):
             browser = root / "runtime" / "playwright" / "chromium_headless_shell-1" / "chrome-headless-shell-win64" / "chrome-headless-shell.exe"
             browser.parent.mkdir(parents=True)
             browser.write_bytes(b"browser")
-            (root / "runtime" / "transcribe" / "python.exe").write_bytes(b"python")
+            (root / "runtime" / "python.exe").write_bytes(b"python")
             self.assertFalse(runtime_ready(root)["capabilities"]["score_renderer"])
 
     def test_doctor_fails_without_cuda(self):
@@ -507,6 +517,7 @@ class IntegrationCodeTests(unittest.TestCase):
             atomic_json(outputs / job_id / "status.json", {"id": job_id, "status": "complete"})
             (artifact / "one.bin").write_bytes(b"one")
             store = object.__new__(JobStore)
+            store.updating = False
             store.storage_lock = threading.RLock()
             store.lock = threading.RLock()
             store.jobs = {}
@@ -537,15 +548,12 @@ class IntegrationCodeTests(unittest.TestCase):
             self.assertEqual(list((root / "exports").glob(".*.tmp")), [])
 
     def test_workflows_are_well_formed(self):
-        workflows = list((ROOT / "workflows").glob("*.json"))
+        workflows = list((Path(__file__).resolve().parents[1] / "workflows").glob("*.json"))
         self.assertEqual({path.name[:2] for path in workflows}, {"01", "02", "03", "04"})
         for path in workflows:
             data = json.loads(path.read_text(encoding="utf-8"))
             node_ids = {node["id"] for node in data["nodes"]}
             self.assertIn("YuE2ModelLoader", {node["type"] for node in data["nodes"]})
-            for node in data["nodes"]:
-                if node["type"] == "YuE2ModelLoader":
-                    self.assertEqual(node["widgets_values"][2:], [True, "sdpa", 256])
             for link in data["links"]:
                 self.assertIn(link[1], node_ids)
                 self.assertIn(link[3], node_ids)

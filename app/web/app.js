@@ -31,7 +31,7 @@ function renderPanelResults(jobs) {
     const job = jobs.find(item => ['generate', 'reference_cover', 'voice_convert', 'render_plan', 'decode'].includes(item.kind) && resultPanel(item) === panel);
     if (!job) continue;
     const target = $(`#${panel}-result`);
-    const signature = `${job.id}:${job.status}`;
+    const signature = `${job.id}:${job.status}:${job.result?.completed_candidates || 0}`;
     const previous = observedJobs.get(job.id);
     observedJobs.set(job.id, job.status);
     if (panelStates.get(panel) === signature) continue;
@@ -39,6 +39,9 @@ function renderPanelResults(jobs) {
     target.dataset.jobId = job.id;
     if (!TERMINAL.has(job.status)) {
       target.innerHTML = `<div class="result-card"><b>作品正在制作中</b><p class="meta">完成后，播放器会直接显示在这里。</p><button class="ghost compact" onclick="openTaskCenter()">查看生成进度</button></div>`;
+      if (job.result?.comparison && job.result?.candidates?.length) {
+        const ready = document.createElement('div'); renderJob(job, ready); target.append(ready);
+      }
     } else {
       if (job.status === 'complete') renderJob(job, target);
       else target.innerHTML = failureMarkup({jobId: job.id, message: job.error, job});
@@ -76,6 +79,9 @@ function safeSeed(value) {
 function kindLabel(kind) {
   return ({
     assistant: 'AI 创作助手',
+    rvc_import: '导入训练素材', rvc_separate: '整理人声素材', rvc_train: '训练专属音色',
+    rvc_model_import: '导入音色模型', rvc_model_export: '导出音色模型',
+    rvc_storage_move: '迁移音色数据目录',
     generate: '歌曲生成', plan: '乐谱创作', render_plan: '从乐谱生成歌曲',
     transcribe: '音频转谱', semantic: '生成音乐结构', synthesize: '合成人声与伴奏',
     decode: '输出音频', doctor: '环境自检', voice_convert: '参考音色转换', reference_cover: '参考音色翻唱'
@@ -85,6 +91,12 @@ function kindLabel(kind) {
 function stageLabel(stage) {
   return ({
     queued: '等待开始', starting: '正在加载模型', candidate: '正在准备生成版本',
+    rvc_import: '正在导入训练素材', rvc_separate: '正在分离训练人声',
+    rvc_model_import: '正在检查并导入音色', rvc_model_export: '正在导出音色包',
+    rvc_storage_copy: '正在校验并复制音色数据', rvc_storage_switch: '正在切换音色数据目录',
+    rvc_preflight: '正在检查训练条件', rvc_preprocess: '正在切分训练素材', rvc_f0: '正在提取音高',
+    rvc_features: '正在提取人声特征', rvc_train: '正在训练音色模型',
+    rvc_index: '正在生成音色索引', rvc_export: '正在加入音色库', rvc_infer: '正在生成音色试听',
     planning: '正在创作旋律与和弦', semantic: '正在生成音乐结构',
     synthesis: '正在合成人声与伴奏', decoding: '正在输出音频',
     loading_transcriber: '正在加载转谱模型', transcribing: '正在从音频提取旋律',
@@ -97,16 +109,18 @@ function stageLabel(stage) {
 }
 
 function stageHint(job) {
+  if (job.kind === 'rvc_storage_move') return '正在本机复制并校验数据，全部通过后切换目录。原目录会保留为备份。';
   if (job.kind === 'assistant') return '文本创作与音乐任务串行。已完成的内容会保留在 AI 创作助手页面，可编辑后发送到其他页面。';
+  if (job.comparison_backend && ['loading_voice_model','converting_voice'].includes(job.stage)) return `正在制作 ${job.comparison_backend === 'rvc' ? 'RVC' : 'Seed-VC'} 对比音频。两种转换依次执行，已完成的结果会保留。`;
   const hints = {
-    queued: '等待前面的任务完成后自动开始。', starting: '正在启动独立运行环境并加载所需模型。',
+    queued: '等待前面的任务完成后自动开始。', starting: '正在启动任务进程并加载所需模型。',
     candidate: '正在准备本轮生成参数。', planning: '正在根据歌词和风格安排旋律、节拍与和弦。',
     semantic: '正在创作歌曲结构、旋律走向与音乐语义。', synthesis: '正在合成人声、乐器和声学细节。',
     decoding: '正在输出 48 kHz 双声道音频，已经接近完成。', loading_transcriber: '正在将转谱模型载入 GPU。',
     transcribing: '正在从上传的音频中识别旋律和节拍。', encoding: '正在准备音频数据。',
     notation: '正在生成可编辑的 ABC、MIDI 和乐谱预览。', doctor: '正在检查 GPU、运行库和全部模型文件。',
-    separating_vocals: '正在把新生成歌曲拆分为人声和伴奏。', loading_voice_model: '正在将 Seed-VC、声纹和声码器载入 GPU。',
-    converting_voice: '保留新歌旋律与演唱节奏，把人声转换成参考音色。', remixing: '正在将转换后的人声与原伴奏合成为 48 kHz 双声道成品。',
+    separating_vocals: '正在把歌曲拆分为人声和伴奏；已有校验通过的分离结果会直接复用。', loading_voice_model: '正在加载所选音色转换模型。',
+    converting_voice: '保留歌曲旋律与演唱节奏，把人声转换成所选音色。', remixing: '正在将转换后的人声与原伴奏合成为 48 kHz 双声道成品。',
     cancelling: '正在保存可用结果并安全释放 GPU。'
   };
   let hint = hints[job.stage] || '任务正在本机 GPU 上运行。';
@@ -134,7 +148,9 @@ function failureMarkup(error) {
   const phase = job.failed_stage ? `<p>失败阶段：${escapeHtml(stageLabel(job.failed_stage))}</p>` : '';
   const retry = id && ['generate', 'reference_cover', 'voice_convert', 'render_plan'].includes(job.kind) ? `<button class="primary compact" onclick="resumeJob('${id}', this)">${job.resumable ? '从已保存阶段继续' : '重新运行'}</button>` : '';
   const actions = id ? `<div class="toolbar failure-actions">${retry}<button class="ghost compact" onclick="toggleJobLog('${id}', this)">查看任务日志</button></div><pre class="job-log hidden"></pre>` : '';
-  return `<div class="result-card failure-card"><b class="status-failed">${job.status === 'cancelled' ? '任务已取消' : '任务失败'}</b>${phase}<p>${escapeHtml(reason)}</p>${intermediate}${actions}</div>`;
+  const retained = document.createElement('div');
+  if (job.result?.comparison && job.result?.candidates?.length) renderJob(job, retained);
+  return `<div class="result-card failure-card"><b class="status-failed">${job.status === 'cancelled' ? '任务已取消' : '任务失败'}</b>${phase}<p>${escapeHtml(reason)}</p>${intermediate}${actions}</div>` + retained.innerHTML;
 }
 
 async function resumeJob(id, button) {
@@ -256,7 +272,10 @@ function restoreButton(button) {
   delete button.dataset.jobId;
   button.textContent = button.dataset.idleLabel || button.textContent;
   button.disabled = (button.id === 'transcribe-button' && !$('#cover-file').files[0]) ||
-    (button.id === 'generate-reference-cover' && !$('#reference-file').files[0]);
+    (button.id === 'generate-reference-cover' &&
+      (($('#voice-backend').value !== 'seed-vc' && !$('#rvc-cover-model').value) ||
+       ($('#voice-backend').value !== 'rvc' && !$('#reference-file').files[0]) ||
+       ($('#cover-mode').value === 'direct' && !$('#cover-file').files[0])));
 }
 
 function updateButton(button, job, queuePosition = 0) {
@@ -372,18 +391,34 @@ function relativeAudio(job, path) {
   const artifactIndex = normalized.toLowerCase().lastIndexOf('/artifacts/'); return artifactIndex >= 0 ? normalized.slice(artifactIndex + 1) : null;
 }
 
+function voiceDescription(result) {
+  if (!result.backend) return '';
+  if (result.backend === 'compare') return 'Seed-VC / RVC 同曲对比';
+  return escapeHtml((result.backend === 'rvc' ? 'RVC 专属音色' : 'Seed-VC 参考音色') + (result.voice_name ? ` · ${result.voice_name}` : ''));
+}
+
+function stemPlayers(job, result) {
+  const players = [['separated_vocal','分离后人声'],['converted_vocal','转换后人声'],['accompaniment','伴奏']].map(([key,label]) => {
+    const relative = relativeAudio(job, result[key]);
+    if (!relative) return '';
+    const url = audioUrl(job.id, relative);
+    return `<div class="stem-player"><b>${label}</b><audio controls preload="none" src="${url}"></audio><a class="ghost compact" href="${url}" download>下载${label}</a></div>`;
+  }).join('');
+  return players ? `<details class="stem-previews"><summary>单独试听人声与伴奏</summary>${players}</details>` : '';
+}
+
 function renderJob(job, target) {
   const result = job.result || {}; const candidates = result.candidates || (result.audio ? [{seed: result.seed, audio: result.audio, audio_seconds: result.audio_seconds || result.audio_info?.duration_seconds, truncated: result.truncated}] : []);
   if (!candidates.length) { target.innerHTML = `<div class="result-card"><b>任务完成</b><pre class="meta">${escapeHtml(JSON.stringify(result, null, 2))}</pre></div>`; return; }
-  const partial = result.partial ? `<div class="result-card status-failed">已完成 ${result.completed_candidates}/${result.requested_candidates} 个版本；后续版本失败：${escapeHtml(result.failures?.[0]?.error || '未知错误')}</div>` : '';
+  const partial = result.partial ? `<div class="result-card">已保留 ${result.completed_candidates}/${result.requested_candidates} 个${result.comparison ? '转换结果' : '版本'}。${result.failures?.length ? `未完成原因：${escapeHtml(result.failures[0].error)}` : '其余结果正在制作中。'}</div>` : '';
   target.innerHTML = partial + candidates.map((candidate, index) => {
     const rel = relativeAudio(job, candidate.audio); const truncated = candidate.truncated && Object.values(candidate.truncated).some(Boolean);
     const url = rel ? audioUrl(job.id, rel) : '';
     const player = url ? `<audio controls preload="metadata" src="${url}"></audio>` : '';
-    const duration = Number(candidate.audio_seconds);
-    const details = [candidates.length > 1 ? `版本 ${index + 1}` : '', Number.isFinite(duration) && duration > 0 ? `${duration.toFixed(1)} 秒` : '', candidate.seed != null ? `Seed ${escapeHtml(candidate.seed)}` : '', `任务 ${escapeHtml(shortId(job.id))}`].filter(Boolean).join(' · ');
+    const duration = Number(candidate.audio_seconds || candidate.audio_info?.duration_seconds);
+    const details = [voiceDescription({...result,...candidate}), candidates.length > 1 ? `版本 ${index + 1}` : '', Number.isFinite(duration) && duration > 0 ? `${duration.toFixed(1)} 秒` : '', candidate.seed != null ? `Seed ${escapeHtml(candidate.seed)}` : '', `任务 ${escapeHtml(shortId(job.id))}`].filter(Boolean).join(' · ');
     const download = url ? `<a class="ghost audio-download" href="${url}" download="YuE2-${job.id}-${index + 1}.flac">下载音频</a>` : '';
-    return `<article class="result-card"><header><div><b>${escapeHtml(kindLabel(job.kind))}已完成 · 可试听</b><div class="meta">${details}</div></div><span class="badge">${truncated ? '已截断' : '完整'}</span></header>${player}<div class="toolbar">${download}<button class="ghost" onclick="exportJob('${job.id}')">导出全部文件</button></div></article>`;
+    return `<article class="result-card"><header><div><b>${escapeHtml(kindLabel(job.kind))}已完成 · 可试听</b><div class="meta">${details}</div></div><span class="badge">${truncated ? '已截断' : '完整'}</span></header>${player}<div class="toolbar">${download}${TERMINAL.has(job.status) ? `<button class="ghost" onclick="exportJob('${job.id}')">导出全部文件</button>` : ''}</div>${stemPlayers(job,{...result,...candidate})}</article>`;
   }).join('');
 }
 
@@ -400,7 +435,7 @@ $$('.tab').forEach(button => button.onclick = () => {
   if (button.dataset.tab === 'history') loadHistory();
 });
 const restoredTab = savedValue('active-tab');
-if (['create', 'plan', 'cover', 'history', 'assistant'].includes(restoredTab)) $(`.tab[data-tab="${restoredTab}"]`).click();
+if (['create', 'plan', 'cover', 'history', 'assistant', 'voices'].includes(restoredTab)) $(`.tab[data-tab="${restoredTab}"]`).click();
 
 function openHistory() { $('.tab[data-tab="history"]').click(); $('#history').scrollIntoView({behavior: 'smooth', block: 'start'}); }
 function openTaskCenter() { $('#task-center').scrollIntoView({behavior: 'smooth', block: 'nearest'}); }
@@ -534,18 +569,19 @@ async function checkUpdate({quiet = false} = {}) {
 }
 
 async function waitForUpdatedService(version) {
-  const deadline = Date.now() + 120000;
+  const deadline = Date.now() + 60 * 60 * 1000;
   while (Date.now() < deadline) {
     await new Promise(resolve => setTimeout(resolve, 900));
     try {
       const health = await api('/api/health');
       const status = await api('/api/update/status');
       if (status.state === 'error') throw new Error(status.message || '更新失败');
-      if (health.version === version) {
+      if (health.version === version && status.state === 'complete') {
         updateMessage(`已更新到 v${version}，正在刷新页面`, 'installing');
         setTimeout(() => location.reload(), 700);
         return;
       }
+      if (status.message) updateMessage(status.message, 'installing');
       if (status.state === 'complete' && health.version !== version) {
         throw new Error(`服务版本仍为 v${health.version}`);
       }
@@ -556,7 +592,7 @@ async function waitForUpdatedService(version) {
       updateMessage(`正在安装 v${version} 并重启本地服务…`, 'installing');
     }
   }
-  throw new Error('更新重启超过 2 分钟，请重新运行整合包启动文件');
+  throw new Error('更新尚未完成，请查看已打开的升级进度页或 logs/update.stdout.log；请勿重复启动安装');
 }
 
 async function installUpdate() {
@@ -579,6 +615,27 @@ async function installUpdate() {
   }
 }
 bindUploadPreview('#cover-file', '#drop-zone', '#cover-preview', '#transcribe-button');
+function setCoverMode(mode) {
+  const direct = mode === 'direct';
+  $('#cover-mode').value = direct ? 'direct' : 'generate';
+  $('#transcribe-button').classList.toggle('hidden', direct);
+  $('#cover-generation-fields').classList.toggle('hidden', direct);
+  $('#cover-regenerate-choice').classList.toggle('hidden', direct);
+  $('#cover .creation-options').style.gridTemplateColumns = direct ? '1fr' : '';
+  if (direct) $('#cover-review').classList.remove('hidden');
+  $('#cover-mode-hint').textContent = direct ? '上传已有歌曲，分离人声后转换音色，再与原伴奏混音；无需转谱或填写歌词。' : '从原曲提取旋律，核对歌词和曲风后重新生成歌曲。';
+  $('#cover-voice-hint').textContent = direct ? '为上方上传歌曲的人声转换音色，保留原伴奏。' : '先生成歌曲，再分离人声并转换音色，最后与伴奏重新混音。';
+  const button = $('#generate-reference-cover');
+  button.dataset.idleLabel = direct ? '转换上传歌曲的音色' : '生成参考音色翻唱';
+  if (!button.dataset.jobId) restoreButton(button);
+  savedValue('cover-mode', $('#cover-mode').value);
+}
+window.setCoverMode = setCoverMode;
+$('#cover-mode').onchange = () => { setCoverMode($('#cover-mode').value); window.assistantDraftChanged?.('cover'); };
+setCoverMode(savedValue('cover-mode') || 'generate');
+$('#cover-file').addEventListener('change', () => {
+  if (!$('#generate-reference-cover').dataset.jobId) restoreButton($('#generate-reference-cover'));
+});
 $('#transcribe-button').onclick = async () => {
   const file = $('#cover-file').files[0]; if (!file) return; const button = $('#transcribe-button');
   const revision = window.assistantDraftRevision?.('cover');
@@ -605,25 +662,38 @@ $('#generate-cover').onclick = async () => {
 };
 
 bindUploadPreview('#reference-file', '#reference-drop-zone', '#reference-preview', '#generate-reference-cover');
+$('#reference-file').addEventListener('change', () => {
+  if (!$('#generate-reference-cover').dataset.jobId) restoreButton($('#generate-reference-cover'));
+});
 
 $('#generate-reference-cover').onclick = async () => {
-  if ($('#cover').dataset.instrumental === 'true') return alert('纯器乐没有可转换的人声，请使用旋律重制');
+  const direct = $('#cover-mode').value === 'direct', source = $('#cover-file').files[0];
+  if (direct && !source) return alert('请先选择要转换音色的歌曲');
+  if (!direct && $('#cover').dataset.instrumental === 'true') return alert('纯器乐没有可转换的人声，请使用旋律重制');
   const reference = $('#reference-file').files[0];
-  if (!reference) return alert('请先选择参考音色');
+  const backend = $('#voice-backend').value;
+  if (backend !== 'rvc' && !reference) return alert('请先选择参考音色');
+  if (backend !== 'seed-vc' && !$('#rvc-cover-model').value) return alert('请先到“我的音色 / 训练”创建或导入音色模型');
   let seed;
-  try { seed = safeSeed($('#cover-seed').value); } catch (error) { return alert(error.message); }
+  try { if (!direct) seed = safeSeed($('#cover-seed').value); } catch (error) { return alert(error.message); }
   const generate = {style: $('#cover-style').value, lyrics: $('#cover-lyrics').value, abc: $('#cover-abc').value, cot: 'melody', seed, cfg_scale: 1, backend: 'torch-eager', memory_budget_gib: 23.5, candidates: 1, offload_ar: true, nar_query_chunk_size: 256, nar_attention: 'sdpa'};
-  if (!generate.lyrics.trim()) return alert('请先填写并核对歌词');
+  if (!direct && !generate.lyrics.trim()) return alert('请先填写并核对歌词');
+  if (!direct && !generate.abc.trim()) return alert('请先转谱或导入有效的旋律 ABC');
   const button = $('#generate-reference-cover');
   setSubmitting(button);
   try {
     $('#cover-result').innerHTML = '';
-    const upload = await api(`/api/uploads?filename=${encodeURIComponent(reference.name)}`, {method: 'POST', headers: {'Content-Type': 'application/octet-stream'}, body: reference});
-    const voice = {reference_path: upload.path,
+    const upload = backend !== 'rvc' ? await api(`/api/uploads?filename=${encodeURIComponent(reference.name)}`, {method: 'POST', headers: {'Content-Type': 'application/octet-stream'}, body: reference}) : null;
+    const voice = {backend, reference_path: upload?.path,
+      voice_id: $('#rvc-cover-model').value, speaker_id: Number($('#rvc-cover-speaker').value),
+      index_rate: Number($('#rvc-index-rate').value), protect: Number($('#rvc-protect').value),
       diffusion_steps: Number($('#voice-steps').value), cfg_rate: Number($('#voice-cfg').value),
       semi_tone_shift: Number($('#voice-shift').value), auto_f0_adjust: $('#voice-auto-f0').checked,
       vocal_gain_db: Number($('#voice-gain').value), accompaniment_gain_db: Number($('#backing-gain').value)};
-    await submit('reference_cover', {generate, voice}, $('#cover-result'), button);
+    if (direct) {
+      const uploaded = await api(`/api/uploads?filename=${encodeURIComponent(source.name)}`, {method: 'POST', headers: {'Content-Type': 'application/octet-stream'}, body: source});
+      await submit('voice_convert', {...voice, source_path: uploaded.path}, $('#cover-result'), button);
+    } else await submit('reference_cover', {generate, voice}, $('#cover-result'), button);
   } catch (error) { restoreButton(button); $('#cover-result').innerHTML = failureMarkup(error); }
 };
 
@@ -636,10 +706,14 @@ async function loadHistory() {
     const {jobs} = await api('/api/jobs?limit=100');
     $('#history-list').innerHTML = jobs.map(job => {
       const result = job.result || {}; const audio = relativeAudio(job, result.audio || result.candidates?.[0]?.audio);
-      const exportButton = job.status === 'complete' && job.result ? `<button class="ghost" onclick="exportJob('${job.id}')">导出</button>` : '';
-      const retryButton = ['failed', 'cancelled'].includes(job.status) && ['generate', 'reference_cover', 'voice_convert', 'render_plan'].includes(job.kind) ? `<button class="ghost compact" onclick="resumeJob('${job.id}', this)">${job.resumable ? '从已保存阶段继续' : '重新运行'}</button>` : '';
+      const exportButton = (job.status === 'complete' || (TERMINAL.has(job.status) && result.comparison && result.candidates?.length)) && job.result ? `<button class="ghost" onclick="exportJob('${job.id}')">导出</button>` : '';
+      const retryButton = ['failed', 'cancelled'].includes(job.status) && ['generate', 'reference_cover', 'voice_convert', 'render_plan', 'rvc_train', 'rvc_import', 'rvc_separate', 'rvc_storage_move'].includes(job.kind) ? `<button class="ghost compact" onclick="resumeJob('${job.id}', this)">${job.resumable || ['rvc_train','rvc_storage_move'].includes(job.kind) ? '从已保存阶段继续' : '重新运行'}</button>` : '';
       const logButtons = (job.kind === 'assistant' ? `<button class="ghost compact" onclick="openAssistantJob('${job.id}')">查看 / 继续创作</button>` : '') + (job.status === 'failed' ? `<button class="ghost compact" onclick="toggleJobLog('${job.id}', this)">查看任务日志</button><button class="ghost compact" onclick="openDirectory('logs')">打开日志目录</button>` : '');
-      return `<article class="history-card"><header><div><b>${escapeHtml(kindLabel(job.kind))}</b><div class="meta">${escapeHtml(job.id)} · ${new Date(job.created_at * 1000).toLocaleString()} · ${escapeHtml(sourceLabel(job.source))}</div></div></header><b class="status-${job.status}">${escapeHtml(job.status === 'running' ? stageLabel(job.stage) : stageLabel(job.status))}</b>${job.error ? `<div class="meta">${escapeHtml(job.error)}</div>` : ''}${audio ? `<audio controls preload="none" src="${audioUrl(job.id, audio)}"></audio>` : ''}<div class="toolbar">${exportButton}${retryButton}${logButtons}</div><pre class="job-log hidden"></pre></article>`;
+      const comparison = result.comparison ? (result.candidates || []).map(candidate => {
+        const rel = relativeAudio(job, candidate.audio);
+        return `<div class="comparison-result"><p class="meta">${voiceDescription(candidate)}</p>${rel ? `<audio controls preload="none" src="${audioUrl(job.id,rel)}"></audio><a class="ghost compact" href="${audioUrl(job.id,rel)}" download>下载音频</a>` : ''}${stemPlayers(job,candidate)}</div>`;
+      }).join('') : '';
+      return `<article class="history-card"><header><div><b>${escapeHtml(kindLabel(job.kind))}</b><div class="meta">${escapeHtml(job.id)} · ${new Date(job.created_at * 1000).toLocaleString()} · ${escapeHtml(sourceLabel(job.source))}</div></div></header><b class="status-${job.status}">${escapeHtml(job.status === 'running' ? stageLabel(job.stage) : stageLabel(job.status))}</b>${job.error ? `<div class="meta">${escapeHtml(job.error)}</div>` : ''}${!result.comparison && audio ? `<audio controls preload="none" src="${audioUrl(job.id, audio)}"></audio>` : ''}<p class="meta">${voiceDescription(result)}</p>${comparison || stemPlayers(job,result)}<div class="toolbar">${exportButton}${retryButton}${logButtons}</div><pre class="job-log hidden"></pre></article>`;
     }).join('') || '<p class="meta">还没有任务。</p>';
   } catch (error) { $('#history-list').innerHTML = `<p class="status-failed">${escapeHtml(error.message)}</p>`; }
 }

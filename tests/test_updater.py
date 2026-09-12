@@ -81,6 +81,14 @@ class UpdaterTests(unittest.TestCase):
     def test_http_update_routes_block_active_jobs_then_schedule_install(self):
         class Store:
             busy = True
+            updating = False
+
+            def begin_update(self):
+                if self.busy:
+                    raise ValueError('有任务正在运行或排队，请等待任务结束后再更新')
+
+            def abort_update(self, error):
+                pass
 
             def state(self):
                 return {"current_job": {"id": "active"} if self.busy else None, "queued": 0}

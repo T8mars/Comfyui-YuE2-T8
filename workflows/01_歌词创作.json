@@ -1,0 +1,13 @@
+{
+  "id": "553dc0cf-ec41-4c07-bfa3-420e466d01f1",
+  "revision": 0,
+  "last_node_id": 3,
+  "last_link_id": 2,
+  "nodes": [
+    {"id":1,"type":"YuE2ModelLoader","pos":[40,80],"size":[300,150],"flags":{},"order":0,"mode":0,"inputs":[],"outputs":[{"name":"model","type":"YUE2_MODEL","links":[1]},{"name":"status","type":"STRING","links":null}],"properties":{"Node name for S&R":"YuE2ModelLoader"},"widgets_values":["torch-eager",23.5,true,"sdpa",256]},
+    {"id":2,"type":"YuE2GenerateSong","pos":[410,60],"size":[480,620],"flags":{},"order":1,"mode":0,"inputs":[{"name":"model","type":"YUE2_MODEL","link":1}],"outputs":[{"name":"audio","type":"AUDIO","links":[2]},{"name":"result","type":"YUE2_RESULT","links":null},{"name":"metadata","type":"STRING","links":null},{"name":"output_directory","type":"STRING","links":null}],"properties":{"Node name for S&R":"YuE2GenerateSong"},"widgets_values":["Mandarin pop, warm female vocal, piano, strings, emotional chorus, 92 BPM","[Verse]\n晚风穿过城市的灯\n把你的名字写进星辰\n\n[Chorus]\n如果明天还能相逢\n就让这首歌飞过长空","full",831001,"fixed",1.0,1,""]},
+    {"id":3,"type":"PreviewAudio","pos":[960,80],"size":[420,150],"flags":{},"order":2,"mode":0,"inputs":[{"name":"audio","type":"AUDIO","link":2}],"outputs":[{"name":"audio","type":"AUDIO","links":null}],"properties":{"Node name for S&R":"PreviewAudio","cnr_id":"comfy-core"},"widgets_values":[]}
+  ],
+  "links":[[1,1,0,2,0,"YUE2_MODEL"],[2,2,0,3,0,"AUDIO"]],
+  "groups":[],"config":{},"extra":{"frontendVersion":"1.28.7"},"version":0.4
+}

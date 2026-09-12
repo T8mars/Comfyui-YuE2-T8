@@ -40,6 +40,7 @@
     <button class="tab" data-tab="plan">乐谱计划</button>
     <button class="tab" data-tab="cover">旋律重制 / 参考音色</button>
     <button class="tab" data-tab="assistant">AI 创作助手</button>
+    <button class="tab" data-tab="voices">我的音色 / 训练</button>
     <button class="tab" data-tab="history">历史</button>
   </nav>
 
@@ -144,12 +145,14 @@ This melody still waits for you</textarea></label>
     </section>
 
     <section id="cover" class="panel">
-      <div class="section-title"><div><span>03</span><h2>旋律重制与参考音色翻唱</h2></div><p>先从原曲提取旋律，再选择只重制歌曲，或把新歌人声转换成参考音色。</p></div>
+      <div class="section-title"><div><span>03</span><h2>旋律重制与参考音色翻唱</h2></div><p>重新创作旋律，或为已有歌曲转换演唱音色。支持 Seed-VC 与 RVC 分别试听对比。</p></div>
       <div id="cover-result" class="results" aria-live="polite"></div>
+      <label>制作方式<select id="cover-mode"><option value="generate">提取旋律并重新生成歌曲</option><option value="direct">直接为已有歌曲换音色</option></select></label>
+      <p id="cover-mode-hint" class="meta"></p>
       <div class="upload-box" id="drop-zone">
         <input id="cover-file" type="file" accept="audio/*">
         <b>选择 WAV、FLAC、MP3、M4A、OGG 或 AAC</b>
-        <span>这里的原曲只用于提取旋律，不会直接复制原唱音色；最大 1GB</span>
+        <span>上传原曲后可先试听，再按所选制作方式处理；最大 1GB</span>
       </div>
       <div id="cover-preview" class="upload-preview hidden">
         <div class="upload-preview-head"><b>原曲试听</b><button type="button" class="ghost" data-replace>更换文件</button></div>
@@ -158,13 +161,15 @@ This melody still waits for you</textarea></label>
       </div>
       <button id="transcribe-button" class="primary full" data-idle-label="上传并转谱" disabled>上传并转谱</button>
       <div id="cover-review" class="workbench hidden">
+        <div id="cover-generation-fields">
         <div class="workbench-head"><h3>第一步：核对旋律与歌词</h3><span class="badge">请先校对</span></div>
         <label>旋律 ABC<textarea id="cover-abc" rows="16" spellcheck="false"></textarea></label>
         <label>目标风格<textarea id="cover-style" rows="3">Jazz-funk, warm lead vocal, Rhodes piano, electric bass, tight drums</textarea></label>
         <label>歌词<textarea id="cover-lyrics" rows="10" placeholder="粘贴并按 [Verse] / [Chorus] 整理歌词"></textarea></label>
         <label>随机种子<input id="cover-seed" type="number" min="0" max="9007199254740991" step="1" value="831001"></label>
+        </div>
         <div class="creation-options">
-          <article class="choice-card">
+          <article id="cover-regenerate-choice" class="choice-card">
             <span class="choice-step">方案 A</span>
             <h4>旋律重制</h4>
             <p>按核对后的旋律、歌词和目标风格重新生成，使用 YuE2 自己的人声音色。</p>
@@ -173,7 +178,15 @@ This melody still waits for you</textarea></label>
           <article class="choice-card accent-card">
             <span class="choice-step">方案 B · 参考音色</span>
             <h4>用参考声音演唱</h4>
-            <p>先生成歌曲，再分离人声并转换音色，最后与伴奏重新混音。请只使用你有权使用的声音。</p>
+            <p id="cover-voice-hint">先生成歌曲，再分离人声并转换音色，最后与伴奏重新混音。</p>
+            <label>音色转换方式<select id="voice-backend"><option value="seed-vc">Seed-VC · 使用短参考声音</option><option value="rvc">RVC · 使用已训练音色</option><option value="compare">Seed-VC / RVC · 同曲对比</option></select></label>
+            <p id="voice-compare-hint" class="meta hidden">同一首歌曲分别转换两次，依次运行，共用分离后的人声与伴奏。请选择同一目标音色的参考声音和 RVC 模型，完成后可分别试听。</p>
+            <div id="rvc-cover-settings" class="hidden">
+              <label>我的音色<select id="rvc-cover-model"></select></label>
+              <label>说话人<select id="rvc-cover-speaker"></select></label>
+              <div class="toolbar"><button id="rvc-cover-train" class="ghost compact" type="button">没有模型？去训练音色</button></div>
+              <div class="advanced-grid"><label>检索贴合度<input id="rvc-index-rate" type="number" min="0" max="1" step="0.05" value="0.75"></label><label>辅音保护<input id="rvc-protect" type="number" min="0" max="0.5" step="0.01" value="0.33"></label></div>
+            </div>
             <label class="mini-upload" id="reference-drop-zone">
               <input id="reference-file" type="file" accept="audio/*">
               <b>选择 1–30 秒清晰干声</b>
@@ -185,7 +198,7 @@ This melody still waits for you</textarea></label>
               <p data-preview-status role="status">可先试听，确认音色与录音内容。</p>
             </div>
             <details class="advanced voice-settings">
-              <summary>参考音色高级设置</summary>
+              <summary>音色转换高级设置</summary>
               <div class="advanced-grid">
                 <label>转换精度（步数）<input id="voice-steps" type="number" min="4" max="50" step="1" value="30"></label>
                 <label>音色贴合度<input id="voice-cfg" type="number" min="0" max="1.5" step="0.05" value="0.7"></label>
@@ -200,6 +213,60 @@ This melody still waits for you</textarea></label>
         </div>
       </div>
       <div id="cover-intermediate" class="results"></div>
+    </section>
+
+    <section id="voices" class="panel">
+      <div class="section-title"><div><span>RVC</span><h2>训练属于你的演唱音色</h2></div><p>导入素材、试听筛选、训练模型，再发送到翻唱区。训练与歌曲生成共用任务队列。</p></div>
+      <details id="rvc-storage" class="result-card"><summary>素材、训练缓存与音色库位置</summary>
+        <div class="grid two"><label>训练项目与缓存<input id="rvc-directory-projects" placeholder="留空使用整合包默认目录"></label><label>训练素材<input id="rvc-directory-datasets" placeholder="留空使用整合包默认目录"></label><label>用户音色库<input id="rvc-directory-voices" placeholder="留空使用整合包默认目录"></label></div>
+        <p class="meta">选择空文件夹。迁移会复制并校验文件，成功后切换目录；原目录保留为备份，确认新位置可用后可自行清理。中途取消可继续迁移。</p>
+        <div class="toolbar"><button id="rvc-storage-preview" class="ghost">预览迁移</button><button id="rvc-storage-apply" class="primary" disabled>开始迁移并切换</button></div>
+        <div id="rvc-storage-plan" class="meta" aria-live="polite"></div>
+      </details>
+      <div class="result-card">
+        <div class="grid two"><label>训练项目<select id="rvc-project"></select></label><label>新项目名称<input id="rvc-new-name" placeholder="例如：我的流行演唱音色"></label></div>
+        <div class="toolbar"><button id="rvc-create" class="ghost">新建训练项目</button><button id="rvc-refresh" class="ghost">刷新</button><button id="rvc-open" class="ghost">打开训练目录</button></div>
+      </div>
+      <div id="rvc-workbench" class="hidden">
+        <div class="result-card">
+          <h3>1. 导入与试听素材</h3>
+          <p class="meta">推荐 10–50 分钟干净、音色一致的素材。每段都可试听；含伴奏的歌曲请先分离人声，再确认是否用于训练。</p>
+          <div class="grid two"><label>选择多个音频<input id="rvc-files" type="file" accept="audio/*,.m4a,.flac,.wav,.mp3" multiple></label><label>或导入整个文件夹<input id="rvc-folder" placeholder="填写本机音频文件夹路径"></label></div>
+          <div class="grid two"><label>这些素材属于<select id="rvc-import-speaker"></select></label><label>素材类型<select id="rvc-source-type"><option value="unknown">待试听确认</option><option value="dry">已准备好纯人声</option><option value="mix">含伴奏的歌曲</option></select></label></div>
+          <div class="toolbar"><button id="rvc-import" class="primary">导入素材</button><button id="rvc-separate" class="ghost">分离选中素材 / 检查伴奏</button></div>
+          <p id="rvc-duration" class="meta"></p>
+          <div id="rvc-materials"></div>
+        </div>
+        <div class="result-card">
+          <h3>2. 训练设置</h3>
+          <div class="grid two"><label>训练轮数<input id="rvc-epochs" type="number" min="1" max="2000" value="100"></label><label>批次大小（0 为自动）<input id="rvc-batch" type="number" min="0" max="32" value="0"></label></div>
+          <details><summary>高级训练设置与说话人</summary>
+            <div class="grid two"><label>模型版本<select id="rvc-version"><option value="v2">RVC v2</option><option value="v1">RVC v1</option></select></label><label>采样率<select id="rvc-rate"><option value="48k">48 kHz</option><option value="40k">40 kHz</option><option value="32k">32 kHz</option></select></label><label>音高提取<select id="rvc-f0"><option value="rmvpe">RMVPE</option><option value="pm">Parselmouth</option></select></label><label>每隔多少轮保存<input id="rvc-save" type="number" min="1" max="100" value="5"></label><label>GPU 编号<input id="rvc-gpu" type="number" min="0" max="31" value="0"></label><label>数据加载进程数<input id="rvc-workers" type="number" min="0" max="4" value="0"></label></div>
+            <div id="rvc-speakers" class="meta"></div>
+            <div class="grid two"><label>新说话人 ID<input id="rvc-speaker-id" type="number" min="0" max="109" value="1"></label><label>新说话人名称<input id="rvc-speaker-name" placeholder="例如：第二位演唱者"></label></div><button id="rvc-add-speaker" class="ghost">添加说话人</button>
+          </details>
+          <p class="meta">步骤：素材预处理 → 音高 → HuBERT 特征 → 训练 → 检索索引 → 音色库。更换素材或模型结构时请新建项目；取消后会保留已保存的阶段和检查点。</p>
+          <div class="toolbar"><button id="rvc-check-training" class="ghost">检查训练条件</button><button id="rvc-train" class="primary">开始 / 继续训练</button><button id="rvc-cancel" class="danger hidden">取消音色任务</button></div>
+          <p id="rvc-preflight" class="meta" aria-live="polite">训练前会检查素材确认、底模和剩余空间；显存与内存以检查时为准。</p>
+        </div>
+      </div>
+      <div id="rvc-result" class="results" aria-live="polite"></div>
+      <div id="rvc-job-tools" class="hidden">
+        <div class="toolbar"><button id="rvc-show-log" class="ghost compact">查看训练日志</button><button id="rvc-resume" class="ghost compact hidden">从已保存阶段继续</button></div>
+        <pre id="rvc-job-log" class="job-log hidden"></pre>
+      </div>
+      <div class="section-title"><h2>我的音色</h2><p>训练完成后会自动加入这里，用户音色与训练资料会在软件更新时保留。</p></div>
+      <details class="workbench">
+        <summary>导入已有 RVC 音色</summary>
+        <p class="meta">选择本软件导出的 ZIP，或一个推理 PTH 和对应 INDEX。训练中的 G / D 检查点不能直接导入。</p>
+        <div class="grid two">
+          <label>音色名称（选填）<input id="rvc-model-name" maxlength="100" placeholder="例如：我的演唱音色"></label>
+          <label>模型文件<input id="rvc-model-files" type="file" multiple accept=".zip,.pth,.index"></label>
+        </div>
+        <label>多说话人 index 映射（选填）<textarea id="rvc-model-indices" rows="2" placeholder='单说话人留空；多说话人填写 {"0":"小明.index","1":"小红.index"}'></textarea></label>
+        <button id="rvc-model-import" class="ghost">检查并导入音色</button>
+      </details>
+      <div id="rvc-library"></div>
     </section>
 
     <section id="assistant" class="panel">
@@ -277,5 +344,6 @@ This melody still waits for you</textarea></label>
   <footer>YuE2 本地整合包 · 制作者 By B站UP主：T8star-Aix · 仅绑定 127.0.0.1 · 权重与输出保存在本机</footer>
   <script src="/static/app.js"></script>
   <script src="/static/assistant.js"></script>
+  <script src="/static/rvc.js"></script>
 </body>
 </html>

@@ -17,7 +17,7 @@ internal static class YuE2Launcher
         string script = Path.Combine(kitRoot, "scripts", "start_local.ps1");
         if (!File.Exists(script))
             script = Path.Combine(kitRoot, "scripts", "start_webui.ps1");
-        string runtime = Path.Combine(kitRoot, "runtime", "core", "python.exe");
+        string runtime = Path.Combine(kitRoot, "runtime", "python.exe");
 
         Console.WriteLine();
         Console.WriteLine("YuE2-T8 本地整合包启动器");

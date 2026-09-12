@@ -331,6 +331,7 @@ class AssistantTests(unittest.TestCase):
         from app.yue2_app import service
         from app.yue2_app.io import atomic_json
         store = service.JobStore.__new__(service.JobStore)
+        store.updating = False
         store.lock, store.storage_lock = threading.RLock(), threading.RLock()
         store.jobs, store.pending = {}, queue.Queue()
         with patch.object(service, "ROOT", self.root), patch.object(service, "OUTPUTS", self.root / "outputs/jobs"), \

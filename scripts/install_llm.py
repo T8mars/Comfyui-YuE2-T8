@@ -1,4 +1,4 @@
-"""Install only the isolated text runtime. No music runtime/model modification."""
+"""Install the optional GGUF backend into the shared studio runtime."""
 import argparse
 import hashlib
 import json
@@ -15,9 +15,7 @@ PYTHON_SHA = "4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3"
 WHEEL = "llama_cpp_python-0.3.49+cu128-cp312-cp312-win_amd64.whl"
 WHEEL_URL = "https://github.com/JamePeng/llama-cpp-python/releases/download/v0.3.49-cu128-win-20260831/" + WHEEL
 WHEEL_SHA = "8f8f41e7d735754a294dd9ec35412d60e596d497c95f8f13ae09935bd98b8205"
-DEPENDENCIES = ("pip==25.3", "numpy==2.2.6", "diskcache==5.6.3", "jinja2==3.1.6",
-                "typing-extensions==4.15.0", "requests==2.32.5", "Pillow==12.3.0", "MarkupSafe==3.0.3",
-                "charset-normalizer==3.5.1", "idna==3.19", "urllib3==2.7.0", "certifi==2026.7.22")
+
 
 
 def sha(path):
@@ -60,57 +58,33 @@ def main():
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
     args = parser.parse_args()
     root = args.root.resolve()
-    if os.name != "nt":
-        raise RuntimeError("This distribution targets Windows x64")
-    target = root / "runtime/llm"
+    target = root / "runtime"
+    python = target / "python.exe"
+    if os.name != "nt" or not python.is_file():
+        raise RuntimeError("请先运行安装运行环境，将整合包升级为统一 Python 环境")
+    if Path(sys.executable).resolve() != python.resolve():
+        raise RuntimeError("必须使用整合包 runtime/python.exe 安装本地 LLM")
+    if not (target / "Lib/site-packages/torch/lib/cublas64_12.dll").is_file():
+        raise RuntimeError("统一 CUDA 运行环境不完整，请重新运行安装运行环境")
     downloads = root / "downloads/llm"
     downloads.mkdir(parents=True, exist_ok=True)
-    target.mkdir(parents=True, exist_ok=True)
-    pyarchive = root / "downloads/python-3.12.10-embed-amd64.zip"
-    download(PYTHON_URL, pyarchive, PYTHON_SHA)
     wheel = downloads / WHEEL
     download(WHEEL_URL, wheel, WHEEL_SHA)
-    python = target / "python.exe"
-    if not python.is_file():
-        with zipfile.ZipFile(pyarchive) as archive:
-            archive.extractall(target)
-    (target / "python312._pth").write_text("python312.zip\n.\nLib\\site-packages\n..\\..\nimport site\n", encoding="ascii")
+    subprocess.run([str(python), "-m", "pip", "install", "--no-deps", str(wheel)], cwd=root, check=True)
+    subprocess.run([str(python), "-m", "pip", "check"], cwd=root, check=True)
     environment = os.environ.copy()
-    for name in ("PYTHONPATH", "PYTHONHOME"):
-        environment.pop(name, None)
-    subprocess.run([sys.executable, "-m", "pip", "--python", str(python), "install", "--only-binary=:all:",
-                    *DEPENDENCIES, str(wheel)], cwd=root, env=environment, check=True)
-    subprocess.run([str(python), "-m", "pip", "check"], cwd=root, env=environment, check=True)
-    # Reuse the bundle's CUDA 12 libraries as files, never import Torch or alter core.
-    cuda = target / "cuda"
-    cuda.mkdir(exist_ok=True)
-    libraries = {}
-    for name in ("cudart64_12.dll", "cublas64_12.dll", "cublasLt64_12.dll"):
-        source = root / "runtime/core/Lib/site-packages/torch/lib" / name
-        if not source.is_file():
-            raise RuntimeError("The core CUDA 12 runtime is incomplete: " + name)
-        digest = sha(source)
-        destination = cuda / name
-        if not destination.is_file() or sha(destination) != digest:
-            shutil.copy2(source, destination)
-        if sha(destination) != digest:
-            raise RuntimeError("CUDA library copy verification failed: " + name)
-        libraries[name] = {"sha256": digest, "bytes": destination.stat().st_size}
-    for name in ("CUDA_PATH", "CUDA_HOME"):
-        environment.pop(name, None)
-    windows = Path(os.environ.get("SystemRoot", "C:/Windows"))
-    environment["PATH"] = os.pathsep.join(map(str, (target, target / "Scripts", windows / "System32", windows)))
+    environment.update(YUE2_HOME=str(root), YUE2_KIT=str(root))
     probe = subprocess.run([str(python), "-X", "utf8", "-m", "app.yue2_app.llm_runtime"],
-        cwd=root, env=environment, capture_output=True, text=True)
+        cwd=root, env=environment, capture_output=True, text=True, encoding="utf-8")
     if probe.returncode:
-        raise RuntimeError("Isolated runtime probe failed:\n" + probe.stderr[-5000:])
-    manifest = {"schema": 1, "python_sha256": PYTHON_SHA, "wheel": WHEEL, "wheel_url": WHEEL_URL,
-                "wheel_sha256": WHEEL_SHA, "probe": json.loads(probe.stdout.strip().splitlines()[-1]),
-                "cuda_libraries": libraries,
-                "dependencies": list(DEPENDENCIES),
-                "note": "Import probe only; test the selected GGUF before claiming inference compatibility."}
-    (target / "installed.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps(manifest, ensure_ascii=False, indent=2), flush=True)
+        raise RuntimeError("本地 LLM 组件验证失败：\n" + probe.stderr[-5000:])
+    state = target / "installed.json"
+    manifest = json.loads(state.read_text(encoding="utf-8-sig")) if state.exists() else {"schema": 2, "layout": "unified"}
+    details = json.loads(probe.stdout.strip().splitlines()[-1])
+    details["module"] = "runtime/Lib/site-packages/llama_cpp/__init__.py"
+    manifest["llm"] = {"wheel": WHEEL, "wheel_sha256": WHEEL_SHA, "probe": details}
+    state.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print("本地 LLM 与音乐功能共用 runtime/python.exe。请选择 GGUF 模型并测试连接。", flush=True)
 
 
 if __name__ == "__main__":

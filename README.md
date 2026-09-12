@@ -37,13 +37,22 @@ YuE2 Music T8 把 YuE2-3B 完整歌曲生成接入 ComfyUI，并提供一个可�
 - 共享单 GPU 队列、任务中心、逐项取消、任务历史与导出；任务中心会区分当前任务和完整等待列表，并显示来源、阶段、风格摘要与排队顺序。
 - 自动清理过期或超出容量的任务、上传和日志；`exports` 中的重要成品永久保留，服务重启时会把中断任务明确标为失败。
 
+### v1.3.0：统一运行环境与 RVC 训练工作台
+
+- 所有本地功能共用 Python 3.12.10 / Torch 2.10.0 + CUDA 12.8，逐阶段子进程运行。
+- “我的音色 / 训练”：导入素材、试听筛选、分离伴奏、训练、取消/续训、建索引、音色库预览与导入导出。没有 RVC 模型的用户可直接在页面训练。
+- 翻唱页可直接转换已有歌曲，也可先由 YuE2 重制再转换；选择 Seed-VC、RVC 或同曲对比。对比共用分轨缓存，完成后当前页和历史页都保留可试听结果。
+- 训练项目/缓存、素材和用户音色库可指定目录并校验迁移；原数据保留备份。更新器支持旧多环境迁移和失败回滚。
+
+RVC 的训练和换声已做兼容性实测，少量轮次样例不代表成熟音色质量。未完成多歌手盲听评估，不能承诺 RVC 一定优于 Seed-VC。完整包附带已编译并验证的可选 FlashAttention 轮子；当前歌曲推理未接入独立 `flash_attn`，无需安装，也不宣称整曲提速。
+
 ### AI 创作助手（独立 WebUI）
 
 “AI 创作助手”通过贞贞平价小屋、贞贞的 AI 工坊、OpenAI 兼容接口或本地 GGUF 生成歌词、曲风和可选 ABC。结果可编辑、保存和下载，再选择字段发送到“创作”“乐谱计划”或“旋律重制 / 参考音色”。发送只填入草稿，生成音频由目标页按钮启动；该功能不增加 ComfyUI 节点。
 
 默认先生成歌词和曲风，ABC 交给 YuE2 规划；需要 LLM 作谱时再选自动创作 ABC。未通过校验的谱面不能直接发送，失败保留已完成文本，支持只重试失败步骤。草稿保存在 `userdata/assistant`，升级时需要保留该目录。
 
-API 密钥默认仅在本次服务会话有效，也可选择使用 Windows 当前用户加密保存。本地模型放在模型根目录的 `LLM` 下，或指定其他目录；运行 `安装本地LLM.bat` 安装独立 Python/CUDA 环境，选择已有 GGUF 后测试连接。安装器不下载 GGUF，不修改现有音乐运行时。模型加载成功不代表其乐谱生成质量通过验证。使用步骤见 [用户指南](USER_GUIDE.md#ai-创作助手)。
+API 密钥默认仅在本次服务会话有效，也可选择使用 Windows 当前用户加密保存。本地模型放在模型根目录的 `LLM` 下，或指定其他目录。v1.3.0 的音乐生成、转谱、Seed-VC、RVC 训练/推理和 GGUF 助手全部使用同一个 `runtime/python.exe`（Python 3.12.10），按任务启动子进程释放模型；没有第二套 Python。完整包已包含 GGUF 后端，`安装本地LLM.bat` 仅用于修复这一共享环境中的组件，不下载 GGUF 权重。模型加载成功不代表其乐谱生成质量通过验证。使用步骤见 [用户指南](USER_GUIDE.md#ai-创作助手)。
 
 渠道会自动填入参考节点使用的默认模型：贞贞平价小屋为 `bytedance/doubao-seed-evolving`，贞贞的 AI 工坊为 `gemini-3.5-flash`。模型框支持预置下拉、手动模型 ID，以及从标准 OpenAI `/models` 接口获取账号可用的模型 LIST；接口不支持 LIST 时仍可手填。API Key 获取：[贞贞平价小屋](https://api.seedance.nz/sign-up?aff=5f4w) · [贞贞的 AI 工坊](https://ai.t8star.org/register?aff=dP7j)。
 
@@ -62,9 +71,9 @@ cd ComfyUI/custom_nodes
 git clone https://github.com/T8mars/Comfyui-YuE2-T8.git
 ```
 
-安装节点后，进入节点目录并运行一次 `install_runtime.bat`。脚本会下载模型、Python 3.12 核心运行时、两个 Python 3.11 转谱/参考音色运行时、CUDA 12.8 Torch、FFmpeg 和离线乐谱渲染组件。完成后重启 ComfyUI。
+安装节点后，进入节点目录并运行一次 `install_runtime.bat`。脚本会下载模型、统一 Python 3.12.10 运行时与 RVC 底模、CUDA 12.8 Torch、FFmpeg 和离线乐谱渲染组件。完成后重启 ComfyUI。
 
-要求：Windows 10/11、NVIDIA GPU、建议 24GB 显存、约 45GB 可用磁盘空间。正常生成、转谱和参考音色转换均使用离线模式。
+要求：Windows 10/11、NVIDIA GPU、建议 24GB 显存、建议至少 60GB 可用磁盘空间用于安装、下载与迁移（训练素材、检查点和作品另计）。正常生成、转谱和参考音色转换均使用离线模式。
 
 ### 模型放置路径
 
@@ -78,12 +87,13 @@ ComfyUI/custom_nodes/yue2-t8/models/MERT-v2-FullSong/model.safetensors
 ComfyUI/custom_nodes/yue2-t8/models/SheetSage2/render_assets/
 ComfyUI/custom_nodes/yue2-t8/models/Seed-VC/DiT_seed_v2_uvit_whisper_base_f0_44k_bigvgan_pruned_ft_ema_v2.pth
 ComfyUI/custom_nodes/yue2-t8/models/Demucs/955717e8.safetensors
+ComfyUI/custom_nodes/yue2-t8/models/RVC/
 ComfyUI/custom_nodes/yue2-t8/models/VOICE_MODEL_MANIFEST.json
 ```
 
-手动 Git clone 时，把上面的 `yue2-t8` 换成实际仓库目录名 `Comfyui-YuE2-T8`。不要把权重直接放入 ComfyUI 的 `checkpoints` 目录；代码需要保留六个模型子目录、配置文件及两个清单。
+手动 Git clone 时，把上面的 `yue2-t8` 换成实际仓库目录名 `Comfyui-YuE2-T8`。不要把权重直接放入 ComfyUI 的 `checkpoints` 目录；代码需要保留七个模型子目录、配置文件及两个清单。
 
-如果使用自定义目录，该目录本身就是上面路径中的 `models`：六个子目录和 `MODEL_MANIFEST.json`、`VOICE_MODEL_MANIFEST.json` 必须直接位于其中。命令行安装也可使用：
+如果使用自定义目录，该目录本身就是上面路径中的 `models`：七个子目录和 `MODEL_MANIFEST.json`、`VOICE_MODEL_MANIFEST.json` 必须直接位于其中。命令行安装也可使用：
 
 ```powershell
 .\install_runtime.bat -ModelsDirectory "D:\AI\YuE2-models"
@@ -91,11 +101,11 @@ ComfyUI/custom_nodes/yue2-t8/models/VOICE_MODEL_MANIFEST.json
 
 ### 更新
 
-从 v1.2.2 开始，本地 WebUI 首页右上方的运行状态卡提供“检查更新”按钮，页面打开时也会自动检查稳定版。发现新版后点击“更新到 vX”，程序会从 [最新版本清单](https://github.com/T8mars/Comfyui-YuE2-T8/releases/latest/download/update-manifest.json) 下载代码包、验证来源与 SHA256、备份旧代码、安装并重启当前端口。更新保留 `models`、`runtime`、本地 LLM、作品、上传、导出、日志、缓存、助手草稿和设置；新版启动失败时自动恢复旧代码。运行或排队任务存在时不会开始更新。
+从 v1.2.2 开始，本地 WebUI 首页右上方的运行状态卡提供“检查更新”按钮，页面打开时也会自动检查稳定版。发现新版后点击“更新到 vX”，程序会从 [最新版本清单](https://github.com/T8mars/Comfyui-YuE2-T8/releases/latest/download/update-manifest.json) 下载代码包、验证来源与 SHA256、备份旧代码、安装并重启当前端口。更新保留模型、本地 GGUF、作品、上传、导出、日志、缓存、助手草稿和设置。首次升级到 v1.3.0 会准备并校验统一运行时，补齐 RVC 底模，旧服务退出后再切换代码与 Python；新版服务通过启动检查才清理旧运行时。失败时恢复旧代码与原运行时。运行或排队任务存在时不会开始更新。
 
-GitHub Release 只包含代码，不包含模型、Python 运行时或用户作品。v1.2.0 / v1.2.1 整合包尚无页面更新器，需要先手动安装一次 v1.2.2 代码包；从 v1.2.2 起即可直接在页面完成后续更新。
+GitHub 的 `*-code.zip` 是自动更新用代码包，不含模型和 Python；完整版包含统一运行时与基础模型，GGUF 权重另选。v1.2.2 起可用页面更新器。更早版本建议把新版完整版解压到新目录，设置已有模型路径后启动，保留原安装目录和作品。
 
-手动更新前请先结束任务、运行 `stop_service.bat` 并退出 ComfyUI，将 ZIP 顶目录内的代码覆盖到原安装目录，随后重新启动。已有模型无需重新下载；原来关闭 `offload_ar` 的工作流请手动启用它，随包示例已默认启用。
+不要只把 v1.3.0 代码覆盖到旧版多 Python 整合包：新版需要统一环境迁移。请使用页面更新器，或在新目录安装完整版。首次升级需联网下载缺失组件并留出新旧环境并存的临时空间；已通过校验的模型会复用。
 
 1.1.5 修复 Windows 长曲声学合成的显存峰值，默认按查询分块并卸载闲置 AR 权重；参考音色翻唱改为后台持久任务，支持阶段保存和恢复。完成后当前页面直接显示播放器、时长及下载按钮，刷新或切换页面后仍保留最近作品。详见 [验证记录](VALIDATION.md)。
 
@@ -130,9 +140,11 @@ GitHub Release 只包含代码，不包含模型、Python 运行时或用户作�
 
 YuE2 Music T8 integrates YuE2-3B full-song generation with ComfyUI and includes a standalone local WebUI. Its local scheduler runs models in isolated Python workers, so installing the node does not replace ComfyUI's Torch packages. Version 1.1.4 adds a configurable model directory and code-only GitHub Release update metadata.
 
-Install it with `comfy node install yue2-t8`, then run `install_runtime.bat` once from the node directory and restart ComfyUI. Models are downloaded from [t8star/YuE2-Comfy](https://huggingface.co/t8star/YuE2-Comfy) into `<node-directory>/models`; use the WebUI model settings or `configure_models.bat` to place them on another drive. Keep all six model subdirectories and their configuration files. Windows and an NVIDIA GPU are required, with 24GB VRAM and 45GB free disk space recommended.
+Install it with `comfy node install yue2-t8`, then run `install_runtime.bat` once from the node directory and restart ComfyUI. Models are downloaded from [t8star/YuE2-Comfy](https://huggingface.co/t8star/YuE2-Comfy) into `<node-directory>/models`; use the WebUI model settings or `configure_models.bat` to place them on another drive. Keep all seven model subdirectories (including RVC) and their configuration files. Windows and an NVIDIA GPU are required, with 24GB VRAM and at least 60GB free disk space recommended for installation and migration, plus storage for training data and outputs.
 
 The node pack supports Chinese and English lyrics, editable ABC plans, multi-candidate generation, SheetSage2 transcription, melody remake, Seed-VC reference-voice conversion, staged inference, per-task cancellation, history, and artifact export. The reference-voice workflow accepts a 1–30 second clean voice sample, separates the generated song with Demucs, converts the vocal, and remixes a 48 kHz stereo FLAC. Its page-integrated progress section identifies the current job and every queued job with stage, source, summary, and queue position. Example front-end workflows are in `workflows`.
+
+The standalone v1.3.0 studio uses one CPython 3.12.10 runtime for music, transcription, Seed-VC, RVC training/inference and optional GGUF. The RVC workbench includes material review, training/resume and a voice library. Existing songs can be converted directly or compared through Seed-VC and RVC with shared separation. The updater migrates legacy runtimes and rolls back a failed startup. Short compatibility runs are not a voice-quality benchmark.
 
 ## Links
 

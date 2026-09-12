@@ -32,7 +32,7 @@ function captureDraft(panel) {
   if (panel === 'plan') return {form: formFields($('#plan-form')), abc: $('#plan-abc').value,
     exact: $('#plan-exact').checked, plan: planState ? {source: planState.source || 'saved_exact', plan_dir: planState.plan_dir || null, request: planState.request || {}} : null};
   return {abc: $('#cover-abc').value, lyrics: $('#cover-lyrics').value, style: $('#cover-style').value,
-    seed: $('#cover-seed').value, instrumental: $('#cover').dataset.instrumental === 'true', visible: !$('#cover-review').classList.contains('hidden')};
+    seed: $('#cover-seed').value, mode: $('#cover-mode').value, instrumental: $('#cover').dataset.instrumental === 'true', visible: !$('#cover-review').classList.contains('hidden')};
 }
 function applyDraft(panel, draft) {
   if (!draft || !Object.keys(draft).length) return;
@@ -59,6 +59,7 @@ function applyDraft(panel, draft) {
     for (const key of ['abc', 'lyrics', 'style', 'seed']) if (draft[key] !== undefined) $(`#cover-${key}`).value = draft[key];
     $('#cover').dataset.instrumental = String(Boolean(draft.instrumental));
     $('#cover-review').classList.toggle('hidden', !draft.visible);
+    window.setCoverMode?.(draft.mode || 'generate');
     updateInstrumental('cover');
   }
 }
@@ -324,6 +325,7 @@ async function confirmTransfer() {
       if (selected('lyrics')) { after.lyrics = r.lyrics; after.instrumental = r.instrumental && !r.lyrics.trim(); }
       if (abc !== null) after.abc = abc;
       after.visible = true;
+      after.mode = 'generate';
     } else {
       if (selected('style')) after.form.style = r.style;
       if (selected('lyrics')) { after.form.lyrics = r.lyrics; after.form.instrumental = r.instrumental && !r.lyrics.trim(); }

@@ -9,7 +9,11 @@ _DLL_HANDLES = []
 
 
 def initialize_backends():
-    cuda = Path(sys.executable).resolve().parent / "cuda"
+    runtime = Path(sys.executable).resolve().parent
+    # The unified runtime shares Torch's CUDA DLLs with llama.cpp.
+    cuda = runtime / "Lib/site-packages/torch/lib"
+    if not cuda.is_dir():
+        cuda = runtime / "cuda"  # Existing bundles remain usable during migration.
     if os.name == "nt" and cuda.is_dir() and not _DLL_HANDLES:
         _DLL_HANDLES.append(os.add_dll_directory(str(cuda)))
         os.environ["PATH"] = str(cuda) + os.pathsep + os.environ.get("PATH", "")

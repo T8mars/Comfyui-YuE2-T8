@@ -139,6 +139,23 @@ def restore_voice_stage(previous: Path, output: Path, stage: str, files: list[st
     return True
 
 
+def _run_rvc(root: Path, source: Path, output: Path, request: dict, voice: dict, ctx: JobContext) -> Path:
+    from .rvc_training import run_stage
+    directory = Path(voice['directory'])
+    sid = str(request['speaker_id'])
+    if sid not in voice['indices']:
+        raise ValueError('所选说话人缺少匹配的音色 index')
+    output.mkdir(parents=True, exist_ok=True)
+    converted = output / 'rvc.wav'
+    run_stage(root, model_directory(root, strict=True) / 'RVC', output / 'workspace', 'infer',
+              ['--model', directory / 'model.pth', '--input', source, '--output', converted,
+               '--index', within(directory, directory / voice['indices'][sid]), '--speaker-id', sid,
+               '--pitch', request['semi_tone_shift'], '--index-rate', request['index_rate'],
+               '--protect', request['protect'], '--f0-method', 'rmvpe', '--overwrite'], ctx)
+    _read_audio(converted)
+    return converted
+
+
 def _separate_vocals(root: Path, source: Path, ctx: JobContext,
                      vocals_path: Path, accompaniment_path: Path) -> None:
     import torch
@@ -175,6 +192,36 @@ def _separate_vocals(root: Path, source: Path, ctx: JobContext,
     torch.cuda.empty_cache()
 
 
+def compare_voices(root: Path, ctx: JobContext, raw: dict) -> dict:
+    """Sequential child workers release all backend models between A/B runs."""
+    from .workflow_worker import run_stage
+    result = {'backend': 'compare', 'comparison': True, 'candidates': [],
+              'completed_candidates': 0, 'requested_candidates': 2, 'partial': True, 'failures': []}
+    for index, backend in enumerate(('seed-vc', 'rvc'), 1):
+        request = {**raw, 'backend': backend}
+        name = 'ab-' + backend
+        if raw.get('resume_from'):
+            previous = within(root / 'outputs/jobs', Path(raw['resume_from']))
+            request['resume_from'] = str(previous / 'artifacts/stages' / name)
+        ctx.update('starting', comparison_backend=backend, candidate=index, candidates=2, result=result)
+        try:
+            candidate = run_stage(root, ctx, name, 'voice_convert', request)
+            result['candidates'].append(candidate)
+            result['completed_candidates'] = len(result['candidates'])
+            result['partial'] = len(result['candidates']) < 2
+            ctx.update('remixing', result=result, resumable=True)
+            atomic_json(ctx.job_dir / 'artifacts/comparison_result.json', result)
+        except BaseException as exc:
+            result['failures'].append({'backend': backend, 'error': str(exc)})
+            ctx.update('converting_voice', result=result, resumable=bool(result['candidates']))
+            atomic_json(ctx.job_dir / 'artifacts/comparison_result.json', result)
+            if not isinstance(exc, Exception) or isinstance(exc, InterruptedError):
+                raise
+    if result['failures']:
+        raise RuntimeError('；'.join(f"{item['backend']}: {item['error']}" for item in result['failures']))
+    return result
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
@@ -187,7 +234,11 @@ def main(argv=None) -> int:
     job = json.loads((job_dir / "job.json").read_text(encoding="utf-8-sig"))
     raw = job.get("request", {})
     try:
+        if raw.get('backend') == 'compare':
+            ctx.finish(result=compare_voices(root, ctx, raw))
+            return 0
         request = {
+            "backend": str(raw.get("backend", "seed-vc")),
             "source_path": raw.get("source_path"),
             "reference_path": raw.get("reference_path"),
             "diffusion_steps": int(_number(raw, "diffusion_steps", 30, 4, 50)),
@@ -198,11 +249,28 @@ def main(argv=None) -> int:
             "accompaniment_gain_db": _number(raw, "accompaniment_gain_db", 0, -18, 12),
         }
         source = _audio_path(root, request["source_path"])
-        reference = _audio_path(root, request["reference_path"], reference=True)
-        reference_audio, reference_rate = _read_audio(reference)
-        reference_seconds = len(reference_audio) / reference_rate
-        if not 1.0 <= reference_seconds <= 30.0:
-            raise ValueError("参考音色需要 1–30 秒的清晰干声，推荐 5–25 秒")
+        voice = None
+        reference = None
+        if request['backend'] == 'rvc':
+            from .rvc_library import verify_voice
+            request.update(voice_id=str(raw.get('voice_id', '')),
+                           speaker_id=int(_number(raw, 'speaker_id', 0, 0, 109)),
+                           index_rate=_number(raw, 'index_rate', .75, 0, 1),
+                           protect=_number(raw, 'protect', .33, 0, .5))
+            voice = verify_voice(root, request['voice_id'])
+            if str(request['speaker_id']) not in voice['indices']:
+                raise ValueError('所选音色没有该说话人的模型索引')
+            reference_info = {'voice_id': voice['id'], 'name': voice['name'], 'files': voice['files']}
+        elif request['backend'] == 'seed-vc':
+            reference = _audio_path(root, request["reference_path"], reference=True)
+            reference_audio, reference_rate = _read_audio(reference)
+            reference_seconds = len(reference_audio) / reference_rate
+            if not 1.0 <= reference_seconds <= 30.0:
+                raise ValueError("参考音色需要 1–30 秒的清晰干声，推荐 5–25 秒")
+            reference_info = {'file': reference.name, 'sha256': sha256(reference),
+                              'bytes': reference.stat().st_size, 'duration_seconds': round(reference_seconds, 3)}
+        else:
+            raise ValueError('不支持的音色转换方式')
 
         import torch
         if not torch.cuda.is_available():
@@ -217,17 +285,24 @@ def main(argv=None) -> int:
         backing_path = output / "accompaniment.wav"
         voice_manifest = json.loads(
             (model_directory(root, strict=True) / "VOICE_MODEL_MANIFEST.json").read_text(encoding="utf-8-sig"))
+        if voice:
+            voice_manifest = {'schema': 1, 'components': {'Demucs': voice_manifest['components']['Demucs']}}
         previous = output
         if raw.get("resume_from"):
             previous = within(root / "outputs" / "jobs", Path(raw["resume_from"])) / "artifacts" / "reference_cover"
-        separation_source = {"song_sha256": sha256(source)}
+        from . import voice_cache
+        separation_models, separation_source = voice_cache.identity(voice_manifest, sha256(source))
         separation_files = ["separated_vocal.wav", "accompaniment.wav"]
-        if not restore_voice_stage(previous, output, "separation", separation_files, voice_manifest, separation_source):
-            _separate_vocals(root, source, ctx, separated_vocal, backing_path)
-        else:
+        if restore_voice_stage(previous, output, "separation", separation_files, separation_models, separation_source):
             ctx.update("separating_vocals", resumed_stage="separation")
+        elif voice_cache.restore(root, output, separation_models, separation_source, ctx):
+            ctx.update("separating_vocals", separation_cache_hit=True)
+        else:
+            _separate_vocals(root, source, ctx, separated_vocal, backing_path)
+            voice_cache.save(root, output, separation_models, separation_source, ctx)
+            ctx.update("separating_vocals", separation_cache_hit=False)
         write_artifact_manifest(output, "separation_manifest.json", "yue2-voice-separation-v1",
-                                separation_files, models=voice_manifest, source=separation_source)
+                                separation_files, models=separation_models, source=separation_source)
         ctx.update("separating_vocals", resumable=True)
         ctx.memory("separation_saved")
 
@@ -235,11 +310,17 @@ def main(argv=None) -> int:
         ctx.check_cancelled()
         ctx.update("converting_voice", diffusion_steps=request["diffusion_steps"])
         converted_vocal = output / "converted_vocal.wav"
-        conversion_source = {**separation_source, "reference_sha256": sha256(reference),
+        conversion_source = {**separation_source, "reference_sha256": sha256(reference) if reference else None,
                              "settings": {k: request[k] for k in (
                                  "diffusion_steps", "cfg_rate", "auto_f0_adjust", "semi_tone_shift")}}
+        if voice:
+            voice_manifest['components']['RVC'] = json.loads((root / 'app/yue2_app/rvc_assets.json').read_text(encoding='utf-8'))
+            voice_manifest['components']['UserVoice'] = reference_info
+            conversion_source.update(voice=reference_info, settings={key: request[key] for key in (
+                'backend', 'voice_id', 'speaker_id', 'semi_tone_shift', 'index_rate', 'protect')})
         if not restore_voice_stage(previous, output, "conversion", ["converted_vocal.wav"], voice_manifest, conversion_source):
-            raw_converted = _run_seed_vc(root, separated_vocal, reference, converted, request, ctx)
+            raw_converted = (_run_rvc(root, separated_vocal, converted, request, voice, ctx) if voice else
+                             _run_seed_vc(root, separated_vocal, reference, converted, request, ctx))
             shutil.copy2(raw_converted, converted_vocal)
         else:
             ctx.update("converting_voice", resumed_stage="conversion")
@@ -257,14 +338,8 @@ def main(argv=None) -> int:
         )
         manifest_source = {
             "song": {"file": source.name, "sha256": sha256(source), "bytes": source.stat().st_size},
-            "reference_voice": {
-                "file": reference.name, "sha256": sha256(reference), "bytes": reference.stat().st_size,
-                "duration_seconds": round(reference_seconds, 3),
-            },
+            "reference_voice": reference_info,
         }
-        voice_manifest = json.loads(
-            (model_directory(root, strict=True) / "VOICE_MODEL_MANIFEST.json").read_text(encoding="utf-8-sig")
-        )
         manifest_path, _ = write_artifact_manifest(
             output, "reference_cover_manifest.json", "yue2-reference-cover-v1",
             ["audio.flac", "converted_vocal.wav", "separated_vocal.wav", "accompaniment.wav"],
@@ -272,6 +347,8 @@ def main(argv=None) -> int:
                                                                   if not key.endswith("_path")},
         )
         result = {
+            "backend": request['backend'],
+            "voice_name": voice['name'] if voice else reference.name,
             "audio": str(final_audio),
             "converted_vocal": str(converted_vocal),
             "separated_vocal": str(separated_vocal),

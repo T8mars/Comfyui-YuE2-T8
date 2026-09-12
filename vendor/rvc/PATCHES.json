@@ -1,0 +1,10 @@
+{
+  "description": "Configured shared assets and bounded Windows data-loader memory",
+  "files": {
+    "i18n/i18n.py": "3b42a3f79a4cd9cc104620f53110d08150dbf933f6aeddc4385fea9fa181933e",
+    "infer/hubert.py": "5987a17b75f8a16eda7db14203532844d36b9d5c1c8feace6331c66f49bc76ee",
+    "train/train.py": "447c29f6f4d323b758a36cc262fa8bae5c3660b18e12a2d2244064d54aed64af",
+    "train/dataset/extract_f0.py": "35a53d8e2653a3ccfd0085d0b67404a3badcdbd2eabbf5b6f399135488a7be3e",
+    "train/preprocess.py": "73d849dffefae42c467f6501c315e353ff74321b5a09ce7af544f8ad45b826b4"
+  }
+}

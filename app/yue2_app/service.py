@@ -44,6 +44,7 @@ TERMINAL = {"complete", "failed", "cancelled"}
 CORE_KINDS = {"generate", "plan", "render_plan", "semantic", "synthesize", "decode", "doctor"}
 TRANSCRIBE_KINDS = {"transcribe"}
 VOICE_KINDS = {"voice_convert"}
+RVC_KINDS = {"rvc_import", "rvc_separate", "rvc_train", "rvc_model_import", "rvc_model_export", "rvc_storage_move"}
 WORKFLOW_KINDS = {"reference_cover"}
 GENERATION_KINDS = CORE_KINDS - {"doctor"}
 JOB_ID_PATTERN = re.compile(r"\d{8}-\d{6}-[0-9a-f]{8}")
@@ -73,9 +74,20 @@ def job_log_text(job_id: str) -> str:
     if not JOB_ID_PATTERN.fullmatch(job_id):
         raise ValueError("无效的任务 ID")
     path = within(LOGS, LOGS / f"{job_id}.log")
-    if not path.is_file():
+    directory = job_directory(job_id)
+    stages = directory/'artifacts/stages'
+    children = [*stages.glob('*/worker.log'), *stages.glob('*/artifacts/stages/*/worker.log')]
+    paths = ([path] if path.is_file() else []) + sorted(children,key=lambda p:p.stat().st_mtime)[-4:]
+    if not paths:
         raise FileNotFoundError("这个任务还没有生成日志")
-    return path.read_bytes()[-256 * 1024:].decode("utf-8", errors="replace")
+    chunks = []
+    for entry in paths:
+        if entry != path:
+            entry = within(directory,entry)
+        with entry.open('rb') as stream:
+            stream.seek(max(0,entry.stat().st_size-48*1024))
+            chunks.append(f'[{entry.name if entry==path else entry.relative_to(directory).as_posix()}]\n'+stream.read(48*1024).decode('utf-8',errors='replace'))
+    return '\n\n'.join(chunks)
 
 
 def acquire_instance_lock(root: Path):
@@ -171,7 +183,7 @@ def terminate_recorded_worker(status: dict, job_id: str) -> None:
         return
     script = (
         f"$p=Get-CimInstance Win32_Process -Filter 'ProcessId={pid}' -ErrorAction SilentlyContinue;"
-        f"if($p -and $p.CommandLine -match 'app\\.yue2_app\\.(core_worker|transcribe_worker|voice_worker|workflow_worker)' "
+        f"if($p -and $p.CommandLine -match 'app\\.yue2_app\\.(core_worker|transcribe_worker|voice_worker|workflow_worker|rvc_worker)' "
         f"-and $p.CommandLine -like '*{job_id}*'){{taskkill.exe /PID {pid} /T /F | Out-Null}}"
     )
     subprocess.run(["powershell.exe", "-NoProfile", "-Command", script], check=False,
@@ -184,6 +196,7 @@ class JobStore:
         ensure_layout()
         self.lock = threading.RLock()
         self.storage_lock = threading.RLock()
+        self.updating = False
         self.jobs: dict[str, dict] = {}
         self.pending: queue.Queue[str] = queue.Queue()
         self.current_id: str | None = None
@@ -239,19 +252,76 @@ class JobStore:
             "decode": "输出 48 kHz 音频",
         }.get(kind, "本地音乐任务")
 
+    def assert_writable(self) -> None:
+        if self.updating or updater.update_status(ROOT).get('state') in updater.ACTIVE_STATES:
+            raise ValueError('整合包正在更新，请等待升级完成后再提交操作')
+
+    def begin_update(self) -> None:
+        with self.storage_lock:
+            self.assert_writable()
+            with self.lock:
+                if any(job.get('status') not in TERMINAL for job in self.jobs.values()):
+                    raise ValueError('有任务正在运行或排队，请等待任务结束后再更新')
+            atomic_json(ROOT / 'logs/update-status.json', {
+                'state': 'preparing_update', 'message': '正在下载并校验更新包',
+                'current_version': __version__,
+            })
+            self.updating = True
+
+    def abort_update(self, error: Exception) -> None:
+        with self.storage_lock:
+            atomic_json(ROOT / 'logs/update-status.json', {'state': 'error', 'message': str(error)})
+            self.updating = False
+
     def create(self, kind: str, request: dict, *, source: str = "api",
-               client_request_id: str | None = None, result_panel: str | None = None) -> dict:
-        if kind not in CORE_KINDS | TRANSCRIBE_KINDS | VOICE_KINDS | WORKFLOW_KINDS | ASSISTANT_KINDS:
+                 client_request_id: str | None = None, result_panel: str | None = None) -> dict:
+        with self.storage_lock:
+            self.assert_writable()
+            return self._create(kind, request, source=source, client_request_id=client_request_id, result_panel=result_panel)
+
+    def _create(self, kind: str, request: dict, *, source: str = "api",
+                client_request_id: str | None = None, result_panel: str | None = None) -> dict:
+        with self.lock:
+            active = [job for job in self.jobs.values() if job.get('status') not in TERMINAL]
+            if any(job.get('kind') == 'rvc_storage_move' for job in active) or (kind == 'rvc_storage_move' and active):
+                raise ValueError('目录迁移需要独占任务队列，请等待当前任务结束')
+        if kind not in CORE_KINDS | TRANSCRIBE_KINDS | VOICE_KINDS | WORKFLOW_KINDS | ASSISTANT_KINDS | RVC_KINDS:
             raise ValueError(f"不支持的任务类型：{kind}")
         if not isinstance(request, dict):
             raise ValueError("request 必须是对象")
         capabilities = runtime_ready().get("capabilities", {})
+        if kind == "rvc_train" and not capabilities.get("rvc_training"):
+            raise ValueError("RVC 训练组件或底模尚未安装完整")
+        if kind == "rvc_separate" and not capabilities.get("vocal_separation"):
+            raise ValueError("人声分离组件或模型尚未安装完整")
+        if kind in RVC_KINDS:
+            if kind in {"rvc_import", "rvc_separate", "rvc_train"}:
+                from .rvc_projects import get_project, selected_materials
+                project = get_project(ROOT, str(request.get("project_id", "")))
+                if kind == "rvc_train":
+                    selected_materials(project)
+            result_panel = "voices"
         if kind in GENERATION_KINDS | WORKFLOW_KINDS and not capabilities.get("generation"):
             raise ValueError("歌曲生成组件不完整：缺少 YuE2 推理源码或核心模型，请重新解压完整整合包")
         if kind in TRANSCRIBE_KINDS and not capabilities.get("transcription"):
             raise ValueError("音频转谱组件不完整，请重新解压完整整合包")
-        if kind in VOICE_KINDS | WORKFLOW_KINDS and not capabilities.get("voice_conversion"):
-            raise ValueError("参考音色组件不完整：请检查 Seed-VC、Demucs 与 voice 运行环境")
+        if kind in VOICE_KINDS | WORKFLOW_KINDS:
+            voice_request = request.get('voice', {}) if kind in WORKFLOW_KINDS else request
+            if not isinstance(voice_request, dict):
+                raise ValueError('音色转换参数必须是对象')
+            backend = voice_request.get('backend', 'seed-vc')
+            if backend not in {'rvc', 'seed-vc', 'compare'}:
+                raise ValueError('不支持的音色转换方式')
+            if backend in {'rvc', 'compare'}:
+                if not capabilities.get('rvc_inference') or not capabilities.get('vocal_separation'):
+                    raise ValueError('RVC 或人声分离组件尚未安装完整')
+                from .rvc_library import verify_voice
+                selected_voice = verify_voice(ROOT, str(voice_request.get('voice_id', '')))
+                sid = str(int(voice_request.get('speaker_id', 0)))
+                if sid not in selected_voice['indices']:
+                    raise ValueError('音色中不存在对应的说话人索引')
+            if backend in {'seed-vc', 'compare'} and not capabilities.get('voice_conversion'):
+                raise ValueError('参考音色组件或所选转换方式不可用')
         request = json.loads(json.dumps(request))
         if kind in ASSISTANT_KINDS:
             request = assistant_data.normalize_request(ROOT, request)
@@ -260,21 +330,26 @@ class JobStore:
         if kind in WORKFLOW_KINDS:
             if not isinstance(generation, dict) or not isinstance(request.get("voice"), dict):
                 raise ValueError("翻唱需要 generate 和 voice 两组参数")
+            generation["candidates"] = 1
+        if kind in VOICE_KINDS | WORKFLOW_KINDS:
+            voice_request = request['voice'] if kind in WORKFLOW_KINDS else request
             from .voice_worker import _audio_path, _number
             import soundfile as sf
-            reference = _audio_path(ROOT, request["voice"].get("reference_path"), reference=True)
-            try:
-                duration = sf.info(reference).duration
-            except RuntimeError as exc:
-                raise ValueError("参考声音不是可读取的音频文件") from exc
-            if not 1 <= duration <= 30:
-                raise ValueError("参考音色需要 1–30 秒清晰干声")
+            if kind in VOICE_KINDS:
+                _audio_path(ROOT, voice_request.get('source_path'))
+            if voice_request.get('backend', 'seed-vc') in {'seed-vc', 'compare'}:
+                reference = _audio_path(ROOT, voice_request.get("reference_path"), reference=True)
+                try:
+                    duration = sf.info(reference).duration
+                except RuntimeError as exc:
+                    raise ValueError("参考声音不是可读取的音频文件") from exc
+                if not 1 <= duration <= 30:
+                    raise ValueError("参考音色需要 1–30 秒清晰干声")
             for key, default, low, high in (
                 ("diffusion_steps", 30, 4, 50), ("cfg_rate", .7, 0, 1.5),
                 ("semi_tone_shift", 0, -12, 12), ("vocal_gain_db", 0, -18, 12),
                 ("accompaniment_gain_db", 0, -18, 12)):
-                _number(request["voice"], key, default, low, high)
-            generation["candidates"] = 1
+                _number(voice_request, key, default, low, high)
         if kind in GENERATION_KINDS | WORKFLOW_KINDS:
             generation.setdefault("offload_ar", True)
             generation.setdefault("nar_attention", "sdpa")
@@ -290,7 +365,7 @@ class JobStore:
             if not math.isfinite(budget) or budget <= 2:
                 raise ValueError("显存预算必须是大于 2 GiB 的有限数值")
         source = source if source in {"webui", "comfyui", "api"} else "api"
-        if result_panel not in {"create", "plan", "cover", "assistant"}:
+        if result_panel not in {"create", "plan", "cover", "assistant", "voices"}:
             result_panel = ("cover" if kind in {"reference_cover", "voice_convert"} or
                             (kind == "generate" and request.get("abc")) else
                             "plan" if kind == "render_plan" else "create")
@@ -360,7 +435,7 @@ class JobStore:
                 raise ValueError("只能恢复失败或取消的任务")
             directory = job_directory(job_id)
             job = json.loads((directory / "job.json").read_text(encoding="utf-8"))
-            if job["kind"] not in {"generate", "reference_cover", "voice_convert", "render_plan"}:
+            if job["kind"] not in {"generate", "reference_cover", "voice_convert", "render_plan", "rvc_train", "rvc_import", "rvc_separate", "rvc_storage_move"}:
                 raise ValueError("这个任务类型暂不支持阶段恢复")
             request = dict(job["request"])
             request["resume_from"] = str(directory)
@@ -469,7 +544,10 @@ class JobStore:
     def export(self, job_id: str, requested_destination: str = "") -> Path:
         with self.storage_lock:
             status = self.get(job_id)
-            if status.get("status") != "complete":
+            partial_comparison = (status.get('status') in TERMINAL and
+                                  status.get('result', {}).get('comparison') and
+                                  status.get('result', {}).get('candidates'))
+            if status.get("status") != "complete" and not partial_comparison:
                 raise ValueError("只能导出已完成任务的工件")
             source = within(OUTPUTS, job_directory(job_id) / "artifacts")
             if not source.is_dir():
@@ -538,7 +616,7 @@ class JobStore:
                 secret = ""
                 if kind in ASSISTANT_KINDS:
                     config = job["request"]["config"]
-                    python = ROOT / "runtime/llm/python.exe" if config["provider"] == "local" else CORE_PYTHON
+                    python = CORE_PYTHON
                     module = "app.yue2_app.assistant_worker"
                     if config["provider"] != "local":
                         secret = CREDENTIALS.get(config["credential_id"], assistant_data.endpoint(config))
@@ -548,6 +626,8 @@ class JobStore:
                     python, module = TRANSCRIBE_PYTHON, "app.yue2_app.transcribe_worker"
                 elif kind in VOICE_KINDS:
                     python, module = VOICE_PYTHON, "app.yue2_app.voice_worker"
+                elif kind in RVC_KINDS:
+                    python, module = CORE_PYTHON, "app.yue2_app.rvc_worker"
                 else:
                     python, module = CORE_PYTHON, "app.yue2_app.core_worker"
                 if not python.is_file():
@@ -610,6 +690,26 @@ class JobStore:
                 with self.lock:
                     self.current_id, self.current_process = None, None
                 self.pending.task_done()
+
+
+def retained_audio_files(status: dict, directory: Path) -> set[Path]:
+    """Only expose finished stage audio while another stage runs or has failed."""
+    result = status.get('result') or {}
+    candidates = list(result.get('candidates') or []) if result.get('comparison') else []
+    if status.get('generated_result'):
+        candidates.append(status['generated_result'])
+    allowed = set()
+    for candidate in candidates:
+        for key in ('audio', 'converted_vocal', 'separated_vocal', 'accompaniment'):
+            value = candidate.get(key)
+            if value:
+                try:
+                    path = within(directory, Path(value))
+                    if path.suffix.lower() in {'.flac', '.wav', '.mp3', '.ogg', '.m4a', '.aac'}:
+                        allowed.add(path)
+                except ValueError:
+                    pass
+    return allowed
 
 
 def rotate_server_log(path: Path) -> None:
@@ -682,6 +782,10 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if not is_loopback_host(self.headers.get("Host", "")):
                 return self._error(403, "Host 必须是本机回环地址")
+            if path.startswith("/api/rvc"):
+                from . import rvc_api
+                if rvc_api.get(self, parsed, STORE, ROOT):
+                    return
             if path == "/api/health":
                 return self._json(200, {"ok": True, "version": __version__, "root": str(ROOT),
                                         "ready": runtime_ready(), **STORE.state()})
@@ -726,11 +830,11 @@ class Handler(BaseHTTPRequestHandler):
                 job_id = pieces[3]
                 with STORE.storage_lock:
                     status = STORE.get(job_id)
-                    if status.get("status") != "complete":
-                        return self._error(409, "任务尚未完成，工件暂不可读取")
                     relative = Path(urllib.parse.unquote("/".join(pieces[4:])))
                     directory = job_directory(job_id)
                     file = within(directory, directory / relative)
+                    if status.get('status') != 'complete' and file not in retained_audio_files(status, directory):
+                        return self._error(409, "该音频尚未完成，暂不可读取")
                     if not file.is_file():
                         return self._error(404, "文件不存在")
                     content = file.read_bytes()
@@ -758,6 +862,14 @@ class Handler(BaseHTTPRequestHandler):
             if origin and (not is_loopback_host(urllib.parse.urlparse(origin).netloc)
                            or urllib.parse.urlparse(origin).netloc.lower() != host.lower()):
                 return self._error(403, "拒绝跨站请求")
+            if STORE.updating or updater.update_status(ROOT).get('state') in updater.ACTIVE_STATES:
+                return self._error(409, '整合包正在更新，请等待升级完成后再提交操作')
+            if path.startswith("/api/rvc/"):
+                from . import rvc_api
+                with STORE.storage_lock:
+                    STORE.assert_writable()
+                    if rvc_api.post(self, parsed, STORE, ROOT):
+                        return
             if path == "/api/jobs":
                 data = self._body_json()
                 return self._json(202, STORE.create(
@@ -768,12 +880,14 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/retention/cleanup":
                 return self._json(200, STORE.cleanup_retention(force=True))
             if path == "/api/update/install":
-                state = STORE.state()
-                if state.get("current_job") or int(state.get("queued", 0)):
-                    raise ValueError("有任务正在运行或排队，请等待任务结束后再更新")
-                prepared = updater.prepare_update(ROOT, __version__)
-                host, port = self.server.server_address[:2]
-                result = updater.launch_update(ROOT, prepared, os.getpid(), str(host), int(port))
+                STORE.begin_update()
+                try:
+                    prepared = updater.prepare_update(ROOT, __version__)
+                    host, port = self.server.server_address[:2]
+                    result = updater.launch_update(ROOT, prepared, os.getpid(), str(host), int(port))
+                except Exception as exc:
+                    STORE.abort_update(exc)
+                    raise
                 self._json(202, result)
                 def stop_for_update():
                     time.sleep(.6)
@@ -851,15 +965,17 @@ class Handler(BaseHTTPRequestHandler):
                 job_id = pieces[3]
                 data = self._body_json(1024) if int(self.headers.get("Content-Length", "0")) else {}
                 return self._json(200, STORE.cancel(job_id, bool(data.get("force", False))))
-            if path == "/api/uploads":
+            if path in {"/api/uploads", "/api/rvc-upload"}:
                 params = urllib.parse.parse_qs(parsed.query)
                 original = params.get("filename", ["upload.wav"])[0]
                 suffix = Path(original).suffix.lower()
-                if suffix not in {".wav", ".flac", ".mp3", ".m4a", ".ogg", ".aac"}:
-                    raise ValueError("支持 WAV、FLAC、MP3、M4A、OGG、AAC")
+                allowed = {".zip", ".pth", ".index"} if path == "/api/rvc-upload" else {".wav", ".flac", ".mp3", ".m4a", ".ogg", ".aac"}
+                if suffix not in allowed:
+                    raise ValueError("请选择支持的文件格式：" + "、".join(sorted(allowed)))
                 length = int(self.headers.get("Content-Length", "0"))
-                if length <= 0 or length > 1024 * 1024 * 1024:
-                    raise ValueError("音频大小必须在 1GB 以内")
+                limit = 4 * 1024**3 if path == "/api/rvc-upload" else 1024**3
+                if length <= 0 or length > limit:
+                    raise ValueError(f"文件大小必须在 {limit // 1024**3}GB 以内")
                 destination = UPLOADS / (time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:8] + suffix)
                 remaining = length
                 try:

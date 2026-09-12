@@ -50,13 +50,18 @@ def main(argv=None) -> int:
             ctx.update(stage, window=value.get("window"), windows=value.get("windows"))
 
         ctx.update("transcribing")
+        audio_input, input_options = str(source), {}
+        if request.get("preset", "default") == "paper":
+            from .audio_decode import load_paper_audio
+            audio_input = load_paper_audio(source, max_seconds=request.get("max_seconds"))
+            input_options["sampling_rate"] = 24000
         result = model.transcribe(
-            str(source), output_dir=output, melody_only=bool(request.get("melody_only", True)),
+            audio_input, output_dir=output, melody_only=bool(request.get("melody_only", True)),
             dtype=request.get("dtype", "bf16"), preset=request.get("preset", "default"),
             max_seconds=request.get("max_seconds"),
             render_audio=bool(request.get("render_audio", False)),
             render_score=request.get("render_score", False),
-            render_parts=tuple(request.get("render_parts", ["mix"])), progress=progress,
+            render_parts=tuple(request.get("render_parts", ["mix"])), progress=progress, **input_options,
         )
         ctx.check_cancelled()
         abc_path = output / "score.abc"

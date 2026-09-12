@@ -163,7 +163,7 @@ def prepare_update(root: Path, current_version: str) -> dict:
 def launch_update(root: Path, prepared: dict, pid: int, host: str, port: int) -> dict:
     source = Path(prepared["source"]).resolve()
     helper = source / "scripts" / "apply_update.py"
-    python = root.resolve() / "runtime" / "core" / "python.exe"
+    python = root.resolve() / "runtime" / "python.exe"
     if not python.is_file():
         python = Path(sys.executable)
     status_path = root.resolve() / "logs" / "update-status.json"
@@ -184,6 +184,12 @@ def launch_update(root: Path, prepared: dict, pid: int, host: str, port: int) ->
         process = subprocess.Popen(command, cwd=root, stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr,
                                    creationflags=creationflags, close_fds=True)
     return {"accepted": True, "updater_pid": process.pid, "target_version": prepared["latest_version"]}
+
+
+ACTIVE_STATES = frozenset({
+    'preparing_update', 'waiting_for_service', 'preparing_runtime', 'preparing_models',
+    'installing', 'files_staged', 'switching_runtime', 'verifying_service', 'cleaning_runtime',
+})
 
 
 def update_status(root: Path) -> dict:

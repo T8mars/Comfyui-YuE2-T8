@@ -419,7 +419,11 @@ def main(args):
     source_name = os.path.basename(source).split(".")[0]
     target_name = os.path.basename(target_name).split(".")[0]
     os.makedirs(args.output, exist_ok=True)
-    torchaudio.save(os.path.join(args.output, f"vc_{source_name}_{target_name}_{length_adjust}_{diffusion_steps}_{inference_cfg_rate}.wav"), vc_wave.cpu(), sr)
+    # SoundFile keeps offline WAV output independent of TorchAudio's TorchCodec
+    # backend (TorchAudio 2.9+). Preserve [channels, samples] and PCM16 output.
+    import soundfile as sf
+    sf.write(os.path.join(args.output, f"vc_{source_name}_{target_name}_{length_adjust}_{diffusion_steps}_{inference_cfg_rate}.wav"),
+             vc_wave.detach().float().cpu().numpy().T, sr, subtype="PCM_16")
 
 
 if __name__ == "__main__":

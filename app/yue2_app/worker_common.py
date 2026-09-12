@@ -77,8 +77,9 @@ class JobContext:
             self.last_token_update = now
             self.update("planning" if phase == "abc" else "semantic", tokens=self.token_count)
 
-    def finish(self, **extra) -> None:
-        self.check_cancelled()
+    def finish(self, *, committed: bool = False, **extra) -> None:
+        if not committed:
+            self.check_cancelled()
         current = {}
         try:
             import json
@@ -118,3 +119,5 @@ def configure_environment(root: Path) -> None:
     os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
     os.environ.setdefault("HF_HOME", str(root / "cache" / "huggingface"))
     os.environ.setdefault("HF_MODULES_CACHE", str(root / "cache" / "huggingface" / "modules"))
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(root / "runtime" / "playwright")
+    os.environ["PATH"] = str(root / "runtime" / "ffmpeg") + os.pathsep + os.environ.get("PATH", "")

@@ -46,3 +46,17 @@ Windows distribution. Its packaged license notices remain in that runtime.
 CUDA runtime libraries copied from the existing bundled CUDA 12 environment
 remain governed by NVIDIA's original redistribution terms; no Torch code is
 imported into the assistant worker for this purpose.
+
+
+RVC training and inference code is vendored from
+https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI
+at commit 81eed5e8f68b6bed1789f682fe78cdd324495afc, MIT;
+see vendor/rvc/LICENSE, UPSTREAM.json and PATCHES.json for attribution and local changes.
+RVC base asset provenance and hashes are recorded in app/yue2_app/rvc_assets.json.
+
+Optional FlashAttention wheels in the full bundle derive from
+https://github.com/Dao-AILab/flash-attention (BSD-3-Clause), version 2.8.3,
+commit 060c9188beec3a8b62b33a3bfa6d5d2d44975fab. The multi-architecture wheel is
+published by https://github.com/mjun0812/flash-attention-prebuild-wheels;
+the separate SM120 wheel was compiled locally. Bundle extras include the
+upstream license and build/verification provenance. They are not enabled by default.

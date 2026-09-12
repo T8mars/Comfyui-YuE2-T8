@@ -1,0 +1,74 @@
+{
+  "repository": "lj1995/VoiceConversionWebUI",
+  "revision": "e6d0c1a17da07c33557852f9dfa2bd44cc75737d",
+  "files": {
+    "hubert_base/config.json": {
+      "size": 1492,
+      "sha256": "0346950779dfb7f9316fa74ed846e2b8a22a08eedfdc5387b73f327cb1a4a7cf"
+    },
+    "hubert_base/preprocessor_config.json": {
+      "size": 225,
+      "sha256": "7c1976a680fb7acc757cd36fb08eef878fa36c70b4c9d2d595df9c608bbbbf0e"
+    },
+    "hubert_base/pytorch_model.bin": {
+      "size": 189206711,
+      "sha256": "cc8c20f4b90a520757260197a3ff2505705a7adbd20ad9eeaa4e1a9b38442ef5"
+    },
+    "mute.zip": {
+      "size": 312273,
+      "sha256": "ee948e85213e4ed2f2ba2f8dfcee810bfd0b63131d91450e920bbe1cbd0321d0"
+    },
+    "pretrained_v2/f0D32k.pth": {
+      "size": 142875703,
+      "sha256": "bd7134e7793674c85474d5145d2d982e3c5d8124fc7bb6c20f710ed65808fa8a"
+    },
+    "pretrained_v2/f0D40k.pth": {
+      "size": 142875703,
+      "sha256": "6b6ab091e70801b28e3f41f335f2fc5f3f35c75b39ae2628d419644ec2b0fa09"
+    },
+    "pretrained_v2/f0D48k.pth": {
+      "size": 142875703,
+      "sha256": "2269b73c7a4cf34da09aea99274dabf99b2ddb8a42cbfb065fb3c0aa9a2fc748"
+    },
+    "pretrained_v2/f0G32k.pth": {
+      "size": 73950049,
+      "sha256": "2332611297b8d88c7436de8f17ef5f07a2119353e962cd93cda5806d59a1133d"
+    },
+    "pretrained_v2/f0G40k.pth": {
+      "size": 73106273,
+      "sha256": "3b2c44035e782c4b14ddc0bede9e2f4a724d025cd073f736d4f43708453adfcb"
+    },
+    "pretrained_v2/f0G48k.pth": {
+      "size": 75465569,
+      "sha256": "b5d51f589cc3632d4eae36a315b4179397695042edc01d15312e1bddc2b764a4"
+    },
+    "rmvpe.pt": {
+      "size": 181184272,
+      "sha256": "6d62215f4306e3ca278246188607209f09af3dc77ed4232efdd069798c4ec193"
+    },
+    "pretrained/f0D32k.pth": {
+      "size": 109978943,
+      "sha256": "294db3087236e2c75260d6179056791c9231245daf5d0485545d9e54c4057c77"
+    },
+    "pretrained/f0D40k.pth": {
+      "size": 109978943,
+      "sha256": "7d4f5a441594b470d67579958b2fd4c6b992852ded28ff9e72eda67abcebe423"
+    },
+    "pretrained/f0D48k.pth": {
+      "size": 109978943,
+      "sha256": "1b84c8bf347ad1e539c842e8f2a4c36ecd9e7fb23c16041189e4877e9b07925c"
+    },
+    "pretrained/f0G32k.pth": {
+      "size": 72795627,
+      "sha256": "285f524bf48bb692c76ad7bd0bc654c12bd9e5edeb784dddf7f61a789a608574"
+    },
+    "pretrained/f0G40k.pth": {
+      "size": 72909665,
+      "sha256": "9115654aeef1995f7dd3c6fc4140bebbef0ca9760bed798105a2380a34299831"
+    },
+    "pretrained/f0G48k.pth": {
+      "size": 73008619,
+      "sha256": "78bc9cab27e34bcfc194f93029374d871d8b3e663ddedea32a9709e894cc8fe8"
+    }
+  }
+}

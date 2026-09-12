@@ -20,9 +20,8 @@ UPLOADS = ROOT / "uploads"
 LOGS = ROOT / "logs"
 CACHE = ROOT / "cache"
 RUNTIME = ROOT / "runtime"
-CORE_PYTHON = RUNTIME / "core" / "python.exe"
-TRANSCRIBE_PYTHON = RUNTIME / "transcribe" / "python.exe"
-VOICE_PYTHON = RUNTIME / "voice" / "python.exe"
+PYTHON = RUNTIME / "python.exe"
+CORE_PYTHON = TRANSCRIBE_PYTHON = VOICE_PYTHON = PYTHON
 UPSTREAM = ROOT / "vendor"
 
 
@@ -109,13 +108,13 @@ def runtime_ready(root: Path | None = None) -> dict[str, object]:
         models[name] = (_expected_size(weight, expected_size)
                         and all(_nonempty(path / filename) for filename in required[name] if filename != "model.safetensors"))
     source = upstream_path(base) / "yue2"
-    transcribe_python = _nonempty(runtime / "transcribe" / "python.exe")
+    transcribe_python = _nonempty(runtime / "python.exe")
     renderer = bool(transcribe_python and _nonempty(
-        runtime / "transcribe" / "Lib" / "site-packages" / "playwright" / "__init__.py")
+        runtime / "Lib" / "site-packages" / "playwright" / "__init__.py")
         and any(_nonempty(path) for path in (runtime / "playwright").glob(
             "chromium_headless_shell-*/chrome-headless-shell-win64/chrome-headless-shell.exe"))
         and _render_assets_ready(paths["sheetsage"] / "render_assets"))
-    voice_python = _nonempty(runtime / "voice" / "python.exe")
+    voice_python = _nonempty(runtime / "python.exe")
     voice_files = (
         voice_paths["seed_vc"] / "DiT_seed_v2_uvit_whisper_base_f0_44k_bigvgan_pruned_ft_ema_v2.pth",
         voice_paths["seed_vc"] / "config_dit_mel_seed_uvit_whisper_base_f0_44k.yml",
@@ -133,7 +132,7 @@ def runtime_ready(root: Path | None = None) -> dict[str, object]:
     voice_source = all(_nonempty(base / "vendor" / "seed-vc" / filename)
                        for filename in ("inference.py", "hf_utils.py", "LICENSE"))
     result = {
-        "core_python": _nonempty(runtime / "core" / "python.exe"),
+        "core_python": _nonempty(runtime / "python.exe"),
         "transcribe_python": transcribe_python,
         "voice_python": voice_python,
         "ffmpeg": _nonempty(runtime / "ffmpeg" / "ffmpeg.exe"),
@@ -155,6 +154,16 @@ def runtime_ready(root: Path | None = None) -> dict[str, object]:
         "voice_conversion": bool(not configured["error"] and voice_python and voice_models and voice_source
                                  and result["ffmpeg"]),
     }
+    rvc_assets = models_root / "RVC"
+    rvc_source = all(_nonempty(base / "vendor/rvc" / file) for file in (
+        "UPSTREAM.json", "infer/cli.py", "train/train.py"))
+    rvc_inference = bool(result["core_python"] and rvc_source and all(_nonempty(rvc_assets / file) for file in (
+        "hubert_base/config.json", "hubert_base/pytorch_model.bin", "rmvpe.pt")))
+    result["capabilities"]["rvc_inference"] = rvc_inference
+    result["capabilities"]["rvc_training"] = bool(rvc_inference and all(_nonempty(rvc_assets / file) for file in (
+        "pretrained_v2/f0G48k.pth", "pretrained_v2/f0D48k.pth")))
+    result["capabilities"]["vocal_separation"] = bool(result["core_python"] and result["ffmpeg"] and all(
+        _nonempty(voice_paths['demucs'] / file) for file in ('955717e8.safetensors', '955717e8.json', 'htdemucs.yaml')))
     return result
 
 
