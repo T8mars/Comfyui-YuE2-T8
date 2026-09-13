@@ -78,7 +78,20 @@ class GraphAR:
         # accepts GPU effective lengths; the public masked SDPA can select a
         # much slower math kernel. Keep a cuDNN/public-SDPA fallback explicit.
         if attention_backend == "auto":
-            attention_backend = "flash" if flash else "cudnn" if fused and torch.backends.cudnn.is_available() else "sdpa"
+            # The probe above only inspects the ATen schema, which every backend
+            # shares. On ROCm/HIP torch.cuda is the HIP alias, so device.type is
+            # still "cuda" and _flash_attention_forward does advertise seqused_k,
+            # yet ROCm's mha_varlen_fwd rejects that argument:
+            #   RuntimeError: [ROCm] mha_varlen_fwd: seqused_k must be nullopt
+            # Picking "flash" there crashes on the first decode step. Passing
+            # seqused_k=None is not a substitute either: variable-length FA would
+            # then attend over the unused future cache slots. Masked SDPA is exact
+            # for this graph (0.0 max abs diff vs eager, captured and replayed on
+            # gfx1201), so prefer it on any HIP build.
+            if getattr(torch.version, "hip", None) is not None:
+                attention_backend = "sdpa"
+            else:
+                attention_backend = "flash" if flash else "cudnn" if fused and torch.backends.cudnn.is_available() else "sdpa"
         if attention_backend == "flash" and not flash:
             raise ValueError("Pinned PyTorch variable-length CUDA FlashAttention is unavailable")
         if attention_backend == "cudnn" and not (fused and torch.backends.cudnn.is_available()):
