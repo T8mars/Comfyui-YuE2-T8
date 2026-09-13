@@ -277,6 +277,16 @@ def main(argv=None) -> int:
             raise ValueError('不支持的音色转换方式')
 
         import torch
+        # In ROCm PyTorch torch.backends.cudnn *is* the MIOpen backend, and MIOpen
+        # JIT-compiles several fp32 kernels (spatial batchnorm, the GRU inside
+        # RMVPE) through HIPRTC on first use. Wheels built without libc++ headers for
+        # comgr fail that compile with
+        #   fatal error: 'type_traits' file not found -> miopenStatusUnknownError
+        # Disabling the backend makes conv/BN/RNN use PyTorch's native kernels,
+        # which need no JIT. CUDA builds keep cuDNN enabled, and generation
+        # (core_worker) is untouched -- it keeps using MIOpen for its GEMMs.
+        if getattr(torch.version, "hip", None) is not None:
+            torch.backends.cudnn.enabled = False
         if not torch.cuda.is_available():
             raise RuntimeError("参考音色运行时未检测到 NVIDIA CUDA")
         ctx.update("separating_vocals", pid=os.getpid(), gpu=torch.cuda.get_device_name(0))
