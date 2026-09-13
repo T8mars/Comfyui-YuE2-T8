@@ -31,6 +31,33 @@ def add_upstream(root: Path) -> None:
     sys.path.insert(0, str(source))
 
 
+def vae_core_frames_for(request: dict) -> int:
+    """Pick a VAE tile size from the actual device, not from the memory budget.
+
+    The pipeline derives vae_core_frames from memory_budget_gib alone (512 frames
+    at or below 12 GiB, otherwise 1024), which bakes in the 24 GiB card this
+    project was validated on. A 16 GiB card gets 1024-frame tiles whose shape
+    selects a much slower convolution solver: for the same 175 s song on an
+    RX 9070 XT (gfx1201) VAE decode took 313 s with 1024 frames versus 107 s with
+    512, and the whole request dropped from 613.7 s to 393.4 s. Note this is not
+    a pure VRAM/bandwidth effect -- decode time is not monotonic in tile size
+    (256 frames measures slower than both 128 and 512), because the solver is
+    chosen per tensor shape; 512 is simply the good bucket on this part.
+
+    Default to the smaller tile below 20 GiB and still honour an explicit
+    "vae_core_frames" request field. A 24 GiB card keeps the previous 1024.
+    """
+    explicit = request.get("vae_core_frames")
+    if explicit:
+        return int(explicit)
+    try:
+        import torch
+        total_gib = torch.cuda.get_device_properties(0).total_memory / 2 ** 30
+    except Exception:
+        return 512
+    return 1024 if total_gib >= 20 else 512
+
+
 def create_pipe(root: Path, request: dict):
     from yue2 import YuE2Pipeline
 
@@ -44,6 +71,7 @@ def create_pipe(root: Path, request: dict):
         nar_attention=request.get("nar_attention", "sdpa"),
         nar_query_chunk_size=int(request.get("nar_query_chunk_size", 256)),
         verify_hashes=bool(request.get("verify_hashes", False)), progress=False,
+        vae_core_frames=vae_core_frames_for(request),
     )
 
 
