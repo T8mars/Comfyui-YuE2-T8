@@ -1,5 +1,5 @@
 /* Standalone WebUI only. Drafts are revisioned; credentials never enter them. */
-const assistant = {config: null, defaults: {}, result: null, job: null, polling: false, originalLyrics: '', resultEdited: false, resultJobId: null,
+const assistant = {config: null, defaults: {}, result: null, job: null, polling: false, pollToken: 0, pollingJobId: '', pollingProjectId: '', originalLyrics: '', resultEdited: false, resultJobId: null,
   drafts: {}, providers: {}, localModels: [], remoteModels: {}, providerSelections: {}, providerBaseUrls: {}, providerCredentials: {}, activeProvider: null,
   ticks: {assistant: 0, create: 0, plan: 0, cover: 0}, queues: {}, timers: {}, undo: null, sending: null,
   projectId: '', baselines: {}, switchQueue: Promise.resolve()};
@@ -103,6 +103,12 @@ function resetDraftPanel(panel) {
 async function switchAssistantProject(projectId) {
   projectId = String(projectId || '');
   if (projectId === assistant.projectId) return;
+  const previousProjectId=assistant.projectId,previousJobId=assistant.job?.id||'';
+  assistant.pollToken++;
+  assistant.polling = false;
+  assistant.pollingJobId = '';
+  assistant.pollingProjectId = '';
+  $('#assistant-generate').disabled = false; $('#assistant-test').disabled = false; $('#assistant-retry').disabled = false;
   const panels=['create','plan','cover','assistant'],elements=panels.map(panel=>$(`#${panel}`));
   elements.forEach(element=>element.inert=true);
   try {
@@ -116,7 +122,10 @@ async function switchAssistantProject(projectId) {
       resetDraftPanel(panel); applyDraft(panel, drafts[panel]?.draft); assistant.ticks[panel]++;
     }
     assistantText('#assistant-draft-status', projectId ? '已切换到当前项目的独立草稿' : '已切换到未归档草稿');
-    await restoreAssistantJobForCurrentScope();
+    await restoreAssistantJobForCurrentScope().catch(error=>assistantText('#assistant-progress',`任务状态读取失败：${error.message}，稍后可刷新恢复。`));
+  } catch(error) {
+    if(assistant.projectId===previousProjectId&&previousJobId){assistant.job={id:previousJobId};await restoreAssistantJobForCurrentScope().catch(()=>{});}
+    throw error;
   } finally { elements.forEach(element=>element.inert=false); }
 }
 window.assistantSwitchProject = projectId => {
@@ -249,6 +258,7 @@ async function refreshAssistantModels() {
     assistantText('#assistant-model-list-status', '正在读取渠道模型 LIST…');
     const result = await assistantPost('/api/assistant/models', {config});
     assistant.remoteModels[provider] = result.models.map(id => ({id, label: id}));
+    if($('#assistant-provider').value!==provider)return;
     renderAssistantModels();
     if (!result.models.includes($('#assistant-model').value)) $('#assistant-model').value = result.models[0];
     assistant.providerSelections[provider] = $('#assistant-model').value;
@@ -265,18 +275,17 @@ function updateCostHint() {
 const assistantStages = {assistant_lyrics: '创作歌词', assistant_lyrics_language_repair: '修正歌词语言', assistant_style: '创作曲风', assistant_review: '审校文本', assistant_review_repair: '修订文本', assistant_abc: '创作 ABC', assistant_abc_repair: '修正 ABC', assistant_connection: '测试模型连接'};
 window.assistantStageLabel = stage => assistantStages[stage];
 async function pollAssistant(id, startingRevision, projectId = assistant.projectId) {
-  if (assistant.polling) return;
+  if (assistant.polling && assistant.pollingJobId === id && assistant.pollingProjectId === projectId) return;
+  const pollToken = ++assistant.pollToken;
   assistant.polling = true;
+  assistant.pollingJobId = id;
+  assistant.pollingProjectId = projectId;
   $('#assistant-generate').disabled = true; $('#assistant-test').disabled = true; $('#assistant-retry').disabled = true;
   try {
     let lastResult = '';
     while (true) {
       const job = await api(`/api/jobs/${id}`);
-      if (assistant.projectId !== projectId) {
-        if (TERMINAL.has(job.status)) break;
-        await new Promise(resolve => setTimeout(resolve, 1200));
-        continue;
-      }
+      if (pollToken !== assistant.pollToken || assistant.projectId !== projectId) return;
       assistant.job = job;
       const seconds = Math.max(0, Math.round(Date.now() / 1000 - (job.started_at || job.created_at)));
       const progress = $('#assistant-progress'); progress.replaceChildren();
@@ -301,9 +310,10 @@ async function pollAssistant(id, startingRevision, projectId = assistant.project
         await savePanel('assistant'); refreshWorkspace(); loadHistory(); break;
       }
       await new Promise(resolve => setTimeout(resolve, 1200));
+      if (pollToken !== assistant.pollToken) return;
     }
-  } catch (error) { assistantText('#assistant-progress', `连接中断：${error.message}。任务可能仍在运行，刷新后可恢复查看。`); }
-  finally { assistant.polling = false; $('#assistant-generate').disabled = false; $('#assistant-test').disabled = false; $('#assistant-retry').disabled = false; }
+  } catch (error) { if(pollToken===assistant.pollToken)assistantText('#assistant-progress', `连接中断：${error.message}。任务可能仍在运行，刷新后可恢复查看。`); }
+  finally { if(pollToken===assistant.pollToken){assistant.polling=false;assistant.pollingJobId='';assistant.pollingProjectId='';$('#assistant-generate').disabled=false;$('#assistant-test').disabled=false;$('#assistant-retry').disabled=false;} }
 }
 async function restoreAssistantJobForCurrentScope() {
   const id=assistant.job?.id,projectId=assistant.projectId;
@@ -523,4 +533,4 @@ $('#assistant-download').onclick = () => { const r = readAssistantResult(); if (
   downloadText('YuE2-creation.txt', `曲风\n${r.style}\n\n歌词\n${r.lyrics}\n`); downloadText('YuE2-request.json', JSON.stringify(request, null, 2)); };
 $('#assistant-download-abc').onclick = () => { const r = readAssistantResult(); if (r?.abc) downloadText('score.abc', r.abc); };
 $('#assistant-copy').onclick = () => { const r = readAssistantResult(); if (r) navigator.clipboard.writeText(`曲风\n${r.style}\n\n歌词\n${r.lyrics}`).catch(error => assistantText('#assistant-result-note', error.message)); };
-initAssistant();
+window.assistantReady = initAssistant();

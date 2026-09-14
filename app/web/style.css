@@ -212,7 +212,7 @@ textarea { resize: vertical; }
 .panel > .results:not(:empty) { margin-bottom: 24px; scroll-margin-top: 90px; }
 .audio-download { display: inline-flex; align-items: center; text-decoration: none; }
 footer { padding: 30px; border-top: 1px solid #e0e5ed; color: #8a94a5; text-align: center; font-size: 12px; }
-@media (max-width: 760px) {
+@media (max-width: 1024px) {
   body > header { grid-template-columns: 1fr; margin: 18px; padding: 26px 22px; }
   .project-meta { align-items: flex-start; flex-direction: column; }
   .section-title { display: block; }
@@ -250,7 +250,7 @@ footer { padding: 30px; border-top: 1px solid #e0e5ed; color: #8a94a5; text-alig
 #voices audio { width: 100%; margin: 10px 0; }
 #voices .rvc-check { display: flex; flex-direction: row; align-items: center; min-width: auto; }
 #voices .rvc-check input { width: auto; }
-@media (max-width: 700px) { #voices .grid.two { grid-template-columns: 1fr; } }
+@media (max-width: 1024px) { #voices .grid.two { grid-template-columns: 1fr; } }
 
 .stem-previews { margin-top: 18px; }
 .stem-player { margin: 16px 0; }

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.4.2 - 2026-09-14
+
+- Bind uploads, submissions, drafts, results and errors to the project that started them, even when the user switches projects before an asynchronous request finishes.
+- Keep YuE2 training, checkpoint previews and auxiliary jobs in separate UI channels; preserve pause/resume controls and send the exact selected checkpoint model into song creation.
+- Import ABC score assets into an editable score-plan draft and keep generated previews associated with their originating project.
+- Make the full workbench usable at narrow desktop and tablet widths with a scrollable top navigation, visible active workspace, stacked controls and automatically collapsed model settings.
+- Prevent stale project, asset and history requests from replacing newer selections. Clarify the local/API assistant description and the 1600-step training preset.
+- Keep the GitHub updater archive code-only. It excludes Python, models, GGUF files, user data and the private roadmap.
+
 ## 1.4.1 - 2026-09-14
 
 - Make model settings reachable from every workbench page and simplify mobile navigation, tap targets, assistant setup and YuE2 training presets.

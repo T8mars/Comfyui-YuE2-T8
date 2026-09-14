@@ -2,28 +2,29 @@
 
 Validation date: 2026-09-14
 
-## Scope
+## Scope and evidence
 
-Compared the planned project, asset-library and training-workbench screens with the running v1.4.0 WebUI. The implementation keeps the product's established light blue-gray, white, navy and berry palette while carrying over the planned information architecture, dense workstation layout and persistent project context.
+The v1.4.2 audit covered the running local WebUI, async project workflows, asset transfer, YuE2 training controls and responsive navigation. The current run used an 820 px browser viewport across all workspaces and checked the existing 1600 × 1050 desktop and 390 px mobile baselines. Static DOM inspection found one `h1`, 11 `h2`, 12 `h3`, 115 form controls, 113 explicit labels and no duplicate IDs. The service health and core JSON routes responded successfully.
 
-## Visual review
+The responsive browser run is direct visual evidence for the 820 px layout. The 1600 px and 390 px statements reuse the prior browser baseline plus the same CSS and DOM reviewed in this release; they were not recaptured on additional physical displays. This report does not claim formal WCAG certification or untested GPU and operating-system support.
 
-| Screen | Desktop result | Responsive result | Interaction result |
+## Ten-round review
+
+| Round | Area | Finding and resolution | Result |
 | --- | --- | --- | --- |
-| Song project | Passed at 1600 × 1050 | No horizontal overflow at 390 px | Project selection, fixed asset versions and audio preview passed |
-| Asset library | Passed at 1600 × 1050 | Cards collapse to one column at 390 px | Import type appears before file selection; waveform, playback, project linking and trained-model handoff passed |
-| YuE2 training | Passed at 1600 × 1050 | Inspector stacks below the training canvas | Resource state, stages, localized status, loss chart, pause/resume controls, short-preview request and selected-model transfer passed |
+| 1 | First-use orientation | The product purpose, runtime state, current project and primary workspaces remain visible; local generation and API/local-LLM assistant behavior are described accurately. | Passed |
+| 2 | Navigation | At 820 px the former sidebar compressed headings and controls. It now becomes a scrollable top navigation and centers the selected workspace. | Fixed and passed |
+| 3 | Model settings | The large shared settings panel obscured the next workspace after navigation. Switching workspaces now collapses it automatically. | Fixed and passed |
+| 4 | Project isolation | Slow uploads, submissions, result polling and errors could outlive a project switch. Every asynchronous operation now retains its originating project. | Fixed and passed |
+| 5 | Asset library | Slow search results could replace newer filters, and score assets lacked a complete transfer path. Request revisions now reject stale responses; ABC opens as an editable plan. | Fixed and passed |
+| 6 | Creation and score flow | Project-specific results and latest-task cards could appear in the wrong workspace. Rendering now filters by active project and clears stale signatures. | Fixed and passed |
+| 7 | Assistant | Initial project selection and failed scope changes could race draft restore and polling. Initialization is awaited and failed switches resume the prior scope safely. | Fixed and passed |
+| 8 | Training | Training, preview and auxiliary jobs shared one mutable ID. They now use independent channels and per-run mappings, preserving pause/resume state. | Fixed and passed |
+| 9 | Checkpoint handoff | Model transfer could use a newer mutable run instead of the selected result. Buttons now bind the exact result model ID and remain disabled if none exists. | Fixed and passed |
+| 10 | History and regression | History requests now reject stale responses. The responsive history, training and score-transfer flows were rechecked; JavaScript syntax, diff hygiene and the full automated suite passed. | Passed |
 
-The browser run reported zero console errors and zero failed HTTP responses. All visible buttons have text or an accessible name. Keyboard focus remains visible. The 390 px viewport measured a 390 px document width with no horizontal overflow.
+## Outcome
 
-## Resolved findings
+No open P0, P1 or P2 issue remains from this audit. The final low-priority finding, a pre-submit upload or ABC-validation error appearing after the user changed projects, was resolved by binding the error renderer to the original project.
 
-- P1: Dynamic “send to song creation” controls initially lacked a delegated tab action. The final control resolves the trained model, selects it in the creation form, forces the supported direct-generation mode and then changes page.
-- P1: Training completion initially linked only to history. The final training page renders a short-preview action and an inline audio player when the preview completes.
-- P1: Training data initially had only explanatory rights copy. The final form requires confirmation and records it in the immutable snapshot; the API rejects a missing confirmation.
-- P2: Programmatic focus inspection did not represent keyboard focus. The final CSS provides a consistent focus-visible outline for buttons, links and form controls, and keyboard navigation was checked directly.
-- P2: Model assets initially used the generic text-view action. The final card uses “用于创作” and transfers the exact model asset.
-
-No open P0, P1 or P2 findings remain.
-
-final result: passed
+Final result: passed with stated evidence limits.

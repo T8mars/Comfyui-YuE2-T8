@@ -136,9 +136,10 @@ body[data-active-tab="training"] #latest-task, body[data-active-tab="training"] 
   .training-inspector { position: static; }
   body > header { grid-template-columns: 1fr; }
 }
-@media (max-width: 760px) {
+@media (max-width: 1024px) {
   body { padding: 80px 0 0; }
-  .studio-sidebar { inset: 0 0 auto 0; width: auto; height: 70px; padding: 8px 12px; flex-direction: row; align-items: center; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); scrollbar-width: thin; }
+  .studio-sidebar { inset: 0 0 auto 0; width: auto; height: 70px; padding: 8px 12px; flex-direction: row; align-items: center; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); scrollbar-width: none; -ms-overflow-style: none; }
+  .studio-sidebar::-webkit-scrollbar { display: none; }
   .studio-sidebar::after { content: ""; position: sticky; right: -12px; width: 28px; height: 52px; flex: 0 0 28px; pointer-events: none; background: linear-gradient(90deg,rgba(249,251,255,0),rgba(249,251,255,.98)); }
   .studio-brand { padding: 0 12px 0 0; border-right: 1px solid var(--line); border-bottom: 0; }
   .studio-brand small, .sidebar-project, .sidebar-group > small, .sidebar-settings { display: none; }

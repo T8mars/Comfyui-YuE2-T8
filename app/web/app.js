@@ -8,7 +8,7 @@ let workspaceRefreshing = false;
 let modelSettingsInitialized = false;
 let displayedTerminal = null;
 let projectAssetSignature = '';
-let historyOffset = 0, historyTotal = 0; const historyPageSize = 20;
+let historyOffset = 0, historyTotal = 0, historyLoadRevision = 0; const historyPageSize = 20;
 let availableUpdate = null;
 let updateInstalling = false;
 const panelStates = new Map();
@@ -50,15 +50,27 @@ function rememberResult(job, target) {
 }
 
 function renderPanelResults(jobs) {
+  const projectId = String(window.workbenchProjectId?.() || '');
+  const scope = projectId || '__global__';
+  const scopedProject = job => String(job.project_id || job.request?.project_id || job.request?.generate?.project_id || '');
   for (const panel of ['create', 'plan', 'cover']) {
-    const job = jobs.find(item => ['generate', 'reference_cover', 'voice_convert', 'render_plan', 'decode'].includes(item.kind) && resultPanel(item) === panel);
-    if (!job) continue;
     const target = $(`#${panel}-result`);
-    const signature = `${job.id}:${job.status}:${job.result?.completed_candidates || 0}`;
+    const job = jobs.find(item => ['generate', 'reference_cover', 'voice_convert', 'render_plan', 'decode'].includes(item.kind) && resultPanel(item) === panel && scopedProject(item) === projectId);
+    if (!job) {
+      if (target.dataset.projectScope !== scope) {
+        target.replaceChildren();
+        delete target.dataset.jobId;
+        panelStates.delete(panel);
+      }
+      target.dataset.projectScope = scope;
+      continue;
+    }
+    const signature = `${scope}:${job.id}:${job.status}:${job.result?.completed_candidates || 0}`;
     const previous = observedJobs.get(job.id);
     observedJobs.set(job.id, job.status);
     if (panelStates.get(panel) === signature) continue;
     panelStates.set(panel, signature);
+    target.dataset.projectScope = scope;
     target.dataset.jobId = job.id;
     if (!TERMINAL.has(job.status)) {
       target.innerHTML = `<div class="result-card"><b>作品正在制作中</b><p class="meta">完成后，播放器会直接显示在这里。</p><button class="ghost compact" onclick="openTaskCenter()">查看生成进度</button></div>`;
@@ -203,10 +215,11 @@ window.resumeJob = resumeJob;
 function renderLatestTask(jobs) {
   const target = $('#latest-task');
   const active = document.body.dataset.activeTab || 'project';
-  const job = jobs.find(item => ['generate', 'reference_cover', 'voice_convert', 'render_plan', 'decode'].includes(item.kind) && resultPanel(item) === active);
+  const projectId=String(window.workbenchProjectId?.()||'');
+  const job = jobs.find(item => ['generate', 'reference_cover', 'voice_convert', 'render_plan', 'decode'].includes(item.kind) && resultPanel(item) === active && String(item.project_id||'')===projectId);
   if (!job) { target.classList.add('hidden'); displayedTerminal = null; return; }
   if (!TERMINAL.has(job.status)) { target.classList.add('hidden'); displayedTerminal = null; return; }
-  const signature = `${job.id}:${job.status}`;
+  const signature = `${projectId||'__global__'}:${job.id}:${job.status}`;
   if (signature === displayedTerminal) return;
   displayedTerminal = signature;
   target.classList.remove('hidden');
@@ -392,12 +405,12 @@ async function refreshWorkspace() {
   } finally { workspaceRefreshing = false; }
 }
 
-async function submit(kind, request, resultTarget, button = null) {
+async function submit(kind, request, resultTarget, button = null, projectScope = String(window.workbenchProjectId?.() || '')) {
   setSubmitting(button);
   try {
     if (['generate', 'plan', 'render_plan'].includes(kind)) request.memory_budget_gib = generationMemoryBudget();
     if (kind === 'reference_cover') request.generate.memory_budget_gib = generationMemoryBudget();
-    const activeProject = window.workbenchProjectId?.();
+    const activeProject = projectScope;
     if (activeProject && ['generate','plan','render_plan','reference_cover','voice_convert','transcribe'].includes(kind)) {
       if (kind === 'reference_cover') request.generate.project_id = activeProject;
       else request.project_id = activeProject;
@@ -406,7 +419,12 @@ async function submit(kind, request, resultTarget, button = null) {
     const job = await api('/api/jobs', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({kind, request, source: 'webui', client_request_id: clientRequestId, result_panel: resultTarget?.closest('.panel')?.id})});
     rememberResult(job, resultTarget);
     bindButton(button, job); await refreshWorkspace(); return await waitForJob(job.id, resultTarget);
-  } catch (error) { restoreButton(button); throw error; }
+  } catch (error) { restoreButton(button); error.projectScope=projectScope; throw error; }
+}
+
+function renderScopedFailure(target, error, projectScope = error?.projectScope) {
+  if(projectScope!==undefined&&String(window.workbenchProjectId?.()||'')!==String(projectScope||''))return;
+  target.innerHTML = failureMarkup(error);
 }
 
 async function waitForJob(id, resultTarget) {
@@ -481,6 +499,8 @@ window.exportJob = exportJob;
 $$('.tab').forEach(button => button.onclick = () => {
   savedValue('active-tab', button.dataset.tab);
   document.body.dataset.activeTab = button.dataset.tab;
+  $('#model-settings').open = false;
+  if(button.closest('.studio-sidebar'))button.scrollIntoView({block:'nearest',inline:'center'});
   $$('.tab').forEach(item => { const active=item.dataset.tab===button.dataset.tab;item.classList.toggle('active',active);item.setAttribute('aria-selected',String(active));if(active)item.setAttribute('aria-current','page');else item.removeAttribute('aria-current'); });
   $$('.panel').forEach(panel => panel.classList.toggle('active', panel.id === button.dataset.tab));
   if (button.dataset.tab === 'history') loadHistory();
@@ -515,15 +535,17 @@ $('#default-model-directory').onclick = async () => {
 $('#create-form').onsubmit = async event => {
   event.preventDefault(); $('#create-result').innerHTML = '';
   try { await submit('generate', formObject(event.target), $('#create-result'), $('#create-button')); }
-  catch (error) { $('#create-result').innerHTML = failureMarkup(error); }
+  catch (error) { renderScopedFailure($('#create-result'),error); }
 };
 
 $('#plan-form').onsubmit = async event => {
   event.preventDefault();
   const revision = window.assistantDraftRevision?.('plan');
+  const projectScope=String(window.workbenchProjectId?.()||'');
   try {
     const request = formObject(event.target); request.backend = 'torch-eager';
-    const job = await submit('plan', request, null, $('#plan-button'));
+    const job = await submit('plan', request, null, $('#plan-button'), projectScope);
+    if(String(window.workbenchProjectId?.()||'')!==projectScope)return;
     const apply = () => {
       planState = {...job.result, request, source: 'saved_exact'};
       $('#plan-abc').value = job.result.abc || ''; $('#plan-exact').disabled = false; $('#plan-exact').checked = true; $('#plan-abc').disabled = true;
@@ -536,25 +558,37 @@ $('#plan-form').onsubmit = async event => {
       const button = document.createElement('button'); button.className = 'ghost'; button.textContent = '载入这份计划'; button.onclick = () => { if (confirm('替换当前乐谱草稿？')) apply(); };
       notice.append(button); $('#plan-result').append(notice);
     }
-  } catch (error) { $('#plan-result').innerHTML = failureMarkup(error); }
+  } catch (error) { renderScopedFailure($('#plan-result'),error,projectScope); }
 };
 
 $('#plan-exact').onchange = event => { $('#plan-abc').disabled = event.target.checked; };
 $('#plan-abc').disabled = true;
+window.importPlanAbc = (abc, badge = '外部导入谱 · 重新生成') => {
+  const request = formObject($('#plan-form'));
+  planState = {source: 'imported_abc', request: {style: request.style || '', lyrics: request.lyrics || '', cot: request.cot || 'full'}};
+  $('#plan-abc').value = String(abc || '');
+  $('#plan-abc').disabled = false;
+  $('#plan-exact').checked = false;
+  $('#plan-exact').disabled = true;
+  $('#plan-badge').textContent = badge;
+  $('#plan-workbench').classList.remove('hidden');
+  window.assistantDraftChanged?.('plan');
+};
 $('#render-plan').onclick = async () => {
   if (!planState) return;
+  const projectScope=String(window.workbenchProjectId?.()||'');
   if (planState.source === 'imported_abc') {
     try {
       const request = {...formObject($('#plan-form')), abc: $('#plan-abc').value, candidates: 1};
       await api('/api/assistant/validate-abc', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({abc: request.abc, cot: request.cot})});
-      await submit('generate', request, $('#plan-result'), $('#render-plan'));
-    } catch (error) { $('#plan-result').innerHTML = failureMarkup(error); }
+      await submit('generate', request, $('#plan-result'), $('#render-plan'), projectScope);
+    } catch (error) { renderScopedFailure($('#plan-result'),error,projectScope); }
     return;
   }
   const exact = $('#plan-exact').checked; const request = {plan_dir: planState.plan_dir, exact, backend: 'torch-eager'};
   if (!exact) Object.assign(request, planState.request, {abc: $('#plan-abc').value, candidates: 1});
-  try { await submit('render_plan', request, $('#plan-result'), $('#render-plan')); }
-  catch (error) { $('#plan-result').innerHTML = failureMarkup(error); }
+  try { await submit('render_plan', request, $('#plan-result'), $('#render-plan'), projectScope); }
+  catch (error) { renderScopedFailure($('#plan-result'),error,projectScope); }
 };
 $('#download-abc').onclick = () => { const blob = new Blob([$('#plan-abc').value], {type: 'text/plain;charset=utf-8'}); const anchor = document.createElement('a'); anchor.href = URL.createObjectURL(blob); anchor.download = 'score.abc'; anchor.click(); URL.revokeObjectURL(anchor.href); };
 
@@ -696,10 +730,12 @@ $('#cover-file').addEventListener('change', () => {
 $('#transcribe-button').onclick = async () => {
   const file = $('#cover-file').files[0]; if (!file) return; const button = $('#transcribe-button');
   const revision = window.assistantDraftRevision?.('cover');
+  const projectScope=String(window.workbenchProjectId?.()||'');
   try {
     setSubmitting(button); button.textContent = '正在上传…';
     const upload = await api(`/api/uploads?filename=${encodeURIComponent(file.name)}`, {method: 'POST', headers: {'Content-Type': 'application/octet-stream'}, body: file});
-    const job = await submit('transcribe', {source_path: upload.path, melody_only: true, dtype: 'bf16', preset: 'default'}, null, button);
+    const job = await submit('transcribe', {source_path: upload.path, melody_only: true, dtype: 'bf16', preset: 'default'}, null, button, projectScope);
+    if(String(window.workbenchProjectId?.()||'')!==projectScope)return;
     if (window.assistantDraftRevision?.('cover') === revision) {
       $('#cover-abc').value = job.result.abc || ''; $('#cover-review').classList.remove('hidden'); window.assistantDraftChanged?.('cover');
     } else {
@@ -707,7 +743,7 @@ $('#transcribe-button').onclick = async () => {
       const apply = document.createElement('button'); apply.className = 'ghost'; apply.textContent = '载入转谱结果'; apply.onclick = () => { if (confirm('替换当前旋律 ABC？')) { $('#cover-abc').value = job.result.abc || ''; $('#cover-review').classList.remove('hidden'); window.assistantDraftChanged?.('cover'); } };
       notice.append(apply); $('#cover-result').append(notice);
     }
-  } catch (error) { restoreButton(button); $('#cover-result').innerHTML = failureMarkup(error); }
+  } catch (error) { restoreButton(button);renderScopedFailure($('#cover-result'),error,projectScope); }
 };
 $('#generate-cover').onclick = async () => {
   let seed; try { seed = safeSeed($('#cover-seed').value); } catch (error) { return alert(error.message); }
@@ -715,7 +751,7 @@ $('#generate-cover').onclick = async () => {
   if (!request.lyrics.trim() && $('#cover').dataset.instrumental !== 'true') return alert('请先填写并核对歌词');
   if (!request.abc.trim()) return alert('请先转谱或导入有效的旋律 ABC');
   try { await submit('generate', request, $('#cover-result'), $('#generate-cover')); }
-  catch (error) { $('#cover-result').innerHTML = failureMarkup(error); }
+  catch (error) { renderScopedFailure($('#cover-result'),error); }
 };
 
 bindUploadPreview('#reference-file', '#reference-drop-zone', '#reference-preview', '#generate-reference-cover');
@@ -724,6 +760,7 @@ $('#reference-file').addEventListener('change', () => {
 });
 
 $('#generate-reference-cover').onclick = async () => {
+  const projectScope=String(window.workbenchProjectId?.()||'');
   const direct = $('#cover-mode').value === 'direct', source = $('#cover-file').files[0];
   if (direct && !source) return alert('请先选择要转换音色的歌曲');
   if (!direct && $('#cover').dataset.instrumental === 'true') return alert('纯器乐没有可转换的人声，请使用旋律重制');
@@ -750,9 +787,9 @@ $('#generate-reference-cover').onclick = async () => {
       vocal_gain_db: Number($('#voice-gain').value), accompaniment_gain_db: Number($('#backing-gain').value)};
     if (direct) {
       const uploaded = await api(`/api/uploads?filename=${encodeURIComponent(source.name)}`, {method: 'POST', headers: {'Content-Type': 'application/octet-stream'}, body: source});
-      await submit('voice_convert', {...voice, source_path: uploaded.path}, $('#cover-result'), button);
-    } else await submit('reference_cover', {generate, voice}, $('#cover-result'), button);
-  } catch (error) { restoreButton(button); $('#cover-result').innerHTML = failureMarkup(error); }
+      await submit('voice_convert', {...voice, source_path: uploaded.path}, $('#cover-result'), button, projectScope);
+    } else await submit('reference_cover', {generate, voice}, $('#cover-result'), button, projectScope);
+  } catch (error) { restoreButton(button);renderScopedFailure($('#cover-result'),error,projectScope); }
 };
 
 function firstResultAudio(job) {
@@ -760,10 +797,11 @@ function firstResultAudio(job) {
 }
 
 async function loadHistory() {
+  const revision=++historyLoadRevision;
   try {
     const query=new URLSearchParams({limit:historyPageSize,offset:historyOffset});
     if($('#history-status').value)query.set('status',$('#history-status').value);if($('#history-kind').value)query.set('kind',$('#history-kind').value);if($('#history-project').value)query.set('project_id',$('#history-project').value);if($('#history-query').value.trim())query.set('q',$('#history-query').value.trim());
-    const {jobs,total} = await api('/api/jobs?' + query); historyTotal=total;
+    const {jobs,total} = await api('/api/jobs?' + query);if(revision!==historyLoadRevision)return;historyTotal=total;
     $('#history-list').innerHTML = jobs.map(job => {
       const result = job.result || {}; const audio = relativeAudio(job, result.audio || result.candidates?.[0]?.audio);
       const exportButton = (job.status === 'complete' || (TERMINAL.has(job.status) && result.comparison && result.candidates?.length)) && job.result ? `<button class="ghost" onclick="exportJob('${job.id}')">导出</button>` : '';
@@ -776,7 +814,7 @@ async function loadHistory() {
       return `<article class="history-card"><header><div><b>${escapeHtml(kindLabel(job.kind))}</b><div class="meta">${escapeHtml(job.id)} · ${new Date(job.created_at * 1000).toLocaleString()} · ${escapeHtml(sourceLabel(job.source))}</div></div></header><b class="status-${job.status}">${escapeHtml(job.status === 'running' ? stageLabel(job.stage) : stageLabel(job.status))}</b>${job.error ? `<div class="meta">${escapeHtml(job.error)}</div>` : ''}${!result.comparison && audio ? `<audio controls preload="none" src="${audioUrl(job.id, audio)}"></audio>` : ''}<p class="meta">${voiceDescription(result)}</p>${comparison || stemPlayers(job,result)}<div class="toolbar">${exportButton}${retryButton}${logButtons}</div><pre class="job-log hidden"></pre></article>`;
     }).join('') || '<p class="meta">还没有符合条件的任务。</p>';
     const page=Math.floor(historyOffset/historyPageSize)+1,pages=Math.max(1,Math.ceil(historyTotal/historyPageSize));$('#history-page-status').textContent=`第 ${page} / ${pages} 页 · ${historyTotal} 项`;$('#history-prev').disabled=historyOffset<=0;$('#history-next').disabled=historyOffset+historyPageSize>=historyTotal;
-  } catch (error) { $('#history-list').innerHTML = `<p class="status-failed">${escapeHtml(error.message)}</p>`; }
+  } catch (error) { if(revision===historyLoadRevision)$('#history-list').innerHTML = `<p class="status-failed">${escapeHtml(error.message)}</p>`; }
 }
 
 async function loadRetention() {
