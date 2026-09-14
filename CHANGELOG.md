@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.8 - 2026-09-15
+
+- Raise the contrast of rose section markers, primary buttons, completed workflow stages and completed history states to meet WCAG AA for normal-size text.
+- Recheck the complete desktop and mobile workbench, fresh-start guidance, keyboard dialog flow, persistent asset membership and code-only update package.
+
 ## 1.4.7 - 2026-09-15
 
 - Give every generated, historical, comparison, stem, RVC, training-preview and global audio player a distinct accessible name.

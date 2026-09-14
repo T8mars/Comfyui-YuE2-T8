@@ -65,6 +65,66 @@ def assert_named_controls(page: Page) -> None:
     assert not failures, f"Visible controls without accessible names: {failures}"
 
 
+def assert_text_contrast(page: Page, panel_id: str) -> None:
+    failures = page.evaluate(r"""panelId => {
+      const panel = document.getElementById(panelId);
+      const visible = element => !element.closest('details:not([open])')
+        && Boolean(element.offsetWidth || element.offsetHeight || element.getClientRects().length)
+        && getComputedStyle(element).visibility !== 'hidden';
+      const rgba = value => {
+        const match = value.match(/[\d.]+/g);
+        return match ? [+match[0], +match[1], +match[2], match[3] === undefined ? 1 : +match[3]] : null;
+      };
+      const luminance = color => {
+        const values = color.slice(0, 3).map(value => {
+          value /= 255;
+          return value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4;
+        });
+        return .2126 * values[0] + .7152 * values[1] + .0722 * values[2];
+      };
+      const ratio = (foreground, background) => {
+        const first = luminance(foreground), second = luminance(background);
+        return (Math.max(first, second) + .05) / (Math.min(first, second) + .05);
+      };
+      const composite = (top, bottom) => {
+        const alpha = top[3] + bottom[3] * (1 - top[3]);
+        return [
+          (top[0] * top[3] + bottom[0] * bottom[3] * (1 - top[3])) / alpha,
+          (top[1] * top[3] + bottom[1] * bottom[3] * (1 - top[3])) / alpha,
+          (top[2] * top[3] + bottom[2] * bottom[3] * (1 - top[3])) / alpha,
+          alpha,
+        ];
+      };
+      const background = element => {
+        if (!element) return [255, 255, 255, 1];
+        const below = background(element.parentElement), own = rgba(getComputedStyle(element).backgroundColor);
+        return own && own[3] > 0 ? composite(own, below) : below;
+      };
+      const backgrounds = element => {
+        const base = background(element);
+        const colors = (getComputedStyle(element).backgroundImage.match(/rgba?\([^)]*\)/g) || [])
+          .map(rgba).filter(Boolean);
+        return colors.length ? colors.map(color => composite(color, base)) : [base];
+      };
+      const candidates = [...panel.querySelectorAll('h1,h2,h3,h4,p,small,b,span,label,summary,button,a,option,input,textarea,select')]
+        .filter(visible)
+        .filter(element => {
+          if (element.disabled || Number(getComputedStyle(element).opacity) < .9) return false;
+          if (['INPUT', 'TEXTAREA', 'SELECT'].includes(element.tagName)) return true;
+          return (element.innerText || '').trim()
+            && ![...element.children].some(child => visible(child) && (child.innerText || '').trim());
+        });
+      return candidates.map(element => {
+        const style = getComputedStyle(element), foreground = rgba(style.color);
+        const fontSize = parseFloat(style.fontSize), weight = parseInt(style.fontWeight) || 400;
+        const required = fontSize >= 24 || (fontSize >= 18.66 && weight >= 700) ? 3 : 4.5;
+        const actual = Math.min(...backgrounds(element).map(value => ratio(foreground, value)));
+        return {tag: element.tagName, id: element.id || '', text: (element.innerText || element.value || '').trim().slice(0, 60), actual, required};
+      }).filter(item => item.actual + .01 < item.required);
+    }""", panel_id)
+    assert not failures, f"Text contrast below WCAG AA in #{panel_id}: {failures}"
+
+
 def assert_unique_ids(page: Page) -> None:
     duplicates = page.evaluate("""() => {
       const ids = [...document.querySelectorAll('[id]')].map(element => element.id);
@@ -133,6 +193,10 @@ def run_browser(url: str, output: Path) -> dict:
         assert_unique_ids(page)
         assert_named_controls(page)
         page.screenshot(path=output / "desktop.png", full_page=False)
+
+        for panel_id in ("project", "assets", "create", "plan", "cover", "assistant", "training", "voices", "history"):
+            page.locator(f'.studio-sidebar [data-tab="{panel_id}"]').click()
+            assert_text_contrast(page, panel_id)
 
         page.locator('.studio-sidebar [data-tab="assets"]').click()
         page.locator(".asset-card").first.wait_for(state="visible")
@@ -234,6 +298,7 @@ def run_browser(url: str, output: Path) -> dict:
             "full and partial technical failures use a public summary and required fields use Chinese validation",
             "ordinary workspace buttons use current-page semantics without unsupported selected state",
             "mobile workspace switching resets a long-page scroll position",
+            "all nine workspaces meet WCAG AA contrast for visible normal-size text",
         ],
         "console_errors": console_errors,
     }

@@ -74,7 +74,7 @@ body[data-active-tab="training"] #task-center { display: none !important; }
 .workflow-strip { margin-top: 18px; display: grid; grid-template-columns: repeat(5,1fr); border-top: 1px solid var(--line); }
 .workflow-strip span { padding: 14px 6px 0; color: #667085; font-size: 10px; text-align: center; }
 .workflow-strip span.active { color: var(--accent-strong); font-weight: 800; box-shadow: inset 0 2px var(--accent); }
-.workflow-strip span.done { color: #25865d; font-weight: 700; }
+.workflow-strip span.done { color: #287b5a; font-weight: 700; }
 #project-assets { display: grid; gap: 8px; }
 .inspector-asset { padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
 .inspector-asset b { display: block; overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
@@ -116,9 +116,9 @@ body[data-active-tab="training"] #task-center { display: none !important; }
 .training-preview-result audio { width: 100%; margin: 14px 0 8px; }
 .training-run-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .training-stage { padding: 0 8px; display: grid; grid-template-columns: repeat(5,1fr); gap: 5px; }
-.training-stage span { padding: 8px 6px; border-bottom: 2px solid var(--line); color: #97a1b1; font-size: 10px; text-align: center; }
+.training-stage span { padding: 8px 6px; border-bottom: 2px solid var(--line); color: #667085; font-size: 10px; text-align: center; }
 .training-stage span.active { color: var(--accent-strong); border-color: var(--accent); font-weight: 800; }
-.training-stage span.done { color: #25865d; border-color: #8ad4b2; font-weight: 700; }
+.training-stage span.done { color: #287b5a; border-color: #8ad4b2; font-weight: 700; }
 .training-assets { max-height: 300px; margin-top: 14px; display: grid; gap: 7px; overflow: auto; }
 .training-asset { padding: 10px; display: grid; grid-template-columns: auto minmax(0,1fr) 110px; gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: 8px; }
 .training-asset-options { grid-column: 2 / -1; display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: end; }

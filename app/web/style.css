@@ -7,7 +7,7 @@
   --line: #dde3ed;
   --blue-line: #cddaff;
   --blue-soft: #f1f5ff;
-  --accent: #c74280;
+  --accent: #b83b74;
   --accent-strong: #a92d68;
   --accent-soft: #fbe8f1;
   --blue: #597dff;
@@ -103,7 +103,7 @@ textarea:focus, input:focus, select:focus { border-color: rgba(216, 88, 150, .7)
 textarea { resize: vertical; }
 .primary, .ghost, .danger { padding: 13px 20px; border-radius: 9px; font: 750 14px var(--sans); cursor: pointer; transition: transform .14s ease, box-shadow .14s ease, background .14s ease; }
 .primary:hover, .ghost:hover, .danger:hover { transform: translateY(-1px); }
-.primary { border: 1px solid var(--accent-strong); color: #fff; background: linear-gradient(135deg, #c94a84, var(--accent-strong)); box-shadow: 0 7px 18px rgba(169, 45, 104, .2); }
+.primary { border: 1px solid var(--accent-strong); color: #fff; background: linear-gradient(135deg, #c4477f, var(--accent-strong)); box-shadow: 0 7px 18px rgba(169, 45, 104, .2); }
 .primary:hover { background: linear-gradient(135deg, #bd3d78, #96265d); }
 .primary:disabled { color: #9aa3b1; border-color: #e2e6ec; background: #edf0f4; box-shadow: none; cursor: not-allowed; transform: none; }
 .ghost { border: 1px solid #e0e5ed; color: var(--text); background: #fff; box-shadow: 0 4px 12px rgba(31, 41, 55, .07); }
@@ -164,7 +164,7 @@ textarea { resize: vertical; }
 .failure-card p { margin: 9px 0 0; color: #4e596c; line-height: 1.65; }
 .failure-actions { justify-content: flex-start; }
 .job-log { max-height: 320px; overflow: auto; margin: 10px 0 0; padding: 14px; border: 1px solid #e1e6ee; border-radius: 9px; color: #273248; background: #f7f9fc; font: 11px/1.55 Consolas, "SFMono-Regular", monospace; white-space: pre-wrap; word-break: break-word; }
-.status-complete { color: #21885a; }
+.status-complete { color: #1d7c52; }
 .status-failed, .status-cancelled { color: var(--red); }
 .task-center { margin: 0 0 42px; overflow: hidden; border: 1px solid rgba(89, 125, 255, .2); border-radius: 16px; background: var(--panel); box-shadow: 0 8px 24px rgba(31, 41, 55, .06); }
 .model-settings { margin: 0 0 42px; border: 1px solid rgba(89, 125, 255, .18); border-radius: 14px; background: rgba(255, 255, 255, .8); box-shadow: 0 6px 18px rgba(31, 41, 55, .045); }
