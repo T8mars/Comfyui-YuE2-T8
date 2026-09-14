@@ -2,6 +2,7 @@
   const kindNames = {song:'歌曲',work:'作品',vocal:'人声',instrumental:'伴奏',reference_voice:'参考音色',lyrics:'歌词',style:'曲风',score:'乐谱',model:'模型',other:'其他'};
   const kindIcons = {song:'bi-disc',work:'bi-music-note-beamed',vocal:'bi-mic',instrumental:'bi-soundwave',reference_voice:'bi-person-bounding-box',lyrics:'bi-file-text',style:'bi-tags',score:'bi-music-note-list',model:'bi-gpu-card',other:'bi-file-earmark'};
   let projects = [], assets = [], trainingAssets = [], lyricsAssets = [], styleAssets = [];
+  let currentProjectAssetRefs = new Set();
   let assetOffset = 0, assetTotal = 0, assetLoadRevision = 0; const assetPageSize = 24;
   let currentProjectId = savedValue('workbench-project') || '';
   let currentRun = null, trainingRuns = [], trainingJobId = savedValue('training-job') || '';
@@ -62,6 +63,8 @@
     const timeline = $('#project-timeline'), inspector = $('#project-assets');
     const projectId = currentProjectId;
     if (!projectId) {
+      currentProjectAssetRefs = new Set();
+      if (assets.length) renderAssets();
       $('#project-title').textContent = '尚未选择项目';
       $('#project-state').textContent = '先选择项目，后续作品会自动归档到这里。';
       timeline.className = 'project-timeline empty-state';
@@ -73,6 +76,8 @@
     try {
       const project = await api(`/api/workbench/projects/${projectId}`);
       if (projectId !== currentProjectId) return;
+      currentProjectAssetRefs = new Set(project.assets.map(item => `${item.id}:${item.revision_id}`));
+      if (assets.length) renderAssets();
       $('#project-title').textContent = project.title;
       $('#project-state').textContent = `${project.assets.length} 项内容 · 生成结果会固定版本并自动加入`;
       const audio = project.assets.filter(item => audioKinds.has(item.kind));
@@ -191,7 +196,12 @@
       const clear=$('#clear-asset-filters');if(clear)clear.onclick=()=>{$('#asset-kind').value='';$('#asset-query').value='';assetOffset=0;loadAssets();};
       return;
     }
-    grid.innerHTML = assets.map(asset => { const primary=audioKinds.has(asset.kind)?`<button class="ghost compact" data-play-asset="${asset.id}"><i class="bi bi-play-fill"></i> 试听</button>`:asset.kind==='model'&&asset.metadata?.model_type==='yue2_ar_lora'?`<button class="primary compact" data-use-style-model="${asset.id}"><i class="bi bi-music-note-beamed"></i> 用于创作</button>`:`<button class="ghost compact" data-read-asset="${asset.id}"><i class="bi bi-eye"></i> 查看</button>`; return `<article class="asset-card"><div class="asset-card-head"><i class="bi ${kindIcons[asset.kind] || kindIcons.other}"></i><div><b title="${escapeHtml(asset.title)}">${escapeHtml(asset.title)}</b><small>${escapeHtml(kindNames[asset.kind] || asset.kind)} · ${asset.size ? (asset.size/1048576).toFixed(1)+' MB' : '文本版本'}</small></div></div>${audioKinds.has(asset.kind) ? `<div class="wave-mini" data-wave="${asset.id}"></div>` : '<div class="wave-mini"><span style="height:2px;width:100%"></span></div>'}<div class="toolbar">${primary}<button class="ghost compact" data-use-asset="${asset.id}">发送到…</button><button class="ghost compact" data-edit-asset="${asset.id}">编辑</button>${currentProjectId ? `<button class="ghost compact" data-add-asset="${asset.id}"><i class="bi bi-plus-circle"></i> 加入项目</button>` : ''}</div></article>`; }).join('');
+    grid.innerHTML = assets.map(asset => {
+      const primary=audioKinds.has(asset.kind)?`<button class="ghost compact" data-play-asset="${asset.id}"><i class="bi bi-play-fill"></i> 试听</button>`:asset.kind==='model'&&asset.metadata?.model_type==='yue2_ar_lora'?`<button class="primary compact" data-use-style-model="${asset.id}"><i class="bi bi-music-note-beamed"></i> 用于创作</button>`:`<button class="ghost compact" data-read-asset="${asset.id}"><i class="bi bi-eye"></i> 查看</button>`;
+      const linked=currentProjectId&&currentProjectAssetRefs.has(`${asset.id}:${asset.current_revision_id}`);
+      const projectAction=currentProjectId?(linked?'<button class="ghost compact" type="button" data-project-asset-state disabled title="当前版本已在项目中"><i class="bi bi-check-circle"></i> 已在项目</button>':`<button class="ghost compact" type="button" data-add-asset="${asset.id}"><i class="bi bi-plus-circle"></i> 加入项目</button>`):'';
+      return `<article class="asset-card"><div class="asset-card-head"><i class="bi ${kindIcons[asset.kind] || kindIcons.other}"></i><div><b title="${escapeHtml(asset.title)}">${escapeHtml(asset.title)}</b><small>${escapeHtml(kindNames[asset.kind] || asset.kind)} · ${asset.size ? (asset.size/1048576).toFixed(1)+' MB' : '文本版本'}</small></div></div>${audioKinds.has(asset.kind) ? `<div class="wave-mini" data-wave="${asset.id}"></div>` : '<div class="wave-mini"><span style="height:2px;width:100%"></span></div>'}<div class="toolbar">${primary}<button class="ghost compact" data-use-asset="${asset.id}">发送到…</button><button class="ghost compact" data-edit-asset="${asset.id}">编辑</button>${projectAction}</div></article>`;
+    }).join('');
     grid.querySelectorAll('[data-play-asset]').forEach(button => button.onclick = () => playAsset(assets.find(item => item.id === button.dataset.playAsset)));
     grid.querySelectorAll('[data-read-asset]').forEach(button => button.onclick = async () => {const asset=assets.find(item=>item.id===button.dataset.readAsset);try{const text=await(await fetch(contentUrl(asset))).text();const dialog=document.createElement('dialog');dialog.innerHTML=`<form method="dialog"><h3>${escapeHtml(asset.title)}</h3><textarea rows="18" readonly>${escapeHtml(text)}</textarea><div class="toolbar"><button class="ghost">关闭</button></div></form>`;labelDialog(dialog,'asset-read-dialog-title');document.body.append(dialog);dialog.onclose=()=>dialog.remove();dialog.showModal();}catch(error){alert(error.message);}});
     grid.querySelectorAll('[data-use-asset]').forEach(button=>button.onclick=()=>openUseDialog(assets.find(item=>item.id===button.dataset.useAsset)));

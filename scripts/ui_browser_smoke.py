@@ -88,7 +88,8 @@ def seed_browser_state(root: Path) -> None:
     project = library.create_project("浏览器回归项目")
     for index, kind in enumerate(("lyrics", "style", "score", "lyrics"), start=1):
         asset = library.create_text(kind=kind, title=f"回归素材 {index}", text=f"浏览器回归内容 {index}")
-        library.add_to_project(project["id"], asset["id"])
+        if index <= 2:
+            library.add_to_project(project["id"], asset["id"])
 
     job_id = "20990101-000000-00000001"
     directory = root / "outputs" / "jobs" / job_id
@@ -133,7 +134,9 @@ def run_browser(url: str, output: Path) -> dict:
         page.locator('.studio-sidebar [data-tab="assets"]').click()
         page.locator(".asset-card").first.wait_for(state="visible")
         assert page.locator(".asset-card").count() == 4
-        assert page.locator(".asset-card [data-add-asset]").count() == 4
+        assert page.locator(".asset-card [data-add-asset]").count() == 2
+        assert page.locator(".asset-card [data-project-asset-state]").count() == 2
+        assert page.locator(".asset-card [data-project-asset-state]:disabled").count() == 2
         for card in page.locator(".asset-card").all():
             bounds = card.evaluate("""card => {
               const outer=card.getBoundingClientRect();

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.6 - 2026-09-15
+
+- Show whether each asset's current revision is already linked to the selected project, instead of leaving an idempotent “Add to project” action that appears to do nothing.
+- Keep “Add to project” available when an asset has a newer revision than the revision pinned in the project.
+- Extend real-browser regression coverage with a mixed set of linked and unlinked assets.
+
 ## 1.4.5 - 2026-09-15
 
 - Keep every asset-card action inside its card at desktop widths, including the fourth “Add to project” action.
