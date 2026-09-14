@@ -18,7 +18,7 @@ def build(output):
     commit = git("rev-parse", "HEAD").decode().strip()
     project = git("show", "HEAD:pyproject.toml").decode()
     version = re.search(r'^version = "(\d+\.\d+\.\d+)"$', project, re.M).group(1)
-    for filename in ("client.py", "app/yue2_app/__init__.py"):
+    for filename in ("client.py", "comfyui_nodes/client.py", "app/yue2_app/__init__.py"):
         assert f'__version__ = "{version}"' in git("show", f"HEAD:{filename}").decode(), filename
     tag = "v" + version
     prefix = f"Comfyui-YuE2-T8-{tag}/"

@@ -12,7 +12,7 @@
     <div>
       <p class="eyebrow">YUЕ2 · LOCAL MUSIC STUDIO</p>
       <h1>把旋律写清楚，再让声音发生。</h1>
-      <p class="lead">本地歌词作曲、ABC 乐谱编辑、旋律重制与参考音色翻唱。所有推理都在你的 NVIDIA GPU 上完成。</p>
+      <p class="lead">本地歌词作曲、ABC 乐谱编辑、旋律重制与参考音色翻唱。所有推理都在本机 GPU 上完成。</p>
       <div class="project-meta" aria-label="项目与作者链接">
         <a class="creator-credit" href="https://space.bilibili.com/385085361" target="_blank" rel="noreferrer">制作者 By B站UP主：T8star-Aix</a>
         <span class="project-links">
@@ -107,7 +107,7 @@
         <label>文本引导 CFG<input name="cfg_scale" type="number" min="0" max="20" step="0.01" value="1.0"></label>
         <label>候选数量<select name="candidates"><option>1</option><option>2</option><option>3</option><option>4</option></select></label>
         <details class="wide advanced"><summary>高级设置</summary><div class="advanced-grid">
-          <label>运行后端<select name="backend"><option value="torch-eager">兼容模式</option><option value="torch">CUDA Graph 加速</option></select></label>
+          <label>运行后端<select name="backend"><option value="torch-eager">兼容模式</option><option value="torch">GPU Graph 加速（实验）</option></select></label>
           <label>显存预算 GiB<input name="memory_budget_gib" data-generation-memory type="number" step="any" min="2" required value="23.5"></label>
           <p class="meta wide">可自行修改，三个创作页面同步并在当前浏览器记住。请大于 2 GiB，按显卡可用显存设置；预算内含 2 GiB 预留，调低不保证模型能运行。</p>
           <label class="check"><input name="offload_ar" type="checkbox" checked>声学合成时释放闲置模型显存</label>

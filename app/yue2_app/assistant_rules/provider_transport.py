@@ -5,9 +5,6 @@ import re
 from dataclasses import dataclass
 from typing import Any, Callable
 
-import requests
-
-
 _THINK_BLOCK_PATTERN = re.compile(
     r"<think(?:\s[^>]*)?>.*?</think\s*>",
     re.IGNORECASE | re.DOTALL,
@@ -116,7 +113,7 @@ def _consume_openai_stream(
 
 def request_chat_completion(
     *,
-    session: requests.Session,
+    session: Any,
     url: str,
     api_key: str,
     payload: dict[str, Any],
@@ -124,9 +121,9 @@ def request_chat_completion(
     retry_delays: tuple[float, ...],
     retryable_status_codes: frozenset[int],
     route_kwargs: Callable[[int, bool], dict[str, Any]],
-    is_retryable_network_error: Callable[[requests.RequestException], bool],
+    is_retryable_network_error: Callable[[Exception], bool],
     sleep: Callable[[float], None],
-    network_error: Callable[[requests.RequestException, int, tuple[float, ...]], Exception],
+    network_error: Callable[[Exception, int, tuple[float, ...]], Exception],
     http_error: Callable[[Any, int], None],
     invalid_json_error: Callable[[], Exception],
     missing_content_error: Callable[[], Exception],
@@ -143,6 +140,10 @@ def request_chat_completion(
     prompt/template text. Provider-specific wording and HTTP classification remain
     caller callbacks so existing public error contracts stay compatible.
     """
+    # Keep the local GGUF path importable without the optional HTTP runtime.
+    # The API path calls this function only after its own requests import.
+    import requests
+
     attempt = 0
     streaming = payload.get("stream") is True
     while True:

@@ -485,15 +485,18 @@ def run_doctor(root: Path, ctx: JobContext, request: dict) -> dict:
 
     ctx.update("doctor")
     if not torch.cuda.is_available():
-        raise RuntimeError("自检失败：未检测到 NVIDIA CUDA")
+        raise RuntimeError("自检失败：未检测到 CUDA/HIP 兼容 GPU")
     if not torch.cuda.is_bf16_supported():
         raise RuntimeError("自检失败：GPU 不支持 BF16")
     verified = verify_bundle(root, progress=False)
     packages = {name: importlib.metadata.version(name) for name in
                 ("torch", "transformers", "huggingface-hub", "safetensors", "tiktoken", "soundfile")}
+    hip_version = getattr(torch.version, "hip", None)
     result = {
         "versions": packages,
         "torch_cuda": torch.version.cuda,
+        "torch_hip": hip_version,
+        "accelerator": f"ROCm/HIP {hip_version}" if hip_version else f"CUDA {torch.version.cuda}",
         "cuda_available": True,
         "bf16_supported": True,
         "gpu": torch.cuda.get_device_name(0),

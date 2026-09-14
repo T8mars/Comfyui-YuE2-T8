@@ -31,7 +31,7 @@ def main(argv=None) -> int:
         from transformers import AutoModel
 
         if not torch.cuda.is_available():
-            raise RuntimeError("转谱运行时未检测到 NVIDIA CUDA")
+            raise RuntimeError("转谱运行时未检测到 CUDA/HIP 兼容 GPU")
         source = within(root / "uploads", Path(request["source_path"]))
         if not source.is_file():
             raise FileNotFoundError(f"找不到音频：{source}")

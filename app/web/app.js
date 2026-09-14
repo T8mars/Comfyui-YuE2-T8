@@ -778,7 +778,7 @@ $('#refresh-history').onclick = () => { loadHistory(); loadRetention(); };
 $('#cleanup-storage').onclick = cleanupStorage;
 $('#doctor-button').onclick = async () => {
   const button = $('#doctor-button'); const action = $('.doctor-action');
-  try { const job = await submit('doctor', {verify_hashes: true}, null, button); action.dataset.result = `自检通过 · ${job.result.gpu} · CUDA ${job.result.torch_cuda}`; }
+  try { const job = await submit('doctor', {verify_hashes: true}, null, button); action.dataset.result = `自检通过 · ${job.result.gpu} · ${job.result.accelerator}`; }
   catch (error) { action.dataset.result = `自检未通过 · ${error.message}`; }
 };
 $('#update-button').onclick = () => availableUpdate ? installUpdate() : checkUpdate();

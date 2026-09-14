@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.3.1 - 2026-09-14
+
+- Allow ComfyUI users to select realistic memory budgets below 12 GiB or above 24 GiB.
+- Resume failed generation with the current memory budget instead of silently reusing the failed value.
+- Choose VAE decode tiles from the smaller of physical VRAM and the configured budget, with validated explicit overrides.
+- Reject experimental FP8 on HIP/ROCm and report CUDA/HIP accelerators without NVIDIA-only wording.
+- Warn before replacing local code, require repository quality checks, and fail Registry publishing when a version is not accepted.
+- Include the merged HIP/ROCm decode and Seed-VC compatibility fixes from PR #2.
+
 ## 1.3.0 - 2026-09-12
 
 - Unify generation, transcription, Seed-VC, RVC and GGUF under CPython 3.12.10 / Torch 2.10.0 + CUDA 12.8; keep sequential subprocess model release.

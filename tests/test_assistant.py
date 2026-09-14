@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -357,16 +358,23 @@ class AssistantTests(unittest.TestCase):
 
     def test_dpapi_and_session_credentials_bound_to_endpoint(self):
         store = data.Credentials(self.root)
-        ident = store.put("fixture-secret", "https://example.com/v1", remember=True)
-        self.assertNotIn("fixture-secret", store.path.read_text())
         second = data.Credentials(self.root)
-        self.assertEqual(second.get(ident, "https://example.com/v1"), "fixture-secret")
-        with self.assertRaises(ValueError):
-            second.get(ident, "https://elsewhere.com/v1")
-        second.delete(ident)
-        with self.assertRaises(ValueError):
-            second.get(ident, "https://example.com/v1")
+        if os.name == "nt":
+            ident = store.put("fixture-secret", "https://example.com/v1", remember=True)
+            self.assertNotIn("fixture-secret", store.path.read_text())
+            self.assertEqual(second.get(ident, "https://example.com/v1"), "fixture-secret")
+            with self.assertRaises(ValueError):
+                second.get(ident, "https://elsewhere.com/v1")
+            second.delete(ident)
+            with self.assertRaises(ValueError):
+                second.get(ident, "https://example.com/v1")
+        else:
+            with self.assertRaisesRegex(ValueError, "仅支持 Windows"):
+                store.put("fixture-secret", "https://example.com/v1", remember=True)
         ident = store.put("session-only", "https://example.com/v1")
+        self.assertEqual(store.get(ident, "https://example.com/v1"), "session-only")
+        with self.assertRaises(ValueError):
+            store.get(ident, "https://elsewhere.com/v1")
         with self.assertRaises(ValueError):
             second.get(ident, "https://example.com/v1")
 
