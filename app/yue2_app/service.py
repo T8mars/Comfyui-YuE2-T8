@@ -36,15 +36,18 @@ from .retention import RetentionManager
 from .settings import model_directory, save_model_directory, settings_info
 from . import assistant_data
 from . import updater
+from .asset_library import AssetLibrary
 
 CREDENTIALS = assistant_data.Credentials()
 ASSISTANT_KINDS = {"assistant"}
 
-TERMINAL = {"complete", "failed", "cancelled"}
+TERMINAL = {"complete", "failed", "cancelled", "paused"}
 CORE_KINDS = {"generate", "plan", "render_plan", "semantic", "synthesize", "decode", "doctor"}
 TRANSCRIBE_KINDS = {"transcribe"}
 VOICE_KINDS = {"voice_convert"}
 RVC_KINDS = {"rvc_import", "rvc_separate", "rvc_train", "rvc_model_import", "rvc_model_export", "rvc_storage_move"}
+TRAINING_KINDS = {"yue2_training_assets", "yue2_prepare", "yue2_train", "yue2_preview", "workbench_migrate"}
+PREVIEW_KINDS = {"yue2_preview"}
 WORKFLOW_KINDS = {"reference_cover"}
 GENERATION_KINDS = CORE_KINDS - {"doctor"}
 JOB_ID_PATTERN = re.compile(r"\d{8}-\d{6}-[0-9a-f]{8}")
@@ -183,7 +186,7 @@ def terminate_recorded_worker(status: dict, job_id: str) -> None:
         return
     script = (
         f"$p=Get-CimInstance Win32_Process -Filter 'ProcessId={pid}' -ErrorAction SilentlyContinue;"
-        f"if($p -and $p.CommandLine -match 'app\\.yue2_app\\.(core_worker|transcribe_worker|voice_worker|workflow_worker|rvc_worker)' "
+        f"if($p -and $p.CommandLine -match 'app\\.yue2_app\\.(core_worker|transcribe_worker|voice_worker|workflow_worker|rvc_worker|training_worker)' "
         f"-and $p.CommandLine -like '*{job_id}*'){{taskkill.exe /PID {pid} /T /F | Out-Null}}"
     )
     subprocess.run(["powershell.exe", "-NoProfile", "-Command", script], check=False,
@@ -242,6 +245,14 @@ class JobStore:
             return f"参考音色翻唱 · {name}" if name else "参考音色翻唱"
         if kind == "render_plan":
             return "从已确认的 ABC 乐谱生成歌曲"
+        if kind == "yue2_training_assets":
+            return "安装并校验 YuE2 训练资源"
+        if kind in {"yue2_prepare", "yue2_train", "yue2_preview"}:
+            labels = {"yue2_prepare": "准备 YuE2 训练素材", "yue2_train": "训练 YuE2 歌曲风格",
+                      "yue2_preview": "试听 YuE2 风格检查点"}
+            return labels[kind]
+        if kind == "workbench_migrate":
+            return "整理现有上传与任务结果"
         style = " ".join(str(request.get("style", "")).split())
         if style:
             return style[:72] + ("…" if len(style) > 72 else "")
@@ -285,7 +296,7 @@ class JobStore:
             active = [job for job in self.jobs.values() if job.get('status') not in TERMINAL]
             if any(job.get('kind') == 'rvc_storage_move' for job in active) or (kind == 'rvc_storage_move' and active):
                 raise ValueError('目录迁移需要独占任务队列，请等待当前任务结束')
-        if kind not in CORE_KINDS | TRANSCRIBE_KINDS | VOICE_KINDS | WORKFLOW_KINDS | ASSISTANT_KINDS | RVC_KINDS:
+        if kind not in CORE_KINDS | TRANSCRIBE_KINDS | VOICE_KINDS | WORKFLOW_KINDS | ASSISTANT_KINDS | RVC_KINDS | TRAINING_KINDS:
             raise ValueError(f"不支持的任务类型：{kind}")
         if not isinstance(request, dict):
             raise ValueError("request 必须是对象")
@@ -301,7 +312,19 @@ class JobStore:
                 if kind == "rvc_train":
                     selected_materials(project)
             result_panel = "voices"
-        if kind in GENERATION_KINDS | WORKFLOW_KINDS and not capabilities.get("generation"):
+        if kind in TRAINING_KINDS:
+            result_panel = "assets" if kind == "workbench_migrate" else "training"
+            if kind not in {"yue2_training_assets", "workbench_migrate"}:
+                library = AssetLibrary(ROOT)
+                run = library.get_training_run(str(request.get("run_id", "")))
+                if run["training_kind"] != "yue2_style":
+                    raise ValueError("训练记录类型无效")
+            if kind == "yue2_train":
+                from .yue2_trainer import training_config
+                training_config(run.get("config"))
+            if kind in {"yue2_prepare", "yue2_train"} and not capabilities.get("yue2_training"):
+                raise ValueError("YuE2 训练资源或 MERT 模型尚未安装完整")
+        if kind in GENERATION_KINDS | WORKFLOW_KINDS | PREVIEW_KINDS and not capabilities.get("generation"):
             raise ValueError("歌曲生成组件不完整：缺少 YuE2 推理源码或核心模型，请重新解压完整整合包")
         if kind in TRANSCRIBE_KINDS and not capabilities.get("transcription"):
             raise ValueError("音频转谱组件不完整，请重新解压完整整合包")
@@ -330,7 +353,9 @@ class JobStore:
         if kind in ASSISTANT_KINDS:
             request = assistant_data.normalize_request(ROOT, request)
             result_panel = "assistant"
-        generation = request.get("generate") if kind in WORKFLOW_KINDS else request
+        generation = request.get("generate") if kind in WORKFLOW_KINDS | PREVIEW_KINDS else request
+        if kind in PREVIEW_KINDS and not isinstance(generation, dict):
+            raise ValueError("检查点试听需要生成参数")
         if kind in WORKFLOW_KINDS:
             if not isinstance(generation, dict) or not isinstance(request.get("voice"), dict):
                 raise ValueError("翻唱需要 generate 和 voice 两组参数")
@@ -354,7 +379,7 @@ class JobStore:
                 ("semi_tone_shift", 0, -12, 12), ("vocal_gain_db", 0, -18, 12),
                 ("accompaniment_gain_db", 0, -18, 12)):
                 _number(voice_request, key, default, low, high)
-        if kind in GENERATION_KINDS | WORKFLOW_KINDS:
+        if kind in GENERATION_KINDS | WORKFLOW_KINDS | PREVIEW_KINDS:
             generation.setdefault("offload_ar", True)
             generation.setdefault("nar_attention", "sdpa")
             generation.setdefault("nar_query_chunk_size", 256)
@@ -379,8 +404,18 @@ class JobStore:
             if not math.isfinite(budget) or budget <= 2:
                 raise ValueError("显存预算必须是大于 2 GiB 的有限数值")
             generation["memory_budget_gib"] = budget
+            if generation.get("style_model_asset_id"):
+                model_asset = AssetLibrary(ROOT).get_asset(str(generation["style_model_asset_id"]))
+                if model_asset.get("kind") != "model" or model_asset.get("metadata", {}).get("model_type") != "yue2_ar_lora":
+                    raise ValueError("所选歌曲风格模型无效")
+                if generation.get("cot", "full") not in model_asset.get("metadata", {}).get("supported_cot", ["off"]):
+                    raise ValueError("这个歌曲风格模型首期只支持“直接生成”模式")
+                strength = float(generation.get("style_model_scale", 1.0))
+                if not math.isfinite(strength) or not 0 <= strength <= 2:
+                    raise ValueError("歌曲风格强度必须在 0–2 之间")
+                generation["style_model_scale"] = strength
         source = source if source in {"webui", "comfyui", "api"} else "api"
-        if result_panel not in {"create", "plan", "cover", "assistant", "voices"}:
+        if result_panel not in {"create", "plan", "cover", "assistant", "voices", "training"}:
             result_panel = ("cover" if kind in {"reference_cover", "voice_convert"} or
                             (kind == "generate" and request.get("abc")) else
                             "plan" if kind == "render_plan" else "create")
@@ -446,11 +481,11 @@ class JobStore:
     def resume(self, job_id: str, data: dict | None = None) -> dict:
         with self.storage_lock:
             status = self.get(job_id)
-            if status["status"] not in {"failed", "cancelled"}:
-                raise ValueError("只能恢复失败或取消的任务")
+            if status["status"] not in {"failed", "cancelled", "paused"}:
+                raise ValueError("只能恢复失败、取消或暂停的任务")
             directory = job_directory(job_id)
             job = json.loads((directory / "job.json").read_text(encoding="utf-8"))
-            if job["kind"] not in {"generate", "reference_cover", "voice_convert", "render_plan", "rvc_train", "rvc_import", "rvc_separate", "rvc_storage_move"}:
+            if job["kind"] not in {"generate", "reference_cover", "voice_convert", "render_plan", "rvc_train", "rvc_import", "rvc_separate", "rvc_storage_move", "yue2_train"}:
                 raise ValueError("这个任务类型暂不支持阶段恢复")
             request = dict(job["request"])
             overrides = dict(data or {})
@@ -468,7 +503,8 @@ class JobStore:
                     request.update(overrides)
                 else:
                     raise ValueError("这个任务类型不支持覆盖生成参数")
-            request["resume_from"] = str(directory)
+            if job["kind"] != "yue2_train":
+                request["resume_from"] = str(directory)
             return self.create(job["kind"], request, source=job.get("source", "api"),
                                result_panel=job.get("result_panel"))
 
@@ -519,12 +555,97 @@ class JobStore:
             terminate_process_tree(process.pid)
         return public_job(status)
 
+    def pause(self, job_id: str) -> dict:
+        status = self.get(job_id)
+        if status.get("kind") != "yue2_train":
+            raise ValueError("只有 YuE2 歌曲风格训练支持安全暂停")
+        if status["status"] == "paused":
+            return status
+        if status["status"] not in {"queued", "running"}:
+            raise ValueError("这个训练当前不能暂停")
+        directory = job_directory(job_id)
+        if status["status"] == "queued":
+            status.update(status="paused", stage="paused", updated_at=time.time(),
+                          finished_at=time.time(), resumable=True)
+            atomic_json(directory / "status.json", status)
+            with self.lock:
+                self.jobs[job_id] = status
+            return public_job(status)
+        (directory / "pause.requested").touch()
+        status.update(status="pausing", stage="pausing", updated_at=time.time(), resumable=True)
+        atomic_json(directory / "status.json", status)
+        with self.lock:
+            self.jobs[job_id] = status
+        return public_job(status)
+
     def state(self) -> dict:
         with self.lock:
             current = self.current_id
             queued = sum(1 for job_id, status in self.jobs.items()
                          if job_id != current and status.get("status") == "queued")
         return {"current_job": current, "queued": queued}
+
+    def _promote_completed_result(self, job_id: str, status: dict) -> None:
+        """Commit useful outputs to the durable library once per completed job."""
+        if status.get("status") != "complete" or status.get("asset_ids"):
+            return
+        directory = job_directory(job_id)
+        job = json.loads((directory / "job.json").read_text(encoding="utf-8-sig"))
+        request, result = job.get("request", {}), status.get("result") or {}
+        library = AssetLibrary(ROOT)
+        paths: list[tuple[Path, str, str]] = []
+        seen = set()
+        def visit(value, key=""):
+            if isinstance(value, dict):
+                for child_key, child in value.items():
+                    visit(child, child_key)
+            elif isinstance(value, list):
+                for child in value:
+                    visit(child, key)
+            elif isinstance(value, str) and key in {"audio", "converted", "converted_vocal", "separated_vocal", "accompaniment"}:
+                candidate = Path(value).resolve()
+                try:
+                    within(directory, candidate)
+                except ValueError:
+                    return
+                if candidate.is_file() and candidate.suffix.lower() in {".wav", ".flac", ".mp3", ".m4a", ".ogg", ".aac"}:
+                    kind = "vocal" if "vocal" in key or key == "converted" else "instrumental" if key == "accompaniment" else "work"
+                    marker = (str(candidate), kind)
+                    if marker not in seen:
+                        seen.add(marker); paths.append((candidate, kind, key))
+        visit(result)
+        asset_ids = []
+        generate_request = request.get("generate")
+        nested_project_id = generate_request.get("project_id") if isinstance(generate_request, dict) else ""
+        project_id = str(request.get("project_id") or nested_project_id or "")
+        for index, (path, kind, role) in enumerate(paths):
+            asset = library.import_file(
+                path, kind=kind, title=(status.get("summary") or kind) + ("" if index == 0 else f" · {role}"),
+                provenance={"job_id": job_id, "job_kind": job.get("kind"), "result_key": role},
+                metadata={"source_job_id": job_id, "result_panel": status.get("result_panel")},
+            )
+            asset_ids.append(asset["id"])
+            if project_id:
+                try:
+                    library.add_to_project(project_id, asset["id"], role=role or kind)
+                except (ValueError, KeyError):
+                    project_id = ""
+        generation = generate_request if isinstance(generate_request, dict) else request
+        if project_id and isinstance(generation, dict):
+            for kind, key in (("style", "style"), ("lyrics", "lyrics"), ("score", "abc")):
+                content = generation.get(key)
+                if isinstance(content, str) and content.strip():
+                    text_asset = library.create_text(
+                        kind=kind, title=(status.get("summary") or "作品") + f" · {kind}", text=content,
+                        provenance={"job_id": job_id, "job_kind": job.get("kind")})
+                    asset_ids.append(text_asset["id"])
+                    library.add_to_project(project_id, text_asset["id"], role=kind)
+        if asset_ids:
+            status["asset_ids"] = asset_ids
+            status["updated_at"] = time.time()
+            atomic_json(directory / "status.json", status)
+            with self.lock:
+                self.jobs[job_id] = status
 
     def cleanup_retention(self, *, force: bool = False) -> dict:
         with self.storage_lock:
@@ -637,6 +758,8 @@ class JobStore:
             try:
                 status = self.get(job_id)
                 directory = OUTPUTS / job_id
+                if status.get("status") in TERMINAL:
+                    continue
                 if status["status"] == "cancelling" or (directory / "cancel.requested").exists():
                     self._mark(job_id, status="cancelled", stage="cancelled", finished_at=time.time(),
                                error="任务在排队阶段被取消")
@@ -658,6 +781,8 @@ class JobStore:
                     python, module = VOICE_PYTHON, "app.yue2_app.voice_worker"
                 elif kind in RVC_KINDS:
                     python, module = CORE_PYTHON, "app.yue2_app.rvc_worker"
+                elif kind in TRAINING_KINDS:
+                    python, module = CORE_PYTHON, "app.yue2_app.training_worker"
                 else:
                     python, module = CORE_PYTHON, "app.yue2_app.core_worker"
                 if not python.is_file():
@@ -706,6 +831,8 @@ class JobStore:
                         self._mark(job_id, status="failed", stage="failed", finished_at=time.time(),
                                    error=worker_failure_message(log_path, return_code),
                                    log_available=log_path.is_file(), return_code=return_code)
+                else:
+                    self._promote_completed_result(job_id, latest)
             except BaseException as exc:
                 if process and process.poll() is None:
                     terminate_process_tree(process.pid)
@@ -755,6 +882,7 @@ def rotate_server_log(path: Path) -> None:
 
 
 STORE: JobStore | None = None
+ASSETS: AssetLibrary | None = None
 WEB_ROOT = ROOT / "app" / "web"
 
 
@@ -812,6 +940,11 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if not is_loopback_host(self.headers.get("Host", "")):
                 return self._error(403, "Host 必须是本机回环地址")
+            if path.startswith("/api/workbench/"):
+                assert ASSETS is not None
+                from . import workbench_api
+                if workbench_api.get(self, parsed, ASSETS):
+                    return
             if path.startswith("/api/rvc"):
                 from . import rvc_api
                 if rvc_api.get(self, parsed, STORE, ROOT):
@@ -880,6 +1013,20 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, OSError) as exc:
             return self._error(400, str(exc))
 
+    def do_HEAD(self):
+        assert ASSETS is not None
+        parsed = urllib.parse.urlparse(self.path)
+        try:
+            if not is_loopback_host(self.headers.get("Host", "")):
+                return self._error(403, "Host 必须是本机回环地址")
+            if parsed.path.startswith("/api/workbench/"):
+                from . import workbench_api
+                if workbench_api.get(self, parsed, ASSETS, head=True):
+                    return
+            return self._error(404, "接口不存在")
+        except (KeyError, ValueError, OSError) as exc:
+            return self._error(400, str(exc))
+
     def do_POST(self):
         assert STORE is not None
         parsed = urllib.parse.urlparse(self.path)
@@ -894,6 +1041,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._error(403, "拒绝跨站请求")
             if STORE.updating or updater.update_status(ROOT).get('state') in updater.ACTIVE_STATES:
                 return self._error(409, '整合包正在更新，请等待升级完成后再提交操作')
+            if path.startswith("/api/workbench/"):
+                assert ASSETS is not None
+                from . import workbench_api
+                with STORE.storage_lock:
+                    STORE.assert_writable()
+                    if workbench_api.post(self, parsed, ASSETS, ROOT):
+                        return
             if path.startswith("/api/rvc/"):
                 from . import rvc_api
                 with STORE.storage_lock:
@@ -996,6 +1150,8 @@ class Handler(BaseHTTPRequestHandler):
                 job_id = pieces[3]
                 data = self._body_json(1024) if int(self.headers.get("Content-Length", "0")) else {}
                 return self._json(200, STORE.cancel(job_id, bool(data.get("force", False))))
+            if len(pieces) == 5 and pieces[1:3] == ["api", "jobs"] and pieces[4] == "pause":
+                return self._json(200, STORE.pause(pieces[3]))
             if path in {"/api/uploads", "/api/rvc-upload"}:
                 params = urllib.parse.parse_qs(parsed.query)
                 original = params.get("filename", ["upload.wav"])[0]
@@ -1040,7 +1196,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main(argv=None) -> int:
-    global STORE
+    global STORE, ASSETS
     parser = argparse.ArgumentParser(description="YuE2 本地整合包服务")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8189)
@@ -1055,6 +1211,7 @@ def main(argv=None) -> int:
         instance_lock.close()
         raise
     try:
+        ASSETS = AssetLibrary(ROOT)
         STORE = JobStore()
     except BaseException:
         server.server_close()

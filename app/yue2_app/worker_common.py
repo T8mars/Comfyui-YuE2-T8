@@ -17,6 +17,7 @@ class JobContext:
         self.job_dir = job_dir.resolve()
         self.status_path = self.job_dir / "status.json"
         self.cancel_path = self.job_dir / "cancel.requested"
+        self.pause_path = self.job_dir / "pause.requested"
         self.started = time.time()
         self.last_token_update = 0.0
         self.token_phase: str | None = None
@@ -29,6 +30,20 @@ class JobContext:
     def check_cancelled(self) -> None:
         if self.cancelled():
             raise Cancelled("用户已取消任务")
+
+    def pause_requested(self) -> bool:
+        return self.pause_path.exists()
+
+    def pause(self, **extra) -> None:
+        current = {}
+        try:
+            import json
+            current = json.loads(self.status_path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, ValueError):
+            pass
+        current.update({"status": "paused", "stage": "paused", "updated_at": time.time(),
+                        "finished_at": time.time(), "resumable": True, **extra})
+        atomic_json(self.status_path, current)
 
     def update(self, stage: str, **extra) -> None:
         if stage != self.last_stage:

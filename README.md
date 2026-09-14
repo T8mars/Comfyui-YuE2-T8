@@ -10,7 +10,7 @@
 
 Windows / NVIDIA 完整包，包含运行环境与模型。完整解压后，双击 `YuE2-T8.exe` 即可启动。
 
-[GitHub Release](https://github.com/T8mars/Comfyui-YuE2-T8/releases/tag/v1.3.1) 仅提供代码与自动更新附件，不包含 Python 或模型。完整整合包从上方夸克网盘获取；模型和可选 GGUF 权重也可通过下方网盘单独下载。旧版升级涉及统一运行环境迁移时，更新器会按需另外下载依赖。
+[GitHub Release](https://github.com/T8mars/Comfyui-YuE2-T8/releases) 仅提供代码与自动更新附件，不包含 Python 或模型。完整整合包从上方夸克网盘获取；模型和可选 GGUF 权重也可通过下方网盘单独下载。旧版升级涉及统一运行环境迁移时，更新器会按需另外下载依赖。
 
 ## 模型网盘
 
@@ -38,6 +38,14 @@ YuE2 Music T8 把 YuE2-3B 完整歌曲生成接入 ComfyUI，并提供一个可�
 - 输入 1–30 秒参考干声，把新生成歌曲的人声转换为参考音色，再与 Demucs 分离的伴奏混合为 48 kHz 双声道 FLAC。
 - 共享单 GPU 队列、任务中心、逐项取消、任务历史与导出；任务中心会区分当前任务和完整等待列表，并显示来源、阶段、风格摘要与排队顺序。
 - 自动清理过期或超出容量的任务、上传和日志；`exports` 中的重要成品永久保留，服务重启时会把中断任务明确标为失败。
+
+### v1.4.0：音乐工作台、资产库与 YuE2 风格训练
+
+- 独立 WebUI 改为统一音乐工作台：项目、资产库、创作、乐谱、参考音色、AI 助手、训练和历史共用一套导航与当前项目。
+- 资产库统一管理歌曲、作品、人声、伴奏、参考音色、歌词、曲风、乐谱和模型。音频导入后可立即播放、查看波形并固定版本加入项目；任务结果也会自动归档。
+- “训练工作台”使用至少两首不同歌曲建立不可变训练/验证快照，要求确认素材使用权，使用 MERT 特征训练 YuE2 AR LoRA，并显示进度、训练/验证 loss、暂停与继续。
+- 风格模型自动关联固定提交的 Mothersuperior v4 NAR 配套资源。完成后可在当前页面生成约 10 秒试听，再发送到歌曲创作；首期只开放已通过实机验证的“直接生成”模式。
+- RVC 继续用于专用演唱音色训练，YuE2 LoRA 用于歌曲风格，两者在工作台内分工明确。所有功能继续共用一个 `runtime/python.exe`。
 
 ### v1.3.1：显存控制、恢复和发布门禁
 
@@ -98,12 +106,13 @@ ComfyUI/custom_nodes/yue2-t8/models/SheetSage2/render_assets/
 ComfyUI/custom_nodes/yue2-t8/models/Seed-VC/DiT_seed_v2_uvit_whisper_base_f0_44k_bigvgan_pruned_ft_ema_v2.pth
 ComfyUI/custom_nodes/yue2-t8/models/Demucs/955717e8.safetensors
 ComfyUI/custom_nodes/yue2-t8/models/RVC/
+ComfyUI/custom_nodes/yue2-t8/models/YuE2-training/
 ComfyUI/custom_nodes/yue2-t8/models/VOICE_MODEL_MANIFEST.json
 ```
 
-手动 Git clone 时，把上面的 `yue2-t8` 换成实际仓库目录名 `Comfyui-YuE2-T8`。不要把权重直接放入 ComfyUI 的 `checkpoints` 目录；代码需要保留七个模型子目录、配置文件及两个清单。
+手动 Git clone 时，把上面的 `yue2-t8` 换成实际仓库目录名 `Comfyui-YuE2-T8`。不要把权重直接放入 ComfyUI 的 `checkpoints` 目录；代码需要保留八个模型子目录、配置文件及两个清单。`YuE2-training` 约 414 MB，包含固定 v4 tokenizer head、NAR companion 和 regularizer；完整版附带，缺失时也可在训练页校验后续传下载。
 
-如果使用自定义目录，该目录本身就是上面路径中的 `models`：七个子目录和 `MODEL_MANIFEST.json`、`VOICE_MODEL_MANIFEST.json` 必须直接位于其中。命令行安装也可使用：
+如果使用自定义目录，该目录本身就是上面路径中的 `models`：八个子目录和 `MODEL_MANIFEST.json`、`VOICE_MODEL_MANIFEST.json` 必须直接位于其中。命令行安装也可使用：
 
 ```powershell
 .\install_runtime.bat -ModelsDirectory "D:\AI\YuE2-models"
@@ -154,7 +163,7 @@ Install it with `comfy node install yue2-t8`, then run `install_runtime.bat` onc
 
 The node pack supports Chinese and English lyrics, editable ABC plans, multi-candidate generation, SheetSage2 transcription, melody remake, Seed-VC reference-voice conversion, staged inference, per-task cancellation, history, and artifact export. The reference-voice workflow accepts a 1–30 second clean voice sample, separates the generated song with Demucs, converts the vocal, and remixes a 48 kHz stereo FLAC. Its page-integrated progress section identifies the current job and every queued job with stage, source, summary, and queue position. Example front-end workflows are in `workflows`.
 
-The standalone v1.3.x studio uses one CPython 3.12.10 runtime for music, transcription, Seed-VC, RVC training/inference and optional GGUF. The RVC workbench includes material review, training/resume and a voice library. Existing songs can be converted directly or compared through Seed-VC and RVC with shared separation. The updater migrates legacy runtimes and rolls back a failed startup. Short compatibility runs are not a voice-quality benchmark.
+The standalone v1.4 studio uses one CPython 3.12.10 runtime for music, transcription, Seed-VC, RVC, YuE2 style training and optional GGUF. Its project workspace and content-addressed asset library connect source songs, stems, lyrics, scores, generated versions, voices and trained models. YuE2 AR LoRA training uses immutable train/validation snapshots, pinned Mothersuperior v4 companion resources, loss tracking, resumable checkpoints and an in-page audio preview. Trained adapters are currently enabled only for the validated direct-generation mode. The updater migrates legacy runtimes and rolls back a failed startup.
 
 ## Links
 

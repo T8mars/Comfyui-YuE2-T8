@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "source": "Mothersuperior/yue2-mothersuperior-realaudio-tokenizer-v4",
+  "revision": "f2278a2e005dc4ecc421c53a0929f62b3aeb2280",
+  "license": "CC-BY-NC-4.0",
+  "files": {
+    "tokenizer_head_joint_v4.pt": {
+      "bytes": 171305291,
+      "sha256": "d23c4f757a05f031134b8471ec84245ec2338966516e1a9e26a17ff300a5f87e",
+      "url": "https://huggingface.co/Mothersuperior/yue2-mothersuperior-realaudio-tokenizer-v4/resolve/f2278a2e005dc4ecc421c53a0929f62b3aeb2280/tokenizer_head_joint_v4.pt?download=true"
+    },
+    "nar_lora_joint_v4.pt": {
+      "bytes": 140626123,
+      "sha256": "df175dbf9405a8e15b2c3f8dbdcc97303575f763787f227b03029020e28102fe",
+      "url": "https://huggingface.co/Mothersuperior/yue2-mothersuperior-realaudio-tokenizer-v4/resolve/f2278a2e005dc4ecc421c53a0929f62b3aeb2280/nar_lora_joint_v4.pt?download=true"
+    },
+    "minted_regularizer_pack.pt": {
+      "bytes": 101878861,
+      "sha256": "bdd9b9780de46bb0752c3e3bc101869759493443c6e35b1b2d4a2c5033eadc4e",
+      "source": "Mothersuperior/yue2-minted-corpus",
+      "revision": "5d00559c3daa5cfb7a61fbe32158c8c08f9b5f35",
+      "url": "https://huggingface.co/datasets/Mothersuperior/yue2-minted-corpus/resolve/5d00559c3daa5cfb7a61fbe32158c8c08f9b5f35/regularizer/minted_regularizer_pack.pt?download=true"
+    }
+  }
+}

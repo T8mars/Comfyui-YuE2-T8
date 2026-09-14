@@ -55,7 +55,15 @@ def build(output):
                          "scripts/runtime_paths.ps1", "scripts/install_staged_models.py",
                          "scripts/download_rvc_models.py", "vendor/rvc/LICENSE",
                          "vendor/msvc-runtime/manifest.json", "vendor/msvc-runtime/msvcp140.dll",
-                         "app/yue2_app/rvc_worker.py", "app/yue2_app/rvc_assets.json", "app/web/rvc.js"):
+                         "app/yue2_app/rvc_worker.py", "app/yue2_app/rvc_assets.json", "app/web/rvc.js",
+                         "app/yue2_app/asset_library.py", "app/yue2_app/training_resources.py",
+                         "app/yue2_app/training_worker.py", "app/yue2_app/yue2_adapter.py",
+                         "app/yue2_app/yue2_trainer.py", "app/yue2_app/yue2_training_data.py",
+                         "app/yue2_app/yue2_training_assets.json", "app/yue2_app/workbench_api.py",
+                         "app/web/workbench.js", "app/web/workbench.css",
+                         "app/web/vendor/bootstrap-icons.css",
+                         "app/web/vendor/fonts/bootstrap-icons.woff2",
+                         "app/web/vendor/BOOTSTRAP-ICONS-LICENSE.txt"):
             assert required in names, required
     digest = hashlib.sha256(asset.read_bytes()).hexdigest()
     asset.with_suffix(asset.suffix + ".sha256").write_text(f"{digest}  {asset.name}\n", encoding="utf-8")

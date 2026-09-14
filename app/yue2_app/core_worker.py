@@ -60,7 +60,7 @@ def create_pipe(root: Path, request: dict):
     paths = model_paths(root)
     backend = request.get("backend", "torch-eager")
     budget = float(request.get("memory_budget_gib", 23.5))
-    return YuE2Pipeline.from_pretrained(
+    pipe = YuE2Pipeline.from_pretrained(
         str(paths["model"]), vae=str(paths["vae"]), device="cuda",
         memory_budget_gib=budget, backend=backend, quantization="none",
         offload_ar=bool(request.get("offload_ar", True)), local_files_only=True,
@@ -69,6 +69,44 @@ def create_pipe(root: Path, request: dict):
         verify_hashes=bool(request.get("verify_hashes", False)), progress=False,
         vae_core_frames=vae_core_frames_for(request),
     )
+    model_asset_id = str(request.get("style_model_asset_id", "")).strip()
+    if model_asset_id:
+        if backend == "vllm":
+            raise ValueError("歌曲风格模型当前只支持 PyTorch 后端")
+        from .asset_library import AssetLibrary
+        from .training_resources import resource_directory
+        from .yue2_adapter import inspect_adapter, file_sha256, merge_ar_adapter, merge_nar_companion
+        library = AssetLibrary(root)
+        asset = library.get_asset(model_asset_id)
+        if asset.get("kind") != "model" or asset.get("metadata", {}).get("model_type") != "yue2_ar_lora":
+            raise ValueError("所选资产不是 YuE2 歌曲风格模型")
+        supported_cot = asset.get("metadata", {}).get("supported_cot", ["off"])
+        if request.get("cot", "full") not in supported_cot:
+            raise ValueError("这个歌曲风格模型首期只通过了“直接生成”模式，请将规划模式设为直接生成")
+        adapter, _ = library.revision_file(model_asset_id)
+        nar = resource_directory(root) / "nar_lora_joint_v4.pt"
+        if not nar.is_file():
+            raise ValueError("这个风格模型需要 v4 NAR 配套资源，请先在训练工作台安装")
+        scale = float(request.get("style_model_scale", 1.0))
+        expected_ar = inspect_adapter(adapter, scale=scale)
+        expected_nar = {"sha256": file_sha256(nar), "bytes": nar.stat().st_size, "rank": 32,
+                        "merged_linears": 196, "io_replaced": True,
+                        "scaling_convention": "weight_plus_scale_times_B_matmul_A"}
+        original_loader, merged = pipe._load_model, {"done": False}
+        def load_with_adapter(for_nar=False):
+            model = original_loader(for_nar=for_nar)
+            if not merged["done"]:
+                ar_info = merge_ar_adapter(model, adapter, scale=scale)
+                nar_info = merge_nar_companion(model, nar)
+                if ar_info != expected_ar or nar_info != expected_nar:
+                    raise ValueError("歌曲风格模型运行时身份与加载前校验不一致")
+                merged["done"] = True
+            return model
+        pipe._load_model = load_with_adapter
+        # Provenance participates in request/checkpoint identity before lazy load.
+        pipe.weights["style_adapter"] = expected_ar
+        pipe.weights["nar_companion"] = expected_nar
+    return pipe
 
 
 def generation_kwargs(request: dict, seed: int | None = None) -> dict:

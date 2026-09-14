@@ -26,7 +26,7 @@ UPSTREAM = ROOT / "vendor"
 
 
 def ensure_layout() -> None:
-    for path in (OUTPUTS, UPLOADS, LOGS, CACHE / "huggingface"):
+    for path in (OUTPUTS, UPLOADS, LOGS, CACHE / "huggingface", ROOT / "userdata"):
         path.mkdir(parents=True, exist_ok=True)
 
 
@@ -164,6 +164,16 @@ def runtime_ready(root: Path | None = None) -> dict[str, object]:
         "pretrained_v2/f0G48k.pth", "pretrained_v2/f0D48k.pth")))
     result["capabilities"]["vocal_separation"] = bool(result["core_python"] and result["ffmpeg"] and all(
         _nonempty(voice_paths['demucs'] / file) for file in ('955717e8.safetensors', '955717e8.json', 'htdemucs.yaml')))
+    from .training_resources import manifest as training_manifest
+    training_spec = training_manifest()
+    training_directory = models_root / "YuE2-training"
+    training_resources = all(_expected_size(training_directory / name, int(entry["bytes"]))
+                             for name, entry in training_spec["files"].items())
+    result["training_resources"] = {"ready": training_resources,
+                                    "directory": str(training_directory),
+                                    "download_bytes": sum(int(entry["bytes"]) for entry in training_spec["files"].values())}
+    result["capabilities"]["yue2_training"] = bool(
+        result["capabilities"]["generation"] and models["mert"] and training_resources)
     return result
 
 

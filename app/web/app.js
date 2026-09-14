@@ -1,6 +1,6 @@
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
-const TERMINAL = new Set(['complete', 'failed', 'cancelled']);
+const TERMINAL = new Set(['complete', 'failed', 'cancelled', 'paused']);
 const buttonBindings = new Map();
 let planState = null;
 let currentJobId = null;
@@ -85,7 +85,7 @@ function formObject(form) {
   const data = Object.fromEntries(new FormData(form).entries());
   if (data.seed !== undefined) data.seed = safeSeed(data.seed);
   if (data.candidates !== undefined) data.candidates = Number(data.candidates);
-  for (const key of ['cfg_scale', 'memory_budget_gib', 'nar_query_chunk_size']) if (data[key] !== undefined) data[key] = Number(data[key]);
+  for (const key of ['cfg_scale', 'memory_budget_gib', 'nar_query_chunk_size', 'style_model_scale']) if (data[key] !== undefined) data[key] = Number(data[key]);
   const offload = form.querySelector('[name=offload_ar]');
   if (offload) data.offload_ar = offload.checked;
   return data;
@@ -106,6 +106,8 @@ function kindLabel(kind) {
     generate: '歌曲生成', plan: '乐谱创作', render_plan: '从乐谱生成歌曲',
     transcribe: '音频转谱', semantic: '生成音乐结构', synthesize: '合成人声与伴奏',
     decode: '输出音频', doctor: '环境自检', voice_convert: '参考音色转换', reference_cover: '参考音色翻唱'
+    ,yue2_training_assets: '安装 YuE2 训练资源', yue2_prepare: '准备 YuE2 训练素材',
+    yue2_train: '训练 YuE2 歌曲风格', yue2_preview: '试听 YuE2 风格模型'
   })[kind] || kind;
 }
 
@@ -118,6 +120,9 @@ function stageLabel(stage) {
     rvc_preflight: '正在检查训练条件', rvc_preprocess: '正在切分训练素材', rvc_f0: '正在提取音高',
     rvc_features: '正在提取人声特征', rvc_train: '正在训练音色模型',
     rvc_index: '正在生成音色索引', rvc_export: '正在加入音色库', rvc_infer: '正在生成音色试听',
+    yue2_training_assets: '正在安装训练资源', yue2_prepare: '正在生成训练 token',
+    yue2_loading: '正在加载 YuE2 基模', yue2_training: '正在训练歌曲风格',
+    pausing: '正在完成当前训练步并保存', paused: '训练已安全暂停',
     planning: '正在创作旋律与和弦', semantic: '正在生成音乐结构',
     synthesis: '正在合成人声与伴奏', decoding: '正在输出音频',
     loading_transcriber: '正在加载转谱模型', transcribing: '正在从音频提取旋律',
@@ -386,6 +391,11 @@ async function submit(kind, request, resultTarget, button = null) {
   try {
     if (['generate', 'plan', 'render_plan'].includes(kind)) request.memory_budget_gib = generationMemoryBudget();
     if (kind === 'reference_cover') request.generate.memory_budget_gib = generationMemoryBudget();
+    const activeProject = window.workbenchProjectId?.();
+    if (activeProject && ['generate','plan','render_plan','reference_cover','voice_convert','transcribe'].includes(kind)) {
+      if (kind === 'reference_cover') request.generate.project_id = activeProject;
+      else request.project_id = activeProject;
+    }
     const clientRequestId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
     const job = await api('/api/jobs', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({kind, request, source: 'webui', client_request_id: clientRequestId, result_panel: resultTarget?.closest('.panel')?.id})});
     rememberResult(job, resultTarget);
@@ -404,6 +414,9 @@ async function waitForJob(id, resultTarget) {
     if (job.status === 'complete') {
       restoreButton(buttonBindings.get(id));
       await Promise.all([refreshWorkspace(), loadHistory()]); return job;
+    }
+    if (job.status === 'paused') {
+      restoreButton(buttonBindings.get(id)); await Promise.all([refreshWorkspace(), loadHistory()]); return job;
     }
     if (job.status === 'failed' || job.status === 'cancelled') {
       restoreButton(buttonBindings.get(id));
@@ -461,16 +474,22 @@ window.exportJob = exportJob;
 
 $$('.tab').forEach(button => button.onclick = () => {
   savedValue('active-tab', button.dataset.tab);
-  $$('.tab').forEach(item => item.classList.toggle('active', item === button));
+  document.body.dataset.activeTab = button.dataset.tab;
+  $$('.tab').forEach(item => item.classList.toggle('active', item.dataset.tab === button.dataset.tab));
   $$('.panel').forEach(panel => panel.classList.toggle('active', panel.id === button.dataset.tab));
   if (button.dataset.tab === 'history') loadHistory();
 });
 const restoredTab = savedValue('active-tab');
-if (['create', 'plan', 'cover', 'history', 'assistant', 'voices'].includes(restoredTab)) $(`.tab[data-tab="${restoredTab}"]`).click();
+if (['project', 'assets', 'training', 'create', 'plan', 'cover', 'history', 'assistant', 'voices'].includes(restoredTab)) $(`.tab[data-tab="${restoredTab}"]`).click();
 
 function openHistory() { $('.tab[data-tab="history"]').click(); $('#history').scrollIntoView({behavior: 'smooth', block: 'start'}); }
 function openTaskCenter() { $('#task-center').scrollIntoView({behavior: 'smooth', block: 'nearest'}); }
 document.addEventListener('click', event => {
+  const goTab = event.target.closest('[data-go-tab]');
+  if (goTab) {
+    const target = $(`.tab[data-tab="${goTab.dataset.goTab}"]`);
+    if (target) target.click();
+  }
   const cancel = event.target.closest('[data-cancel-job]'); if (cancel) cancelJob(cancel.dataset.cancelJob, cancel);
 });
 $('#open-history').onclick = openHistory;

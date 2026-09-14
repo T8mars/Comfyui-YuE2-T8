@@ -4,10 +4,32 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>YuE2 本地音乐工作室</title>
+  <link rel="stylesheet" href="/static/vendor/bootstrap-icons.css">
   <link rel="stylesheet" href="/static/style.css">
   <link rel="stylesheet" href="/static/assistant.css">
+  <link rel="stylesheet" href="/static/workbench.css">
 </head>
-<body>
+<body data-active-tab="project">
+  <aside class="studio-sidebar" aria-label="音乐工作台导航">
+    <div class="studio-brand"><span class="brand-mark"><i class="bi bi-soundwave"></i></span><span><b>YuE2 Studio</b><small>本地音乐工作台</small></span></div>
+    <div class="sidebar-project"><small>当前项目</small><button id="sidebar-project-button" type="button"><span id="sidebar-project-name">未选择项目</span><i class="bi bi-chevron-expand"></i></button></div>
+    <div class="sidebar-group"><small>工作台</small>
+      <button class="tab active" data-tab="project"><i class="bi bi-grid-1x2"></i>歌曲项目</button>
+      <button class="tab" data-tab="assets"><i class="bi bi-collection-play"></i>资产库</button>
+    </div>
+    <div class="sidebar-group"><small>创作</small>
+      <button class="tab" data-tab="create"><i class="bi bi-music-note-beamed"></i>歌曲创作</button>
+      <button class="tab" data-tab="plan"><i class="bi bi-music-note-list"></i>乐谱计划</button>
+      <button class="tab" data-tab="cover"><i class="bi bi-mic"></i>旋律与音色</button>
+      <button class="tab" data-tab="assistant"><i class="bi bi-stars"></i>AI 创作助手</button>
+    </div>
+    <div class="sidebar-group"><small>模型与任务</small>
+      <button class="tab" data-tab="training"><i class="bi bi-gpu-card"></i>训练工作台</button>
+      <button class="tab" data-tab="voices"><i class="bi bi-person-bounding-box"></i>我的音色</button>
+      <button class="tab" data-tab="history"><i class="bi bi-clock-history"></i>任务与版本</button>
+    </div>
+    <button id="sidebar-settings" class="sidebar-settings" type="button"><i class="bi bi-gear"></i>模型与设置</button>
+  </aside>
   <header>
     <div>
       <p class="eyebrow">YUЕ2 · LOCAL MUSIC STUDIO</p>
@@ -35,8 +57,8 @@
     </div>
   </header>
 
-  <nav>
-    <button class="tab active" data-tab="create">创作</button>
+  <nav class="tool-nav">
+    <button class="tab" data-tab="create">歌曲创作</button>
     <button class="tab" data-tab="plan">乐谱计划</button>
     <button class="tab" data-tab="cover">旋律重制 / 参考音色</button>
     <button class="tab" data-tab="assistant">AI 创作助手</button>
@@ -71,7 +93,7 @@
         <div class="model-settings-copy">
           <h3>模型文件夹</h3>
           <p>默认使用整合包内的 <code>models</code>。需要节省当前磁盘空间时，可以填写其他硬盘上的绝对路径；更改前请先等待所有任务结束。</p>
-          <p>所选文件夹需要直接包含 <code>YuE2-3B</code>、<code>YuE2-Vae</code>、<code>SheetSage2</code>、<code>MERT-v2-FullSong</code>、<code>Seed-VC</code>、<code>Demucs</code> 以及两个模型清单。</p>
+          <p>所选文件夹需要直接包含 <code>YuE2-3B</code>、<code>YuE2-Vae</code>、<code>SheetSage2</code>、<code>MERT-v2-FullSong</code>、<code>Seed-VC</code>、<code>Demucs</code>、<code>RVC</code>、<code>YuE2-training</code> 以及两个模型清单。</p>
           <a href="https://huggingface.co/t8star/YuE2-Comfy" target="_blank" rel="noreferrer">打开 Hugging Face 模型仓库</a>
         </div>
         <form id="model-settings-form" class="model-settings-form">
@@ -86,7 +108,47 @@
       </div>
     </details>
 
-    <section id="create" class="panel active">
+    <section id="project" class="panel active">
+      <div class="workspace-heading"><div><p class="eyebrow">SONG PROJECT</p><h2>歌曲项目</h2><p>把素材、歌词、乐谱、生成版本和音色处理放在同一个作品里。</p></div><button id="new-project" class="primary" type="button"><i class="bi bi-plus-lg"></i> 新建项目</button></div>
+      <div class="project-toolbar">
+        <label>当前项目<select id="workbench-project-select"><option value="">选择或新建项目</option></select></label>
+        <button id="refresh-project" class="ghost" type="button"><i class="bi bi-arrow-clockwise"></i> 刷新</button>
+        <span id="project-state" class="meta" role="status">先选择项目，后续作品会自动归档到这里。</span>
+      </div>
+      <div class="project-workspace">
+        <section class="project-canvas">
+          <div class="canvas-head"><div><small>当前作品</small><h3 id="project-title">尚未选择项目</h3></div><div class="toolbar"><button class="ghost compact tab" data-tab="assistant"><i class="bi bi-stars"></i> 写歌词</button><button class="primary compact tab" data-tab="create"><i class="bi bi-play-fill"></i> 开始创作</button></div></div>
+          <div id="project-timeline" class="project-timeline empty-state"><i class="bi bi-music-note-beamed"></i><b>项目还没有音乐版本</b><p>从资产库加入素材，或生成第一首歌曲。生成结果会自动回到当前项目。</p></div>
+          <div class="workflow-strip" aria-label="作品流程"><span class="active">1 整理素材</span><span>2 歌词与乐谱</span><span>3 生成版本</span><span>4 音色处理</span><span>5 选定导出</span></div>
+        </section>
+        <aside class="project-inspector"><h3>项目内容</h3><div id="project-assets"><p class="meta">选择项目后显示固定版本的素材。</p></div><button class="ghost full tab" data-tab="assets"><i class="bi bi-plus-circle"></i> 从资产库添加</button></aside>
+      </div>
+    </section>
+
+    <section id="assets" class="panel">
+      <div class="workspace-heading"><div><p class="eyebrow">ASSET LIBRARY</p><h2>资产库</h2><p>统一整理歌曲、干声、伴奏、参考音色、歌词、乐谱、作品和模型。</p></div><label class="primary file-action"><i class="bi bi-upload"></i> 导入文件<input id="asset-upload" type="file" accept="audio/*" multiple></label></div>
+      <div class="asset-controls"><label>类型<select id="asset-kind"><option value="">全部类型</option><option value="song">歌曲</option><option value="work">作品</option><option value="vocal">人声</option><option value="instrumental">伴奏</option><option value="reference_voice">参考音色</option><option value="lyrics">歌词</option><option value="style">曲风</option><option value="score">乐谱</option><option value="model">模型</option></select></label><label class="asset-search"><i class="bi bi-search"></i><input id="asset-query" type="search" placeholder="搜索名称或标签"></label><button id="migrate-assets" class="ghost" type="button"><i class="bi bi-folder-plus"></i> 整理现有文件</button><button id="new-text-asset" class="ghost" type="button"><i class="bi bi-file-earmark-plus"></i> 新建文本</button></div>
+      <div id="asset-import-options" class="inline-editor"><label>导入为<select id="asset-import-kind"><option value="song">歌曲</option><option value="reference_voice">参考音色</option><option value="vocal">人声</option><option value="instrumental">伴奏</option></select></label><span id="asset-import-status" class="meta">先选择类型，再点击“导入文件”；导入后可立即试听。</span></div>
+      <form id="text-asset-form" class="inline-editor hidden"><label>类型<select name="kind"><option value="lyrics">歌词</option><option value="style">曲风</option><option value="score">ABC 乐谱</option></select></label><label>名称<input name="title" required maxlength="200"></label><label class="wide">内容<textarea name="text" rows="8" required></textarea></label><div class="toolbar wide"><button type="button" class="ghost" id="cancel-text-asset">取消</button><button class="primary" type="submit">保存到资产库</button></div></form>
+      <div id="asset-grid" class="asset-grid"><div class="empty-state"><i class="bi bi-collection-play"></i><b>正在读取资产库</b></div></div>
+    </section>
+
+    <section id="training" class="panel">
+      <div class="workspace-heading"><div><p class="eyebrow">MODEL TRAINING</p><h2>训练工作台</h2><p>YuE2 负责歌曲风格适配，RVC 负责专用演唱音色；两类模型各自训练和使用。</p></div><button id="training-refresh" class="ghost" type="button"><i class="bi bi-arrow-clockwise"></i> 刷新</button></div>
+      <div class="training-switch"><button class="active" type="button">YuE2 歌曲风格</button><button class="tab" data-tab="voices" type="button">RVC 演唱音色</button></div>
+      <section id="training-resource-card" class="training-resource"><div><span class="status-orb"></span><b>正在检查可选训练资源</b><p class="meta">v4 tokenizer head、NAR companion 与固定 regularizer，约 414 MB。</p></div><button id="install-training-resources" class="ghost" type="button">安装训练资源</button></section>
+      <div class="training-layout">
+        <section class="training-main">
+          <div class="training-stage"><span class="active">1 选择素材</span><span>2 固定快照</span><span>3 预处理</span><span>4 训练与保存</span><span>5 检查点试听</span></div>
+          <div class="result-card"><div class="canvas-head"><div><small>素材集</small><h3>为训练集和验证集选择不同歌曲</h3></div><button id="training-select-all" class="ghost compact" type="button">选择全部</button></div><p class="meta">同一首歌的衍生片段不会跨集合。首期训练是 YuE2 AR LoRA，适配歌曲风格，不承诺复制歌手音色。</p><div id="training-assets" class="training-assets"></div></div>
+          <div id="training-progress-card" class="result-card"><div class="canvas-head"><div><small>训练记录</small><h3 id="training-run-title">尚未创建训练</h3></div><span id="training-run-state" class="badge">待设置</span></div><div class="metric-row"><span><small>进度</small><b id="training-step">0 / 0 步</b></span><span><small>训练 loss</small><b id="training-loss">—</b></span><span><small>验证 loss</small><b id="training-val-loss">—</b></span></div><div class="progress-track"><span id="training-progress-bar"></span></div><canvas id="training-chart" width="760" height="150" aria-label="训练损失曲线"></canvas><p class="meta">曲线用于观察训练，最终以固定提示和种子的试听对比判断。</p><div class="toolbar"><button id="training-pause" class="ghost hidden" type="button">安全暂停</button><button id="training-resume" class="primary hidden" type="button">继续训练</button></div></div>
+          <div id="training-result" class="results" aria-live="polite"></div>
+        </section>
+        <aside class="training-inspector"><h3>模型与使用</h3><form id="training-form"><label>训练名称<input name="title" value="我的歌曲风格" maxlength="160" required></label><label>公共曲风<textarea name="style" rows="3" required placeholder="例如：warm jazz, Rhodes piano, tight drums"></textarea></label><label>公共歌词<textarea name="lyrics" rows="5">[instrumental]</textarea></label><label>LoRA rank<select name="rank"><option>8</option><option selected>16</option><option>32</option><option>64</option></select></label><label>训练步数<input name="steps" type="number" min="1" max="100000" value="800"></label><label>梯度累积<input name="gradient_accumulation" type="number" min="1" max="32" value="2"></label><label>学习率<input name="learning_rate" type="number" min="0.000001" max="0.01" step="0.000001" value="0.0001"></label><label>歌曲风格强度<input id="training-style-scale" type="range" min="0" max="2" step="0.05" value="1"><output id="training-style-scale-value">1.00</output></label><label class="check rights-check"><input name="rights_confirmed" type="checkbox" required>我确认有权使用所选音乐进行模型训练</label><p class="meta">配套解码：v4 NAR 自动关联。中文歌词保留歌词条件，不启用上游英文 cursor 对齐。</p><button id="create-training-run" class="primary full" type="submit">创建快照并预处理</button><button id="start-training" class="primary full" type="button" disabled>开始训练</button></form></aside>
+      </div>
+    </section>
+
+    <section id="create" class="panel">
       <div class="section-title"><div><span>01</span><h2>从歌词生成完整歌曲</h2></div><p>默认先规划旋律与和弦，再合成 48 kHz 双声道音频。</p></div>
       <div id="create-result" class="results" aria-live="polite"></div>
       <form id="create-form" class="grid-form">
@@ -106,6 +168,8 @@
         <label>随机种子<input name="seed" type="number" min="0" max="9007199254740991" step="1" value="831001"></label>
         <label>文本引导 CFG<input name="cfg_scale" type="number" min="0" max="20" step="0.01" value="1.0"></label>
         <label>候选数量<select name="candidates"><option>1</option><option>2</option><option>3</option><option>4</option></select></label>
+        <label>歌曲风格模型（可选）<select name="style_model_asset_id" data-style-model><option value="">使用原版 YuE2</option></select></label>
+        <label>歌曲风格强度<input name="style_model_scale" type="number" min="0" max="2" step="0.05" value="1"></label>
         <details class="wide advanced"><summary>高级设置</summary><div class="advanced-grid">
           <label>运行后端<select name="backend"><option value="torch-eager">兼容模式</option><option value="torch">GPU Graph 加速（实验）</option></select></label>
           <label>显存预算 GiB<input name="memory_budget_gib" data-generation-memory type="number" step="any" min="2" required value="23.5"></label>
@@ -351,9 +415,12 @@ This melody still waits for you</textarea></label>
     </section>
   </main>
 
+  <div id="global-player" class="global-player hidden"><div><small id="global-player-kind">正在试听</small><b id="global-player-title">未选择音频</b></div><audio id="global-audio" controls preload="metadata"></audio><button id="global-player-close" class="ghost compact" type="button" aria-label="关闭播放器"><i class="bi bi-x-lg"></i></button></div>
+
   <footer>YuE2 本地整合包 · 制作者 By B站UP主：T8star-Aix · 仅绑定 127.0.0.1 · 权重与输出保存在本机</footer>
   <script src="/static/app.js"></script>
   <script src="/static/assistant.js"></script>
   <script src="/static/rvc.js"></script>
+  <script src="/static/workbench.js"></script>
 </body>
 </html>

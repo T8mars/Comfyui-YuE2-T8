@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.4.0 - 2026-09-14
+
+- Redesign the standalone WebUI as a connected music workbench while preserving the established light blue-gray and berry palette.
+- Add projects and a content-addressed asset library for songs, vocals, instrumentals, reference voices, lyrics, scores, works and trained models, with waveform previews and revision-pinned project links.
+- Add YuE2 AR LoRA song-style training from immutable train/validation snapshots, pinned Mothersuperior v4 tokenizer/NAR resources, MERT features, loss charts, safe pause/resume and a model library.
+- Pair trained AR adapters with the pinned v4 NAR companion during direct generation, record full model provenance, and generate playable short checkpoint previews inside the training page.
+- Require a recorded rights confirmation for YuE2 training snapshots and auto-promote completed audio and model outputs into the current project and asset library.
+- Keep generation, transcription, Seed-VC, RVC, YuE2 training and local GGUF in the single verified CPython 3.12.10 runtime; code-only updates still exclude Python, models and user data.
+
 ## 1.3.1 - 2026-09-14
 
 - Allow ComfyUI users to select realistic memory budgets below 12 GiB or above 24 GiB.

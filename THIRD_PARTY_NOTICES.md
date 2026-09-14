@@ -69,3 +69,17 @@ The installer places these DLLs beside the bundled Python executable. It does
 not install another Python or modify the Windows system runtime.
 Redistribution list: https://learn.microsoft.com/en-us/visualstudio/releases/2022/redistribution
 License terms: https://visualstudio.microsoft.com/license-terms/vs2022-ga-community/
+
+Optional YuE2 song-style training uses three hash-pinned resources from
+Mothersuperior. `tokenizer_head_joint_v4.pt` and `nar_lora_joint_v4.pt` are from
+https://huggingface.co/Mothersuperior/yue2-mothersuperior-realaudio-tokenizer-v4
+at commit `f2278a2e005dc4ecc421c53a0929f62b3aeb2280`.
+`minted_regularizer_pack.pt` is from the Mothersuperior/yue2-minted-corpus
+dataset at commit `5d00559c3daa5cfb7a61fbe32158c8c08f9b5f35`.
+The source repositories declare CC BY-NC 4.0; their non-commercial and
+attribution requirements remain applicable. Exact URLs, sizes and SHA-256
+values are recorded in `app/yue2_app/yue2_training_assets.json`.
+
+The WebUI bundles Bootstrap Icons 1.13.1. Bootstrap Icons is Copyright (c)
+2019-2025 The Bootstrap Authors and licensed under MIT. The full license is at
+`app/web/vendor/BOOTSTRAP-ICONS-LICENSE.txt`.

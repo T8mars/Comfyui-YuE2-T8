@@ -14,7 +14,7 @@ import subprocess
 import time
 import zipfile
 
-MODEL_DIRS = {'Demucs','MERT-v2-FullSong','RVC','Seed-VC','SheetSage2','YuE2-3B','YuE2-Vae'}
+MODEL_DIRS = {'Demucs','MERT-v2-FullSong','RVC','Seed-VC','SheetSage2','YuE2-3B','YuE2-Vae','YuE2-training'}
 MODEL_MANIFESTS = {'MODEL_MANIFEST.json','VOICE_MODEL_MANIFEST.json'}
 EXCLUDED = {'__pycache__','.git','.cache','.pytest_cache','__MACOSX'}
 PRIVATE_ROOTS = {'models','runtime','downloads','outputs','uploads','exports','logs','cache','userdata','research'}
@@ -182,6 +182,7 @@ def main():
         [python,'-X','utf8',target/'scripts/verify_models.py','--root',target],
         [python,'-X','utf8',target/'scripts/verify_voice_models.py','--root',target],
         [python,'-X','utf8',target/'scripts/download_rvc_models.py','--root',target,'--source',target,'--verify-only'],
+        [python,'-X','utf8','-c','from pathlib import Path; from app.yue2_app.training_resources import status; value=status(Path.cwd()); assert value["ready"], value; print(value)'],
     ]
     environment = {**os.environ,'YUE2_HOME':str(target),'YUE2_KIT':str(target)}
     with (target/'logs/bundle-verification.log').open('wb') as log:
