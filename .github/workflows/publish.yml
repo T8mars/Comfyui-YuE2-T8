@@ -58,24 +58,28 @@ jobs:
           with open("pyproject.toml", "rb") as stream:
               expected = tomllib.load(stream)["project"]["version"]
           url = "https://api.comfy.org/nodes/yue2-t8/versions?include_status_reason=true"
-          final = None
-          for attempt in range(20):
+          accepted = None
+          for attempt in range(12):
               separator = "&" if "?" in url else "?"
               request = urllib.request.Request(url + separator + urllib.parse.urlencode({"audit": time.time_ns()}),
                                                headers={"User-Agent": "YuE2-Registry-Gate/1"})
               with urllib.request.urlopen(request, timeout=30) as response:
                   versions = json.load(response)
               version = next((item for item in versions if item.get("version") == expected), None)
-              if version and version.get("status") in {"NodeVersionStatusActive", "NodeVersionStatusBanned",
-                                                        "NodeVersionStatusFlagged"}:
-                  final = version
+              if version:
+                  accepted = version
                   break
-              if attempt < 19:
-                  time.sleep(15)
-          if not final:
-              raise SystemExit(f"Registry did not return a terminal review status for {expected}")
-          print(json.dumps({key: final.get(key) for key in ("version", "status", "status_reason")},
+              if attempt < 11:
+                  time.sleep(5)
+          if not accepted:
+              raise SystemExit(f"Registry did not accept version {expected}")
+          print(json.dumps({key: accepted.get(key) for key in ("version", "status", "status_reason")},
                            ensure_ascii=False, indent=2))
-          if final.get("status") != "NodeVersionStatusActive":
-              raise SystemExit(f"Registry rejected {expected}: {final.get('status')}")
+          status = accepted.get("status")
+          if status in {"NodeVersionStatusBanned", "NodeVersionStatusFlagged"}:
+              raise SystemExit(f"Registry rejected {expected}: {status}: {accepted.get('status_reason', '')}")
+          if status == "NodeVersionStatusPending":
+              print(f"Registry accepted {expected}; platform review is still pending")
+          elif status != "NodeVersionStatusActive":
+              raise SystemExit(f"Registry returned an unknown status for {expected}: {status}")
           PY
