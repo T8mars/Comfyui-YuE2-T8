@@ -183,6 +183,12 @@ ComfyUI/custom_nodes/yue2-t8/models/VOICE_MODEL_MANIFEST.json
 .\install_runtime.bat -ModelsDirectory "D:\AI\YuE2-models"
 ```
 
+### 社区训练示例
+
+[CSD Korean Female v1](https://huggingface.co/t8star/YuE2-Comfy/tree/main/Community-Models/CSD-Korean-Female-v1) 提供一个可导入的 RVC 歌声音色包、一个 YuE2 AR 风格 LoRA、固定 NAR 配套文件和三段试听。RVC 使用 46 段共 68.5 分钟录音训练 100 轮；YuE2 LoRA 完成 800 步，并按歌曲隔离验证集后选用第 200 步的最低验证损失检查点。新版完整整合包已预装这两个训练示例。
+
+素材来自 CSD v1.1 中一位未署名的韩国职业女歌手，不是高允贞。CSD 衍生模型和试听按 CC BY-NC-SA 4.0 提供，仅限非商业用途；固定 NAR 配套文件保持 Mothersuperior 的 CC BY-NC 4.0，RVC 包同时保留上游使用协议。请以模型目录内的逐文件清单、署名和许可文件为准。
+
 ### 更新
 
 从 v1.2.2 开始，本地 WebUI 首页右上方的运行状态卡提供“检查更新”按钮，页面打开时也会自动检查稳定版。发现新版后点击“更新到 vX”，程序会从 [最新版本清单](https://github.com/T8mars/Comfyui-YuE2-T8/releases/latest/download/update-manifest.json) 下载代码包、验证来源与 SHA256、备份旧代码、安装并重启当前端口。更新保留模型、本地 GGUF、作品、上传、导出、日志、缓存、助手草稿和设置。首次升级到 v1.3.0 会准备并校验统一运行时，补齐 RVC 底模，旧服务退出后再切换代码与 Python；新版服务通过启动检查才清理旧运行时。失败时恢复旧代码与原运行时。运行或排队任务存在时不会开始更新。
@@ -229,6 +235,8 @@ Install it with `comfy node install yue2-t8`, then run `install_runtime.bat` onc
 The node pack supports Chinese and English lyrics, editable ABC plans, multi-candidate generation, SheetSage2 transcription, melody remake, Seed-VC reference-voice conversion, staged inference, per-task cancellation, history, and artifact export. The reference-voice workflow accepts a 1–30 second clean voice sample, separates the generated song with Demucs, converts the vocal, and remixes a 48 kHz stereo FLAC. Its page-integrated progress section identifies the current job and every queued job with stage, source, summary, and queue position. Example front-end workflows are in `workflows`.
 
 The standalone v1.4 studio uses one CPython 3.12.10 runtime for music, transcription, Seed-VC, RVC, YuE2 style training and optional GGUF. Its project workspace and content-addressed asset library connect source songs, stems, lyrics, scores, generated versions, voices and trained models. YuE2 AR LoRA training uses immutable train/validation snapshots, pinned Mothersuperior v4 companion resources, loss tracking, resumable checkpoints and an in-page audio preview. Version 1.4.11 samples reproducible 768-token semantic windows (about 30 seconds) from complete songs, while validation checks fixed start, middle and end windows with song-disjoint groups. Trained adapters are currently enabled only for the validated direct-generation mode. The updater migrates legacy runtimes and rolls back a failed startup.
+
+The [CSD Korean Female v1 examples](https://huggingface.co/t8star/YuE2-Comfy/tree/main/Community-Models/CSD-Korean-Female-v1) include an importable RVC singing voice, a YuE2 AR style LoRA, its pinned NAR companion and three audio demos. The matching complete local bundle has both trained examples preinstalled. The source is one unnamed professional Korean female singer documented by CSD, not Go Youn-jung. CSD derivatives are non-commercial CC BY-NC-SA 4.0; the unchanged NAR companion remains CC BY-NC 4.0 and the RVC package also retains its upstream agreement.
 
 ## Links
 
