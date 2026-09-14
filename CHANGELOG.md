@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.11 - 2026-09-15
+
+- Train YuE2 style LoRAs with reproducible 30-second semantic windows so long songs remain practical on 24GB GPUs.
+- Evaluate fixed start, middle and end windows while keeping song-disjoint validation groups.
+
 ## 1.4.10 - 2026-09-15
 
 - Keep full-bundle build manifests location-independent and remove local build paths from verification logs.

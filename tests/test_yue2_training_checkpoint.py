@@ -56,9 +56,28 @@ class CheckpointTests(unittest.TestCase):
 
     def test_rejects_identity_change(self):
         from app.yue2_app.yue2_trainer import training_config
-        self.assertEqual(training_config({"rank": 16})["mode"], "cot_off_ar_lora")
+        config = training_config({"rank": 16})
+        self.assertEqual(config["mode"], "cot_off_ar_lora")
+        self.assertEqual(config["codec_window_tokens"], 768)
         with self.assertRaises(ValueError):
             training_config({"rank": 3})
+        with self.assertRaises(ValueError):
+            training_config({"codec_window_tokens": 128})
+
+    def test_training_and_validation_windows_are_bounded_and_reproducible(self):
+        import numpy as np
+        from app.yue2_app.yue2_trainer import _training_codec_window, _validation_codec_windows
+        codec = np.arange(2000)
+        one = _training_codec_window(codec, 768, np.random.default_rng(17))
+        two = _training_codec_window(codec, 768, np.random.default_rng(17))
+        self.assertTrue(np.array_equal(one, two))
+        self.assertEqual(len(one), 768)
+        windows = _validation_codec_windows(codec, 768)
+        self.assertEqual([int(item[0]) for item in windows], [0, 616, 1232])
+        self.assertTrue(all(len(item) == 768 for item in windows))
+        short = np.arange(200)
+        self.assertIs(_training_codec_window(short, 768, np.random.default_rng(1)), short)
+        self.assertIs(_validation_codec_windows(short, 768)[0], short)
 
 
 if __name__ == "__main__":

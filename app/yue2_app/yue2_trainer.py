@@ -24,6 +24,7 @@ def training_config(value: dict | None) -> dict:
         "rank": int(value.get("rank", 16)),
         "steps": int(value.get("steps", 800)),
         "gradient_accumulation": int(value.get("gradient_accumulation", 2)),
+        "codec_window_tokens": int(value.get("codec_window_tokens", 768)),
         "learning_rate": float(value.get("learning_rate", 1e-4)),
         "user_fraction": float(value.get("user_fraction", .7)),
         "warmup_steps": int(value.get("warmup_steps", 50)),
@@ -41,6 +42,8 @@ def training_config(value: dict | None) -> dict:
         raise ValueError("训练步数必须是 1–100000")
     if not 1 <= result["gradient_accumulation"] <= 32:
         raise ValueError("梯度累积必须是 1–32")
+    if not 256 <= result["codec_window_tokens"] <= 4096:
+        raise ValueError("训练音频窗口必须是 256–4096 token")
     if not math.isfinite(result["learning_rate"]) or not 1e-7 <= result["learning_rate"] <= 1e-2:
         raise ValueError("学习率必须是 1e-7–1e-2 的有限数值")
     if not math.isfinite(result["user_fraction"]) or not 0 <= result["user_fraction"] <= 1:
@@ -189,6 +192,22 @@ def _sequence(prefix, codec, device):
     return torch.tensor([values], device=device, dtype=torch.long), len(prefix)
 
 
+def _training_codec_window(codec, size: int, generator):
+    """Sample a reproducible contiguous music window without mutating the source array."""
+    if len(codec) <= size:
+        return codec
+    start = int(generator.integers(0, len(codec) - size + 1))
+    return codec[start:start + size]
+
+
+def _validation_codec_windows(codec, size: int):
+    """Cover the start, middle and end of long songs with fixed validation windows."""
+    if len(codec) <= size:
+        return [codec]
+    starts = sorted({0, (len(codec) - size) // 2, len(codec) - size})
+    return [codec[start:start + size] for start in starts]
+
+
 def _loss(model, ids, prefix_length: int, *, gradient: bool):
     import torch
     import torch.nn.functional as F
@@ -320,8 +339,9 @@ def train(root: Path, run: dict, prepared: Path, ctx) -> dict:
         losses = []
         for item in validation:
             prefix, codec = arrays(item)
-            ids, prefix_length = _sequence(prefix, codec, "cuda")
-            losses.append(float(_loss(model, ids, prefix_length, gradient=False)))
+            for window in _validation_codec_windows(codec, config["codec_window_tokens"]):
+                ids, prefix_length = _sequence(prefix, window, "cuda")
+                losses.append(float(_loss(model, ids, prefix_length, gradient=False)))
         return sum(losses) / len(losses)
 
     def checkpoint(step: int, validation_loss: float | None):
@@ -354,7 +374,8 @@ def train(root: Path, run: dict, prepared: Path, ctx) -> dict:
             pool = user_train if use_user else regularizer_train
             item = pool[sampler.randrange(len(pool))]
             prefix, codec = arrays(item)
-            ids, prefix_length = _sequence(prefix, codec, "cuda")
+            window = _training_codec_window(codec, config["codec_window_tokens"], numpy_generator)
+            ids, prefix_length = _sequence(prefix, window, "cuda")
             loss = _loss(model, ids, prefix_length, gradient=True)
             (loss / config["gradient_accumulation"]).backward()
             step_loss += float(loss.detach()) / config["gradient_accumulation"]
