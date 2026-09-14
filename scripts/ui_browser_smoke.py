@@ -50,13 +50,15 @@ def assert_no_page_overflow(page: Page, viewport: str) -> None:
 
 
 def assert_named_controls(page: Page) -> None:
-    failures = page.evaluate("""() => {
+    failures = page.evaluate(r"""() => {
       const visible = element => !element.closest('details:not([open])') && Boolean(element.offsetWidth || element.offsetHeight || element.getClientRects().length);
       const name = element => {
         const labels = element.labels ? [...element.labels].map(label => label.innerText.trim()).filter(Boolean) : [];
-        return (element.getAttribute('aria-label') || element.getAttribute('title') || labels.join(' ') || element.innerText || '').trim();
+        const labelled = (element.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean)
+          .map(id => document.getElementById(id)?.innerText?.trim() || '').filter(Boolean);
+        return (element.getAttribute('aria-label') || labelled.join(' ') || element.getAttribute('title') || labels.join(' ') || element.innerText || '').trim();
       };
-      return [...document.querySelectorAll('button,input:not([type="hidden"]),select,textarea')]
+      return [...document.querySelectorAll('button,input:not([type="hidden"]),select,textarea,audio')]
         .filter(visible).filter(element => !name(element))
         .map(element => `${element.tagName.toLowerCase()}#${element.id || '(no-id)'}`);
     }""")
@@ -126,6 +128,7 @@ def run_browser(url: str, output: Path) -> dict:
         assert page.locator(".studio-sidebar .tab").count() == 9
         assert page.locator("#mobile-workspace-menu").is_hidden()
         assert page.locator("#workspace-menu-dialog [data-go-tab].active").count() == 1
+        assert page.locator("[aria-selected]").count() == 0
         assert_no_page_overflow(page, "desktop")
         assert_unique_ids(page)
         assert_named_controls(page)
@@ -154,11 +157,19 @@ def run_browser(url: str, output: Path) -> dict:
             dynamic_dialog.wait_for(state="visible")
             labelled_by = dynamic_dialog.get_attribute("aria-labelledby")
             assert labelled_by and dynamic_dialog.locator(f"#{labelled_by}").count() == 1
+            assert_named_controls(page)
             dynamic_dialog.press("Escape")
 
         page.locator('.studio-sidebar [data-tab="create"]').click()
         page.locator("#create-result audio").wait_for(state="visible")
+        assert_named_controls(page)
         assert "KeyError" not in page.evaluate("failureMarkup({message: `KeyError: 'source_path'`})")
+        partial_text = page.evaluate("""() => {
+          const target=document.createElement('div');
+          renderJob({id:'partial-smoke',kind:'generate',status:'complete',result:{partial:true,completed_candidates:1,requested_candidates:2,candidates:[{audio:''}],failures:[{error:`KeyError: 'source_path'`}]}},target);
+          return target.innerText;
+        }""")
+        assert "KeyError" not in partial_text
         style = page.locator('#create-form [name="style"]')
         original_style = style.input_value()
         style.fill("")
@@ -219,8 +230,9 @@ def run_browser(url: str, output: Path) -> dict:
         "scenarios": [
             "seeded project and four asset cards stay within the desktop viewport",
             "asset use, edit and read dialogs expose accessible names",
-            "completed generation stays playable on its originating page",
-            "technical failures use a public summary and required fields use Chinese validation",
+            "completed generation stays playable with an accessible audio name on its originating page",
+            "full and partial technical failures use a public summary and required fields use Chinese validation",
+            "ordinary workspace buttons use current-page semantics without unsupported selected state",
             "mobile workspace switching resets a long-page scroll position",
         ],
         "console_errors": console_errors,

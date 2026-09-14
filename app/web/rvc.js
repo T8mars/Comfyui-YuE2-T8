@@ -20,8 +20,8 @@
     $('#rvc-materials').innerHTML = project.materials.map(m => `<article class="rvc-material" data-material="${m.id}">
       <div class="rvc-material-title"><b>${e(m.name)}</b><button class="ghost compact" data-remove="${m.id}">移除</button></div>
       <div class="meta">${m.duration.toFixed(1)} 秒 · ${m.sample_rate} Hz · ${m.channels} 声道${m.warnings.length ? ' · ' + e(m.warnings.join('；')) : ''}</div>
-      <audio controls preload="metadata" src="/api/rvc/projects/${project.id}/audio/${m.id}/original"></audio>
-      ${m.separated_path ? `<label>分离后人声<audio controls preload="metadata" src="/api/rvc/projects/${project.id}/audio/${m.id}/vocal"></audio></label><p class="meta">伴奏能量估计 ${(100 * m.accompaniment_energy_ratio).toFixed(1)}%，请以试听结果为准。</p>` : ''}
+      <audio controls preload="metadata" aria-label="${e(m.name)} 原始素材试听" src="/api/rvc/projects/${project.id}/audio/${m.id}/original"></audio>
+      ${m.separated_path ? `<label>分离后人声<audio controls preload="metadata" aria-label="${e(m.name)} 分离后人声试听" src="/api/rvc/projects/${project.id}/audio/${m.id}/vocal"></audio></label><p class="meta">伴奏能量估计 ${(100 * m.accompaniment_energy_ratio).toFixed(1)}%，请以试听结果为准。</p>` : ''}
       <div class="toolbar"><label class="rvc-check"><input type="checkbox" data-field="enabled" ${m.enabled ? 'checked' : ''}>用于训练 / 分离</label><label class="rvc-check"><input type="checkbox" data-field="reviewed" ${m.reviewed ? 'checked' : ''}>已试听，确认素材合适</label>
       <label>说话人<select data-field="speaker_id">${project.speakers.map(s => `<option value="${s.id}" ${s.id === m.speaker_id ? 'selected' : ''}>${e(s.name)}</option>`).join('')}</select></label></div>
       ${m.accompaniment === 'present' && !m.separated_path ? '<p class="meta">此素材含伴奏，请先分离人声。</p>' : ''}</article>`).join('') || '<p class="meta">还没有素材。导入后可逐段试听、确认和分配说话人。</p>';
@@ -35,7 +35,7 @@
     if (project) { $('#rvc-project').value = project.id; savedValue('rvc-project',project.id); }
     renderProject();
     renderCoverModels();
-    $('#rvc-library').innerHTML = data.voices.map(v => `<article class="result-card"><b>${e(v.name)}</b><p class="meta">${e(v.version)} · ${v.sample_rate / 1000} kHz · ${v.speakers.length} 位说话人</p>${v.preview ? `<audio controls preload="metadata" src="/api/rvc/voices/${v.id}/preview"></audio>` : '<p class="meta">暂无试听样例</p>'}<div class="toolbar"><button class="ghost" data-use-voice="${v.id}">用于翻唱</button>${[['export','导出音色包'],['rename','改名'],['open','打开文件夹'],['remove','移除']].map(([action,label]) => `<button class="ghost compact" data-voice-action="${action}" data-voice-id="${v.id}">${label}</button>`).join('')}</div></article>`).join('') || '<div class="result-card"><b>还没有专属音色</b><p class="meta">在上方导入素材并训练，或导入已有模型。训练成功后，音色会自动出现在这里。</p></div>';
+    $('#rvc-library').innerHTML = data.voices.map(v => `<article class="result-card"><b>${e(v.name)}</b><p class="meta">${e(v.version)} · ${v.sample_rate / 1000} kHz · ${v.speakers.length} 位说话人</p>${v.preview ? `<audio controls preload="metadata" aria-label="${e(v.name)} 音色试听" src="/api/rvc/voices/${v.id}/preview"></audio>` : '<p class="meta">暂无试听样例</p>'}<div class="toolbar"><button class="ghost" data-use-voice="${v.id}">用于翻唱</button>${[['export','导出音色包'],['rename','改名'],['open','打开文件夹'],['remove','移除']].map(([action,label]) => `<button class="ghost compact" data-voice-action="${action}" data-voice-id="${v.id}">${label}</button>`).join('')}</div></article>`).join('') || '<div class="result-card"><b>还没有专属音色</b><p class="meta">在上方导入素材并训练，或导入已有模型。训练成功后，音色会自动出现在这里。</p></div>';
   }
   function renderCoverModels() {
     const selected = $('#rvc-cover-model').value || savedValue('rvc-voice');

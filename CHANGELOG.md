@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.7 - 2026-09-15
+
+- Give every generated, historical, comparison, stem, RVC, training-preview and global audio player a distinct accessible name.
+- Give the read-only asset-content field an accessible name and remove unsupported selection semantics from ordinary workspace buttons.
+- Hide raw technical errors in partially completed multi-candidate result summaries, while retaining full details in task logs.
+- Extend real-browser accessibility checks to audio players, open-dialog contents, navigation semantics and partial-result failures.
+
 ## 1.4.6 - 2026-09-15
 
 - Show whether each asset's current revision is already linked to the selected project, instead of leaving an idempotent “Add to project” action that appears to do nothing.

@@ -189,7 +189,7 @@ function failureMarkup(error) {
   const reason = oom ? '显存不足，任务已停止。可以使用保存的阶段结果重新运行。' : publicErrorSummary(error?.message);
   const generatedAudio = job.generated_result?.audio;
   const generatedRel = generatedAudio && id ? relativeAudio(job, generatedAudio) : null;
-  const intermediate = generatedRel ? `<p>歌曲已生成，可先试听：</p><audio controls preload="metadata" src="${audioUrl(id, generatedRel)}"></audio>` : '';
+  const intermediate = generatedRel ? `<p>歌曲已生成，可先试听：</p><audio controls preload="metadata" aria-label="已生成歌曲试听" src="${audioUrl(id, generatedRel)}"></audio>` : '';
   const phase = job.failed_stage ? `<p>失败阶段：${escapeHtml(stageLabel(job.failed_stage))}</p>` : '';
   const retry = id && ['generate', 'reference_cover', 'voice_convert', 'render_plan'].includes(job.kind) ? `<button class="primary compact" data-kind="${job.kind}" onclick="resumeJob('${id}', this)">${job.resumable ? '从已保存阶段继续' : '重新运行'}</button>` : '';
   const actions = id ? `<div class="toolbar failure-actions">${retry}<button class="ghost compact" onclick="toggleJobLog('${id}', this)">查看任务日志</button></div><pre class="job-log hidden"></pre>` : '';
@@ -463,7 +463,7 @@ function stemPlayers(job, result) {
     const relative = relativeAudio(job, result[key]);
     if (!relative) return '';
     const url = audioUrl(job.id, relative);
-    return `<div class="stem-player"><b>${label}</b><audio controls preload="none" src="${url}"></audio><a class="ghost compact" href="${url}" download>下载${label}</a></div>`;
+    return `<div class="stem-player"><b>${label}</b><audio controls preload="none" aria-label="${label}试听" src="${url}"></audio><a class="ghost compact" href="${url}" download>下载${label}</a></div>`;
   }).join('');
   return players ? `<details class="stem-previews"><summary>单独试听人声与伴奏</summary>${players}</details>` : '';
 }
@@ -471,11 +471,12 @@ function stemPlayers(job, result) {
 function renderJob(job, target) {
   const result = job.result || {}; const candidates = result.candidates || (result.audio ? [{seed: result.seed, audio: result.audio, audio_seconds: result.audio_seconds || result.audio_info?.duration_seconds, truncated: result.truncated}] : []);
   if (!candidates.length) { target.innerHTML = `<div class="result-card"><b>任务完成</b><pre class="meta">${escapeHtml(JSON.stringify(result, null, 2))}</pre></div>`; return; }
-  const partial = result.partial ? `<div class="result-card">已保留 ${result.completed_candidates}/${result.requested_candidates} 个${result.comparison ? '转换结果' : '版本'}。${result.failures?.length ? `未完成原因：${escapeHtml(result.failures[0].error)}` : '其余结果正在制作中。'}</div>` : '';
+  const partial = result.partial ? `<div class="result-card">已保留 ${result.completed_candidates}/${result.requested_candidates} 个${result.comparison ? '转换结果' : '版本'}。${result.failures?.length ? `未完成原因：${escapeHtml(publicErrorSummary(result.failures[0].error))}` : '其余结果正在制作中。'}</div>` : '';
   target.innerHTML = partial + candidates.map((candidate, index) => {
     const rel = relativeAudio(job, candidate.audio); const truncated = candidate.truncated && Object.values(candidate.truncated).some(Boolean);
     const url = rel ? audioUrl(job.id, rel) : '';
-    const player = url ? `<audio controls preload="metadata" src="${url}"></audio>` : '';
+    const playerLabel = `${kindLabel(job.kind)}${candidates.length > 1 ? `版本 ${index + 1}` : '结果'}试听`;
+    const player = url ? `<audio controls preload="metadata" aria-label="${escapeHtml(playerLabel)}" src="${url}"></audio>` : '';
     const duration = Number(candidate.audio_seconds || candidate.audio_info?.duration_seconds);
     const details = [voiceDescription({...result,...candidate}), candidates.length > 1 ? `版本 ${index + 1}` : '', Number.isFinite(duration) && duration > 0 ? `${duration.toFixed(1)} 秒` : '', candidate.seed != null ? `Seed ${escapeHtml(candidate.seed)}` : '', `任务 ${escapeHtml(shortId(job.id))}`].filter(Boolean).join(' · ');
     const download = url ? `<a class="ghost audio-download" href="${url}" download="YuE2-${job.id}-${index + 1}.flac">下载音频</a>` : '';
@@ -494,7 +495,7 @@ $$('.tab').forEach(button => button.onclick = () => {
   document.body.dataset.activeTab = button.dataset.tab;
   $('#model-settings').open = false;
   if(button.closest('.studio-sidebar'))button.scrollIntoView({block:'nearest',inline:'center'});
-  $$('.tab').forEach(item => { const active=item.dataset.tab===button.dataset.tab;item.classList.toggle('active',active);item.setAttribute('aria-selected',String(active));if(active)item.setAttribute('aria-current','page');else item.removeAttribute('aria-current'); });
+  $$('.tab').forEach(item => { const active=item.dataset.tab===button.dataset.tab;item.classList.toggle('active',active);if(active)item.setAttribute('aria-current','page');else item.removeAttribute('aria-current'); });
   $$('#workspace-menu-dialog [data-go-tab]').forEach(item => { const active=item.dataset.goTab===button.dataset.tab;item.classList.toggle('active',active);if(active)item.setAttribute('aria-current','page');else item.removeAttribute('aria-current'); });
   $$('.panel').forEach(panel => panel.classList.toggle('active', panel.id === button.dataset.tab));
   window.scrollTo({top: 0, left: 0, behavior: 'auto'});
@@ -843,13 +844,14 @@ async function loadHistory() {
       const exportButton = (job.status === 'complete' || (TERMINAL.has(job.status) && result.comparison && result.candidates?.length)) && job.result ? `<button class="ghost" onclick="exportJob('${job.id}')">导出</button>` : '';
       const retryButton = ['failed', 'cancelled'].includes(job.status) && ['generate', 'reference_cover', 'voice_convert', 'render_plan', 'rvc_train', 'rvc_import', 'rvc_separate', 'rvc_storage_move'].includes(job.kind) ? `<button class="ghost compact" data-kind="${job.kind}" onclick="resumeJob('${job.id}', this)">${job.resumable || ['rvc_train','rvc_storage_move'].includes(job.kind) ? '从已保存阶段继续' : '重新运行'}</button>` : '';
       const logButtons = (job.kind === 'assistant' ? `<button class="ghost compact" onclick="openAssistantJob('${job.id}')">查看 / 继续创作</button>` : '') + (job.status === 'failed' ? `<button class="ghost compact" onclick="toggleJobLog('${job.id}', this)">查看任务日志</button><button class="ghost compact" onclick="openDirectory('logs')">打开日志目录</button>` : '');
-      const comparison = result.comparison ? (result.candidates || []).map(candidate => {
+      const comparison = result.comparison ? (result.candidates || []).map((candidate,index) => {
         const rel = relativeAudio(job, candidate.audio);
-        return `<div class="comparison-result"><p class="meta">${voiceDescription(candidate)}</p>${rel ? `<audio controls preload="none" src="${audioUrl(job.id,rel)}"></audio><a class="ghost compact" href="${audioUrl(job.id,rel)}" download>下载音频</a>` : ''}${stemPlayers(job,candidate)}</div>`;
+        const label=candidate.backend==='rvc'?'RVC 对比结果':candidate.backend==='seed-vc'?'Seed-VC 对比结果':`对比结果 ${index+1}`;
+        return `<div class="comparison-result"><p class="meta">${voiceDescription(candidate)}</p>${rel ? `<audio controls preload="none" aria-label="${label}试听" src="${audioUrl(job.id,rel)}"></audio><a class="ghost compact" href="${audioUrl(job.id,rel)}" download>下载音频</a>` : ''}${stemPlayers(job,candidate)}</div>`;
       }).join('') : '';
       const errorDetail=String(job.error||'').trim(),errorSummary=publicErrorSummary(errorDetail);
       const errorBlock=errorDetail?`<div class="history-error"><b>任务未完成</b><span>${escapeHtml(errorSummary)}</span>${errorDetail!==errorSummary?`<details><summary>查看错误详情</summary><pre>${escapeHtml(errorDetail)}</pre></details>`:''}</div>`:'';
-      return `<article class="history-card"><header><div><b>${escapeHtml(kindLabel(job.kind))}</b><div class="meta">${escapeHtml(job.id)} · ${new Date(job.created_at * 1000).toLocaleString()} · ${escapeHtml(sourceLabel(job.source))}</div></div></header><b class="status-${job.status}">${escapeHtml(job.status === 'running' ? stageLabel(job.stage) : stageLabel(job.status))}</b>${errorBlock}${!result.comparison && audio ? `<audio controls preload="none" src="${audioUrl(job.id, audio)}"></audio>` : ''}<p class="meta">${voiceDescription(result)}</p>${comparison || stemPlayers(job,result)}<div class="toolbar">${exportButton}${retryButton}${logButtons}</div><pre class="job-log hidden"></pre></article>`;
+      return `<article class="history-card"><header><div><b>${escapeHtml(kindLabel(job.kind))}</b><div class="meta">${escapeHtml(job.id)} · ${new Date(job.created_at * 1000).toLocaleString()} · ${escapeHtml(sourceLabel(job.source))}</div></div></header><b class="status-${job.status}">${escapeHtml(job.status === 'running' ? stageLabel(job.stage) : stageLabel(job.status))}</b>${errorBlock}${!result.comparison && audio ? `<audio controls preload="none" aria-label="${escapeHtml(kindLabel(job.kind))}历史结果试听" src="${audioUrl(job.id, audio)}"></audio>` : ''}<p class="meta">${voiceDescription(result)}</p>${comparison || stemPlayers(job,result)}<div class="toolbar">${exportButton}${retryButton}${logButtons}</div><pre class="job-log hidden"></pre></article>`;
     }).join('') || `<div class="empty-state"><i class="bi bi-clock-history"></i><b>还没有符合条件的任务</b><p>${historyHasFilters?'清除筛选可查看全部任务记录。':'完成的任务会显示在这里。'}</p>${historyHasFilters?'<button id="clear-history-filters" class="ghost compact" type="button">清除筛选</button>':''}</div>`;
     const clearHistory=$('#clear-history-filters');if(clearHistory)clearHistory.onclick=()=>{$('#history-status').value='';$('#history-kind').value='';$('#history-project').value='';$('#history-query').value='';historyOffset=0;loadHistory();};
     const page=Math.floor(historyOffset/historyPageSize)+1,pages=Math.max(1,Math.ceil(historyTotal/historyPageSize));$('#history-page-status').textContent=`第 ${page} / ${pages} 页 · ${historyTotal} 项`;$('#history-prev').disabled=historyOffset<=0;$('#history-next').disabled=historyOffset+historyPageSize>=historyTotal;
