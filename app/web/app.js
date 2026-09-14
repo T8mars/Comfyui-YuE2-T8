@@ -167,7 +167,7 @@ function failureMarkup(error) {
   const generatedRel = generatedAudio && id ? relativeAudio(job, generatedAudio) : null;
   const intermediate = generatedRel ? `<p>歌曲已生成，可先试听：</p><audio controls preload="metadata" src="${audioUrl(id, generatedRel)}"></audio>` : '';
   const phase = job.failed_stage ? `<p>失败阶段：${escapeHtml(stageLabel(job.failed_stage))}</p>` : '';
-  const retry = id && ['generate', 'reference_cover', 'voice_convert', 'render_plan'].includes(job.kind) ? `<button class="primary compact" onclick="resumeJob('${id}', this)">${job.resumable ? '从已保存阶段继续' : '重新运行'}</button>` : '';
+  const retry = id && ['generate', 'reference_cover', 'voice_convert', 'render_plan'].includes(job.kind) ? `<button class="primary compact" data-kind="${job.kind}" onclick="resumeJob('${id}', this)">${job.resumable ? '从已保存阶段继续' : '重新运行'}</button>` : '';
   const actions = id ? `<div class="toolbar failure-actions">${retry}<button class="ghost compact" onclick="toggleJobLog('${id}', this)">查看任务日志</button></div><pre class="job-log hidden"></pre>` : '';
   const retained = document.createElement('div');
   if (job.result?.comparison && job.result?.candidates?.length) renderJob(job, retained);
@@ -177,7 +177,13 @@ function failureMarkup(error) {
 async function resumeJob(id, button) {
   button.disabled = true;
   try {
-    const job = await api(`/api/jobs/${id}/resume`, {method: 'POST'});
+    const resumableGeneration = ['generate', 'reference_cover', 'render_plan'].includes(button.dataset.kind);
+    const options = {method: 'POST'};
+    if (resumableGeneration) {
+      options.headers = {'Content-Type': 'application/json'};
+      options.body = JSON.stringify({memory_budget_gib: generationMemoryBudget()});
+    }
+    const job = await api(`/api/jobs/${id}/resume`, options);
     const panel = savedValue(`job-panel:${id}`) || button.closest('.panel')?.id;
     if (['create', 'plan', 'cover'].includes(panel)) savedValue(`job-panel:${job.id}`, panel);
     bindButton(button, job);
@@ -622,6 +628,7 @@ async function waitForUpdatedService(version) {
 
 async function installUpdate() {
   if (!availableUpdate) return checkUpdate();
+  if (!confirm(`更新会替换程序代码并保留模型、作品和设置。现有代码会先备份到 logs/backups，失败时自动恢复。\n\n确定更新到 v${availableUpdate.latest_version}？`)) return;
   const button = $('#update-button');
   updateInstalling = true;
   button.disabled = true;
@@ -733,7 +740,7 @@ async function loadHistory() {
     $('#history-list').innerHTML = jobs.map(job => {
       const result = job.result || {}; const audio = relativeAudio(job, result.audio || result.candidates?.[0]?.audio);
       const exportButton = (job.status === 'complete' || (TERMINAL.has(job.status) && result.comparison && result.candidates?.length)) && job.result ? `<button class="ghost" onclick="exportJob('${job.id}')">导出</button>` : '';
-      const retryButton = ['failed', 'cancelled'].includes(job.status) && ['generate', 'reference_cover', 'voice_convert', 'render_plan', 'rvc_train', 'rvc_import', 'rvc_separate', 'rvc_storage_move'].includes(job.kind) ? `<button class="ghost compact" onclick="resumeJob('${job.id}', this)">${job.resumable || ['rvc_train','rvc_storage_move'].includes(job.kind) ? '从已保存阶段继续' : '重新运行'}</button>` : '';
+      const retryButton = ['failed', 'cancelled'].includes(job.status) && ['generate', 'reference_cover', 'voice_convert', 'render_plan', 'rvc_train', 'rvc_import', 'rvc_separate', 'rvc_storage_move'].includes(job.kind) ? `<button class="ghost compact" data-kind="${job.kind}" onclick="resumeJob('${job.id}', this)">${job.resumable || ['rvc_train','rvc_storage_move'].includes(job.kind) ? '从已保存阶段继续' : '重新运行'}</button>` : '';
       const logButtons = (job.kind === 'assistant' ? `<button class="ghost compact" onclick="openAssistantJob('${job.id}')">查看 / 继续创作</button>` : '') + (job.status === 'failed' ? `<button class="ghost compact" onclick="toggleJobLog('${job.id}', this)">查看任务日志</button><button class="ghost compact" onclick="openDirectory('logs')">打开日志目录</button>` : '');
       const comparison = result.comparison ? (result.candidates || []).map(candidate => {
         const rel = relativeAudio(job, candidate.audio);
@@ -771,7 +778,7 @@ $('#refresh-history').onclick = () => { loadHistory(); loadRetention(); };
 $('#cleanup-storage').onclick = cleanupStorage;
 $('#doctor-button').onclick = async () => {
   const button = $('#doctor-button'); const action = $('.doctor-action');
-  try { const job = await submit('doctor', {verify_hashes: true}, null, button); action.dataset.result = `自检通过 · ${job.result.gpu} · CUDA ${job.result.torch_cuda}`; }
+  try { const job = await submit('doctor', {verify_hashes: true}, null, button); action.dataset.result = `自检通过 · ${job.result.gpu} · ${job.result.accelerator}`; }
   catch (error) { action.dataset.result = `自检未通过 · ${error.message}`; }
 };
 $('#update-button').onclick = () => availableUpdate ? installUpdate() : checkUpdate();

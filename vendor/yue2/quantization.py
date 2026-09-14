@@ -66,6 +66,8 @@ def prepare_fp8_ar(model, device):
     device = torch.device(device)
     if getattr(model, "_yue2_fp8_originals", None):
         return quantization_status(model)
+    if getattr(torch.version, "hip", None) is not None:
+        raise RuntimeError("Experimental FP8 AR is unsupported on HIP/ROCm; use quantization='none'")
     if device.type != "cuda" or not torch.cuda.is_available():
         raise RuntimeError("Experimental FP8 AR requires CUDA compute capability >=8.9; use quantization='none'")
     if torch.cuda.get_device_capability(device) < (8, 9):

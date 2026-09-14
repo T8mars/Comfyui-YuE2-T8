@@ -365,6 +365,10 @@ class JobStore:
             rows = generation["nar_query_chunk_size"]
             if type(rows) is not int or not 1 <= rows <= 1024:
                 raise ValueError("声学计算分块必须是 1–1024 的整数")
+            if "vae_core_frames" in generation:
+                vae_frames = generation["vae_core_frames"]
+                if type(vae_frames) is not int or vae_frames not in {128, 256, 512, 1024}:
+                    raise ValueError("VAE 解码分块必须是 128、256、512 或 1024")
             raw_budget = generation.get("memory_budget_gib", 23.5)
             try:
                 if isinstance(raw_budget, bool):
@@ -439,7 +443,7 @@ class JobStore:
                 self.jobs[job_id] = status
         return public_job(status)
 
-    def resume(self, job_id: str) -> dict:
+    def resume(self, job_id: str, data: dict | None = None) -> dict:
         with self.storage_lock:
             status = self.get(job_id)
             if status["status"] not in {"failed", "cancelled"}:
@@ -449,6 +453,21 @@ class JobStore:
             if job["kind"] not in {"generate", "reference_cover", "voice_convert", "render_plan", "rvc_train", "rvc_import", "rvc_separate", "rvc_storage_move"}:
                 raise ValueError("这个任务类型暂不支持阶段恢复")
             request = dict(job["request"])
+            overrides = dict(data or {})
+            runtime_keys = {"memory_budget_gib", "backend", "offload_ar", "nar_attention",
+                            "nar_query_chunk_size", "vae_core_frames"}
+            unexpected = set(overrides) - runtime_keys
+            if unexpected:
+                raise ValueError("恢复参数包含不支持的字段：" + "、".join(sorted(unexpected)))
+            if overrides:
+                if job["kind"] == "reference_cover":
+                    generation = dict(request.get("generate", {}))
+                    generation.update(overrides)
+                    request["generate"] = generation
+                elif job["kind"] in {"generate", "render_plan"}:
+                    request.update(overrides)
+                else:
+                    raise ValueError("这个任务类型不支持覆盖生成参数")
             request["resume_from"] = str(directory)
             return self.create(job["kind"], request, source=job.get("source", "api"),
                                result_panel=job.get("result_panel"))
@@ -971,7 +990,8 @@ class Handler(BaseHTTPRequestHandler):
             if len(pieces) == 5 and pieces[1:3] == ["api", "jobs"] and pieces[4] == "retry-assistant":
                 return self._json(202, STORE.retry_assistant(pieces[3], self._body_json()))
             if len(pieces) == 5 and pieces[1:3] == ["api", "jobs"] and pieces[4] == "resume":
-                return self._json(202, STORE.resume(pieces[3]))
+                data = self._body_json(4096) if int(self.headers.get("Content-Length", "0")) else {}
+                return self._json(202, STORE.resume(pieces[3], data))
             if len(pieces) == 5 and pieces[1:3] == ["api", "jobs"] and pieces[4] == "cancel":
                 job_id = pieces[3]
                 data = self._body_json(1024) if int(self.headers.get("Content-Length", "0")) else {}

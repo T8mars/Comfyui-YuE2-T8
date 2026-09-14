@@ -56,7 +56,7 @@ class YuE2ModelLoader:
     def INPUT_TYPES(cls):
         return {"required": {
             "backend": (["torch-eager", "torch"], {"default": "torch-eager"}),
-            "memory_budget_gib": ("FLOAT", {"default": 23.5, "min": 12.0, "max": 24.0, "step": 0.5}),
+            "memory_budget_gib": ("FLOAT", {"default": 23.5, "min": 2.5, "max": 256.0, "step": 0.5}),
             "offload_ar": ("BOOLEAN", {"default": True}),
         }, "optional": {
             "nar_attention": (["sdpa", "math", "cudnn"], {"default": "sdpa"}),

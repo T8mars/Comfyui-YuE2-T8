@@ -288,7 +288,7 @@ def main(argv=None) -> int:
         if getattr(torch.version, "hip", None) is not None:
             torch.backends.cudnn.enabled = False
         if not torch.cuda.is_available():
-            raise RuntimeError("参考音色运行时未检测到 NVIDIA CUDA")
+            raise RuntimeError("参考音色运行时未检测到 CUDA/HIP 兼容 GPU")
         ctx.update("separating_vocals", pid=os.getpid(), gpu=torch.cuda.get_device_name(0))
         ctx.memory("voice_start")
         ctx.check_cancelled()

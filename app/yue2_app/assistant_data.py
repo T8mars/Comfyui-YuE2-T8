@@ -79,12 +79,16 @@ def models_endpoint(config: dict) -> str:
 
 def fetch_remote_models(config: dict, secret: str, session=None) -> dict:
     """Fetch a bounded OpenAI-compatible model list without exposing upstream bodies."""
-    import requests
     config = normalize_config(config)
     if config["provider"] == "local":
         raise ValueError("本地模式请刷新 GGUF 目录")
     own_session = session is None
-    client = session or requests.Session()
+    requests_module = None
+    if own_session:
+        import requests as requests_module
+        client = requests_module.Session()
+    else:
+        client = session
     if own_session:
         client.trust_env = False
     url = models_endpoint(config)
@@ -101,8 +105,10 @@ def fetch_remote_models(config: dict, secret: str, session=None) -> dict:
                     raw.extend(block)
                     if len(raw) > 2 * 1024 * 1024:
                         raise ValueError("模型 LIST 响应超过 2 MiB，已停止读取")
-        except requests.RequestException:
-            raise ValueError("模型 LIST 网络请求失败；已保留默认模型和手动填写") from None
+        except Exception as exc:
+            if requests_module is not None and isinstance(exc, requests_module.RequestException):
+                raise ValueError("模型 LIST 网络请求失败；已保留默认模型和手动填写") from None
+            raise
         try:
             payload = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, ValueError):
