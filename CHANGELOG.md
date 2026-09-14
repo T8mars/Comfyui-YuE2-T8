@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.12 - 2026-09-15
+
+- Complete the requested YuE2 training schedule but publish the checkpoint with the lowest song-disjoint validation loss.
+- Record both completed steps and the selected checkpoint step in model metadata.
+
 ## 1.4.11 - 2026-09-15
 
 - Train YuE2 style LoRAs with reproducible 30-second semantic windows so long songs remain practical on 24GB GPUs.

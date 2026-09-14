@@ -79,6 +79,17 @@ class CheckpointTests(unittest.TestCase):
         self.assertIs(_training_codec_window(short, 768, np.random.default_rng(1)), short)
         self.assertIs(_validation_codec_windows(short, 768)[0], short)
 
+    def test_best_validation_checkpoint_is_selected_deterministically(self):
+        from app.yue2_app.yue2_trainer import _best_validation_step
+        history = [
+            {"step": 100, "validation_loss": 4.0},
+            {"step": 200, "validation_loss": 3.8},
+            {"step": 300, "validation_loss": 3.8},
+            {"step": 400, "validation_loss": None},
+        ]
+        self.assertEqual(_best_validation_step(history, 800), (200, 3.8))
+        self.assertEqual(_best_validation_step([], 800), (800, None))
+
 
 if __name__ == "__main__":
     unittest.main()

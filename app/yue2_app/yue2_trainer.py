@@ -208,6 +208,15 @@ def _validation_codec_windows(codec, size: int):
     return [codec[start:start + size] for start in starts]
 
 
+def _best_validation_step(history: list[dict], fallback: int) -> tuple[int, float | None]:
+    measured = [item for item in history if item.get("validation_loss") is not None
+                and math.isfinite(float(item["validation_loss"]))]
+    if not measured:
+        return int(fallback), None
+    selected = min(measured, key=lambda item: (float(item["validation_loss"]), int(item["step"])))
+    return int(selected["step"]), float(selected["validation_loss"])
+
+
 def _loss(model, ids, prefix_length: int, *, gradient: bool):
     import torch
     import torch.nn.functional as F
@@ -400,7 +409,8 @@ def train(root: Path, run: dict, prepared: Path, ctx) -> dict:
             return {"paused": True, "step": step, "checkpoint": str(checkpoints / f"step-{step:08d}"),
                     "manifest": manifest, "history": history, "best_validation": best}
         ctx.check_cancelled()
-    final = checkpoints / f"step-{config['steps']:08d}" / "adapter.safetensors"
+    selected_step, selected_validation = _best_validation_step(history, config["steps"])
+    final = checkpoints / f"step-{selected_step:08d}" / "adapter.safetensors"
     final_adapter = inspect_adapter(final)
     library = AssetLibrary(root)
     model_asset = library.import_file(
@@ -410,13 +420,19 @@ def train(root: Path, run: dict, prepared: Path, ctx) -> dict:
         metadata={"model_type": "yue2_ar_lora", "rank": config["rank"],
                   "training_identity": training_identity,
                   "adapter_content_sha256": final_adapter["content_sha256"],
+                  "completed_training_steps": config["steps"],
+                  "selected_validation_step": selected_step,
+                  "selected_validation_loss": selected_validation,
                   "supported_cot": ["off"],
                   "nar_companion_sha256": resources["files"]["nar_lora_joint_v4.pt"]["sha256"],
                   "training_source_revision": resources["revision"]},
     )
     library.update_training_run(run["id"], state="complete", model_asset_id=model_asset["id"],
                                 config={**config, **prompt_defaults, "prepared": str(prepared), "history": history,
-                                        "best_validation": best, "training_identity": training_identity})
+                                        "best_validation": best, "selected_step": selected_step,
+                                        "completed_training_steps": config["steps"],
+                                        "training_identity": training_identity})
     return {"paused": False, "step": config["steps"], "model_asset": model_asset,
+            "selected_step": selected_step, "selected_validation_loss": selected_validation,
             "adapter": str(final), "history": history, "best_validation": best,
             "nar_companion": str(resource_directory(root) / "nar_lora_joint_v4.pt")}
