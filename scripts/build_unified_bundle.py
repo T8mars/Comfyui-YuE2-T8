@@ -27,6 +27,16 @@ FLASH_WHEELS = {
 }
 
 
+def scrub_paths(value,*paths):
+    """Make bundle-owned reports portable without changing verification results."""
+    result = str(value)
+    for path in paths:
+        raw = str(Path(path).absolute())
+        for variant in {raw,raw.replace('\\','/'),json.dumps(raw)[1:-1]}:
+            result = result.replace(variant,'%BUILD_PATH%')
+    return result
+
+
 def digest(path):
     with path.open('rb') as stream:
         return hashlib.file_digest(stream,'sha256').hexdigest()
@@ -78,7 +88,9 @@ def runtime_files(runtime):
     files = [path for path in plain_files(runtime)
              if not (path.relative_to(runtime).parts[0]=='playwright'
                      and ('.links' in path.relative_to(runtime).parts
-                          or path.name.lower() in {'debug.log','chrome_debug.log'}))]
+                          or path.name.lower() in {'debug.log','chrome_debug.log'}))
+             and path.relative_to(runtime).parts[0]!='Scripts'
+             and path.name.lower()!='direct_url.json']
     interpreters = [p.relative_to(runtime).as_posix() for p in files if p.name.lower()=='python.exe']
     if interpreters!=['python.exe']:
         raise ValueError(f'Expected exactly one Python executable: {interpreters}')
@@ -148,7 +160,7 @@ def main():
         def record(value):
             state.write_text(json.dumps(value,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
         report = {'state':'building','version':manifest['version'],'source_commit':manifest['source_commit'],
-                  'target':str(target),'bytes':total,'published':False}
+                  'target':'.','bytes':total,'published':False}
         record(report)
         for item,relative in entries:
             path = target/relative
@@ -182,13 +194,16 @@ def main():
         [python,'-X','utf8',target/'scripts/verify_models.py','--root',target],
         [python,'-X','utf8',target/'scripts/verify_voice_models.py','--root',target],
         [python,'-X','utf8',target/'scripts/download_rvc_models.py','--root',target,'--source',target,'--verify-only'],
-        [python,'-X','utf8','-c','from pathlib import Path; from app.yue2_app.training_resources import status; value=status(Path.cwd()); assert value["ready"], value; print(value)'],
+        [python,'-X','utf8','-c','from pathlib import Path; from app.yue2_app.training_resources import status; value=status(Path.cwd()); assert value["ready"], value; print("YuE2 training resources ready")'],
     ]
     environment = {**os.environ,'YUE2_HOME':str(target),'YUE2_KIT':str(target)}
     with (target/'logs/bundle-verification.log').open('wb') as log:
         for command in commands:
             subprocess.run(list(map(str,command)),cwd=target,env=environment,stdout=log,stderr=log,check=True,
                            creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+    verification = target/'logs/bundle-verification.log'
+    verification.write_text(scrub_paths(verification.read_text(encoding='utf-8',errors='replace'),
+                                        target,args.runtime,args.models,args.flash_build,args.launcher),encoding='utf-8')
     runtime_files(target/'runtime')
     report.update(state='verified',runtime='runtime/python.exe',models_included=True,llm_weights_included=False,
                   flash_attention_wheels_included=True,flash_attention_enabled=False)

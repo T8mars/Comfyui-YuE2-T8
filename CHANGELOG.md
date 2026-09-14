@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.10 - 2026-09-15
+
+- Keep full-bundle build manifests location-independent and remove local build paths from verification logs.
+- Document all eight model directories, including the RVC and YuE2 style-training resources mirrored on Hugging Face.
+
 ## 1.4.9 - 2026-09-15
 
 - Put Seed-VC and RVC octave controls directly in the reference-cover workflow, with clear female-song-to-male-voice and male-song-to-female-voice presets.

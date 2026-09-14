@@ -8,7 +8,8 @@ import shutil
 spec = importlib.util.spec_from_file_location('bundle_builder',Path(__file__).resolve().parents[1]/'scripts/build_unified_bundle.py')
 builder = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(builder)
-archive_relative,plain_files,runtime_files = builder.archive_relative,builder.plain_files,builder.runtime_files
+archive_relative,plain_files,runtime_files,scrub_paths = (builder.archive_relative,builder.plain_files,
+                                                          builder.runtime_files,builder.scrub_paths)
 release_spec = importlib.util.spec_from_file_location('release_builder',Path(__file__).resolve().parents[1]/'scripts/build_release.py')
 release_builder = importlib.util.module_from_spec(release_spec)
 release_spec.loader.exec_module(release_builder)
@@ -45,10 +46,18 @@ class PortableBundleBoundary(unittest.TestCase):
             links = root/'playwright/.links'
             links.mkdir()
             (links/'installation').write_text('development install path')
+            scripts = root/'Scripts'
+            scripts.mkdir()
+            (scripts/'pip.exe').write_bytes(b'absolute launcher')
+            direct = root/'package.dist-info'
+            direct.mkdir()
+            (direct/'direct_url.json').write_text('{"url":"file:///private/build"}')
             files,_ = runtime_files(root)
             self.assertIn(root/'python.exe',files)
             self.assertNotIn(browser/'debug.log',files)
             self.assertNotIn(links/'installation',files)
+            self.assertNotIn(scripts/'pip.exe',files)
+            self.assertNotIn(direct/'direct_url.json',files)
             (root/'voice').mkdir()
             (root/'voice/python.exe').write_bytes(b'old runtime')
             with self.assertRaisesRegex(ValueError,'one Python'):
@@ -66,6 +75,14 @@ class PortableBundleBoundary(unittest.TestCase):
             (root/'.cache').mkdir()
             (root/'.cache/token').write_bytes(b'not published')
             self.assertEqual([p.name for p in plain_files(root)],['model.safetensors'])
+
+    def test_public_reports_remove_plain_slash_and_json_escaped_build_paths(self):
+        path = Path('E:/private/build').absolute()
+        escaped = json.dumps(str(path))[1:-1]
+        value = f'{path}\n{str(path).replace(chr(92), "/")}\n{escaped}'
+        cleaned = scrub_paths(value,path)
+        self.assertEqual(cleaned.count('%BUILD_PATH%'),3)
+        self.assertNotIn('private',cleaned)
 
 
 if __name__=='__main__':
