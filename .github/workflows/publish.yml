@@ -14,12 +14,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+      - name: Set up stable Python
+        id: python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
       - name: Check whether this version already exists
         id: registry
         shell: bash
         run: |
-          python - <<'PY'
+          "${{ steps.python.outputs.python-path }}" - <<'PY'
           import json
           import os
           import sys
@@ -43,7 +48,7 @@ jobs:
       - name: Verify Registry accepted the version
         shell: bash
         run: |
-          python - <<'PY'
+          "${{ steps.python.outputs.python-path }}" - <<'PY'
           import json
           import time
           import tomllib

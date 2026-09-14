@@ -560,6 +560,16 @@ class IntegrationCodeTests(unittest.TestCase):
                 self.assertIn(link[1], node_ids)
                 self.assertIn(link[3], node_ids)
 
+    def test_ci_and_registry_gate_use_current_actions_and_explicit_python(self):
+        github = Path(__file__).resolve().parents[1] / ".github/workflows"
+        quality = (github / "quality.yml").read_text(encoding="utf-8")
+        publish = (github / "publish.yml").read_text(encoding="utf-8")
+        for workflow in (quality, publish):
+            self.assertIn("actions/checkout@v7", workflow)
+            self.assertIn("actions/setup-python@v7", workflow)
+        self.assertIn('python-version: "3.12"', publish)
+        self.assertEqual(publish.count('"${{ steps.python.outputs.python-path }}" - <<\'PY\''), 2)
+
 
 if __name__ == "__main__":
     unittest.main()
