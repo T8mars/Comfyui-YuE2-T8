@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.4.5 - 2026-09-15
+
+- Keep every asset-card action inside its card at desktop widths, including the fourth “Add to project” action.
+- Reset the page position when switching workspaces and immediately remove stale result banners from unrelated pages.
+- Give dynamic asset dialogs accessible names and replace browser-default required-field messages with Chinese guidance.
+- Summarize technical failures consistently on live and history pages while preserving full details in task logs.
+- Treat completed update records from older releases as idle, and extend real-browser regression coverage with seeded projects, assets and a completed playable result.
+
 ## 1.4.4 - 2026-09-14
 
 - Add an always-visible “All workspaces” menu to phone and tablet layouts, with current-workspace highlighting and full keyboard/dialog semantics.

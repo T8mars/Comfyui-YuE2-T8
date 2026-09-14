@@ -27,6 +27,17 @@ def manifest(version="1.2.2", digest="a" * 64):
 
 
 class UpdaterTests(unittest.TestCase):
+    def test_completed_status_from_an_older_release_is_reported_as_idle(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            status = root / "logs" / "update-status.json"
+            status.parent.mkdir()
+            status.write_text(json.dumps({"state": "complete", "version": "1.4.1",
+                                          "message": "已更新到 v1.4.1"}), encoding="utf-8")
+            self.assertEqual(updater.update_status(root, "1.4.5"),
+                             {"state": "idle", "current_version": "1.4.5"})
+            self.assertEqual(updater.update_status(root, "1.4.1")["state"], "complete")
+
     def test_manifest_is_bound_to_project_version_and_asset(self):
         valid = updater.validate_manifest(manifest())
         self.assertEqual(valid["version"], "1.2.2")

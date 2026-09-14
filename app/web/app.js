@@ -6,7 +6,6 @@ let planState = null;
 let currentJobId = null;
 let workspaceRefreshing = false;
 let modelSettingsInitialized = false;
-let displayedTerminal = null;
 let projectAssetSignature = '';
 let historyOffset = 0, historyTotal = 0, historyLoadRevision = 0; const historyPageSize = 20;
 let availableUpdate = null;
@@ -177,11 +176,17 @@ function formatClock(seconds) { const value = Math.max(0, Math.floor(seconds || 
 function elapsed(job) { return formatClock(Date.now() / 1000 - (job.started_at || job.created_at || Date.now() / 1000)); }
 function submittedAt(job) { return new Date(job.created_at * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}); }
 
+function publicErrorSummary(value) {
+  const detail = String(value || '').trim();
+  const technical = /Traceback|\b(?:NameError|KeyError|AttributeError|RuntimeError|FileNotFoundError|OSError)\b|^['"][^'"]+['"]$|name ['"].+['"] is not defined|object has no attribute|File ['"]|Path is outside allowed directory|[A-Za-z]:\\|\/(?:home|tmp|var)\//i.test(detail);
+  return technical ? '任务运行时出现技术错误，请查看任务日志了解详情。' : (detail.split(/\r?\n/, 1)[0] || '未知错误');
+}
+
 function failureMarkup(error) {
   const id = error?.jobId;
   const job = error?.job || {};
   const oom = /out of memory/i.test(error?.message || '');
-  const reason = oom ? '显存不足，任务已停止。可以使用保存的阶段结果重新运行。' : error?.message || '未知错误';
+  const reason = oom ? '显存不足，任务已停止。可以使用保存的阶段结果重新运行。' : publicErrorSummary(error?.message);
   const generatedAudio = job.generated_result?.audio;
   const generatedRel = generatedAudio && id ? relativeAudio(job, generatedAudio) : null;
   const intermediate = generatedRel ? `<p>歌曲已生成，可先试听：</p><audio controls preload="metadata" src="${audioUrl(id, generatedRel)}"></audio>` : '';
@@ -211,21 +216,6 @@ async function resumeJob(id, button) {
   } catch (error) { button.disabled = false; alert(error.message); }
 }
 window.resumeJob = resumeJob;
-
-function renderLatestTask(jobs) {
-  const target = $('#latest-task');
-  const active = document.body.dataset.activeTab || 'project';
-  const projectId=String(window.workbenchProjectId?.()||'');
-  const job = jobs.find(item => ['generate', 'reference_cover', 'voice_convert', 'render_plan', 'decode'].includes(item.kind) && resultPanel(item) === active && String(item.project_id||'')===projectId);
-  if (!job) { target.classList.add('hidden'); displayedTerminal = null; return; }
-  if (!TERMINAL.has(job.status)) { target.classList.add('hidden'); displayedTerminal = null; return; }
-  const signature = `${projectId||'__global__'}:${job.id}:${job.status}`;
-  if (signature === displayedTerminal) return;
-  displayedTerminal = signature;
-  target.classList.remove('hidden');
-  if (job.status === 'complete') renderJob(job, target);
-  else target.innerHTML = failureMarkup({jobId: job.id, message: job.error, job});
-}
 
 async function toggleJobLog(id, button) {
   const target = button.closest('.failure-card, .history-card')?.querySelector('.job-log');
@@ -398,7 +388,7 @@ async function refreshWorkspace() {
   workspaceRefreshing = true;
   try {
     const [healthData, listData] = await Promise.all([api('/api/health'), api('/api/jobs?limit=100')]);
-    renderHealth(healthData); renderTaskCenter(healthData, listData.jobs); renderLatestTask(listData.jobs); renderPanelResults(listData.jobs);
+    renderHealth(healthData); renderTaskCenter(healthData, listData.jobs); renderPanelResults(listData.jobs);
     const assetJob = listData.jobs.find(job => job.asset_ids?.length);
     const assetSignature = assetJob ? `${assetJob.id}:${assetJob.asset_ids.length}` : '';
     if (assetSignature && assetSignature !== projectAssetSignature) { projectAssetSignature = assetSignature; window.refreshWorkbenchProject?.(); }
@@ -507,12 +497,15 @@ $$('.tab').forEach(button => button.onclick = () => {
   $$('.tab').forEach(item => { const active=item.dataset.tab===button.dataset.tab;item.classList.toggle('active',active);item.setAttribute('aria-selected',String(active));if(active)item.setAttribute('aria-current','page');else item.removeAttribute('aria-current'); });
   $$('#workspace-menu-dialog [data-go-tab]').forEach(item => { const active=item.dataset.goTab===button.dataset.tab;item.classList.toggle('active',active);if(active)item.setAttribute('aria-current','page');else item.removeAttribute('aria-current'); });
   $$('.panel').forEach(panel => panel.classList.toggle('active', panel.id === button.dataset.tab));
+  window.scrollTo({top: 0, left: 0, behavior: 'auto'});
   if (button.dataset.tab === 'history') loadHistory();
 });
 const restoredTab = savedValue('active-tab');
 const allowedTabs = ['project', 'assets', 'training', 'create', 'plan', 'cover', 'history', 'assistant', 'voices'];
 const initialTab = allowedTabs.includes(restoredTab) ? restoredTab : document.body.dataset.activeTab;
+if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 $(`.tab[data-tab="${initialTab}"]`).click();
+requestAnimationFrame(() => window.scrollTo({top: 0, left: 0, behavior: 'auto'}));
 
 const workspaceMenuDialog = $('#workspace-menu-dialog');
 $('#mobile-workspace-menu').onclick = () => workspaceMenuDialog.showModal();
@@ -547,6 +540,38 @@ $('#create-form').onsubmit = async event => {
   try { await submit('generate', formObject(event.target), $('#create-result'), $('#create-button')); }
   catch (error) { renderScopedFailure($('#create-result'),error); }
 };
+
+function requiredFieldLabel(field) {
+  const label = field.closest('label');
+  if (!label) return '此项';
+  const copy = label.cloneNode(true);
+  copy.querySelectorAll('input,select,textarea,button,output').forEach(element => element.remove());
+  return copy.textContent.replace(/（.*?）/g, '').trim() || '此项';
+}
+document.addEventListener('invalid', event => {
+  const field = event.target;
+  if (!field.validity || typeof field.setCustomValidity !== 'function') return;
+  if (field.validity.customError && field.dataset.requiredMessageActive !== 'true') return;
+  const label = requiredFieldLabel(field);
+  let message = '';
+  if (field.validity.valueMissing) message = field.type === 'checkbox' || field.type === 'radio'
+    ? `请先确认：${label}` : field.tagName === 'SELECT' ? `请选择${label}` : `请填写${label}`;
+  else if (field.validity.rangeUnderflow) message = `${label}不能小于 ${field.min}`;
+  else if (field.validity.rangeOverflow) message = `${label}不能大于 ${field.max}`;
+  else if (field.validity.tooLong) message = `${label}最多 ${field.maxLength} 个字符`;
+  else if (field.validity.tooShort) message = `${label}至少 ${field.minLength} 个字符`;
+  else if (field.validity.stepMismatch || field.validity.badInput || field.validity.typeMismatch || field.validity.patternMismatch) message = `请填写有效的${label}`;
+  if (!message) return;
+  field.dataset.requiredMessageActive = 'true';
+  field.setCustomValidity(message);
+}, true);
+for (const eventName of ['input', 'change']) document.addEventListener(eventName, event => {
+  const field = event.target;
+  if (field.dataset?.requiredMessageActive === 'true') {
+    delete field.dataset.requiredMessageActive;
+    field.setCustomValidity('');
+  }
+}, true);
 
 $('#plan-form').onsubmit = async event => {
   event.preventDefault();
@@ -822,7 +847,7 @@ async function loadHistory() {
         const rel = relativeAudio(job, candidate.audio);
         return `<div class="comparison-result"><p class="meta">${voiceDescription(candidate)}</p>${rel ? `<audio controls preload="none" src="${audioUrl(job.id,rel)}"></audio><a class="ghost compact" href="${audioUrl(job.id,rel)}" download>下载音频</a>` : ''}${stemPlayers(job,candidate)}</div>`;
       }).join('') : '';
-      const errorDetail=String(job.error||'').trim(),technicalError=/Traceback|\b(?:NameError|KeyError|AttributeError|RuntimeError|FileNotFoundError|OSError)\b|^['"][^'"]+['"]$|name ['"].+['"] is not defined|object has no attribute|File ['"]|Path is outside allowed directory/i.test(errorDetail),errorSummary=technicalError?'任务运行时出现技术错误，请查看任务日志了解详情。':errorDetail.split(/\r?\n/,1)[0];
+      const errorDetail=String(job.error||'').trim(),errorSummary=publicErrorSummary(errorDetail);
       const errorBlock=errorDetail?`<div class="history-error"><b>任务未完成</b><span>${escapeHtml(errorSummary)}</span>${errorDetail!==errorSummary?`<details><summary>查看错误详情</summary><pre>${escapeHtml(errorDetail)}</pre></details>`:''}</div>`:'';
       return `<article class="history-card"><header><div><b>${escapeHtml(kindLabel(job.kind))}</b><div class="meta">${escapeHtml(job.id)} · ${new Date(job.created_at * 1000).toLocaleString()} · ${escapeHtml(sourceLabel(job.source))}</div></div></header><b class="status-${job.status}">${escapeHtml(job.status === 'running' ? stageLabel(job.stage) : stageLabel(job.status))}</b>${errorBlock}${!result.comparison && audio ? `<audio controls preload="none" src="${audioUrl(job.id, audio)}"></audio>` : ''}<p class="meta">${voiceDescription(result)}</p>${comparison || stemPlayers(job,result)}<div class="toolbar">${exportButton}${retryButton}${logButtons}</div><pre class="job-log hidden"></pre></article>`;
     }).join('') || `<div class="empty-state"><i class="bi bi-clock-history"></i><b>还没有符合条件的任务</b><p>${historyHasFilters?'清除筛选可查看全部任务记录。':'完成的任务会显示在这里。'}</p>${historyHasFilters?'<button id="clear-history-filters" class="ghost compact" type="button">清除筛选</button>':''}</div>`;

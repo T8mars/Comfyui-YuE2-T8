@@ -264,7 +264,7 @@ class JobStore:
         }.get(kind, "本地音乐任务")
 
     def assert_writable(self) -> None:
-        if self.updating or updater.update_status(ROOT).get('state') in updater.ACTIVE_STATES:
+        if self.updating or updater.update_status(ROOT, __version__).get('state') in updater.ACTIVE_STATES:
             raise ValueError('整合包正在更新，请等待升级完成后再提交操作')
 
     def begin_update(self) -> None:
@@ -1006,7 +1006,7 @@ class Handler(BaseHTTPRequestHandler):
                 info, _ = updater.check_update(__version__)
                 return self._json(200, info)
             if path == "/api/update/status":
-                return self._json(200, updater.update_status(ROOT))
+                return self._json(200, updater.update_status(ROOT, __version__))
             if path == "/api/settings":
                 return self._json(200, settings_info(ROOT))
             if path == "/api/jobs":
@@ -1095,7 +1095,7 @@ class Handler(BaseHTTPRequestHandler):
             if origin and (not is_loopback_host(urllib.parse.urlparse(origin).netloc)
                            or urllib.parse.urlparse(origin).netloc.lower() != host.lower()):
                 return self._error(403, "拒绝跨站请求")
-            if STORE.updating or updater.update_status(ROOT).get('state') in updater.ACTIVE_STATES:
+            if STORE.updating or updater.update_status(ROOT, __version__).get('state') in updater.ACTIVE_STATES:
                 return self._error(409, '整合包正在更新，请等待升级完成后再提交操作')
             if path.startswith("/api/workbench/"):
                 assert ASSETS is not None

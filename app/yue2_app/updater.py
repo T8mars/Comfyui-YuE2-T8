@@ -192,7 +192,7 @@ ACTIVE_STATES = frozenset({
 })
 
 
-def update_status(root: Path) -> dict:
+def update_status(root: Path, current_version: str = "") -> dict:
     path = root.resolve() / "logs" / "update-status.json"
     if not path.is_file():
         return {"state": "idle"}
@@ -200,4 +200,9 @@ def update_status(root: Path) -> dict:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {"state": "error", "message": "更新状态文件无法读取"}
-    return value if isinstance(value, dict) else {"state": "error", "message": "更新状态无效"}
+    if not isinstance(value, dict):
+        return {"state": "error", "message": "更新状态无效"}
+    installed = str(value.get("version") or value.get("target_version") or "")
+    if value.get("state") == "complete" and current_version and installed and installed != current_version:
+        return {"state": "idle", "current_version": current_version}
+    return value
