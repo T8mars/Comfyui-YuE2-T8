@@ -267,14 +267,16 @@ This melody still waits for you</textarea></label>
             <h4>用参考声音演唱</h4>
             <p id="cover-voice-hint">先生成歌曲，再分离人声并转换音色，最后与伴奏重新混音。</p>
             <label>音色转换方式<select id="voice-backend"><option value="seed-vc">Seed-VC · 使用短参考声音</option><option value="rvc">RVC · 使用已训练音色</option><option value="compare">Seed-VC / RVC · 同曲对比</option></select></label>
-            <p id="voice-compare-hint" class="meta hidden">同一首歌曲分别转换两次，依次运行，共用分离后的人声与伴奏。请选择同一目标音色的参考声音和 RVC 模型，完成后可分别试听。</p>
+            <p id="voice-compare-hint" class="meta hidden">同一首歌曲分别转换两次，依次运行，共用分离后的人声与伴奏。请选择同一目标音色的参考声音和 RVC 模型；Seed-VC 与 RVC 可分别设置演唱音高。</p>
             <div id="rvc-cover-settings" class="hidden">
               <label>我的音色<select id="rvc-cover-model"></select></label>
               <label>说话人<select id="rvc-cover-speaker"></select></label>
               <p id="rvc-pitch-profile" class="meta">选择音色后查看训练音域。</p>
-              <label>RVC 演唱音高（半音）<input id="rvc-pitch-shift" type="number" min="-12" max="12" step="1" value="0"></label>
-              <div class="toolbar"><button type="button" class="ghost compact" data-rvc-pitch="0">保留原调</button><button type="button" class="ghost compact" data-rvc-pitch="-12">低一个八度</button><button type="button" class="ghost compact" data-rvc-pitch="12">高一个八度</button></div>
-              <p class="meta">高音超出训练素材的主要音域时，可能失真。可明确选择低八度再试听；这会改变演唱音高。对比模式下，此项只影响 RVC。</p>
+              <div class="pitch-preset-card">
+                <label>RVC 演唱音高（半音）<input id="rvc-pitch-shift" type="number" min="-12" max="12" step="1" value="0"></label>
+                <div class="toolbar"><button type="button" class="ghost compact" data-rvc-pitch="-12">女歌男唱 · 低八度</button><button type="button" class="ghost compact" data-rvc-pitch="0">保留原调</button><button type="button" class="ghost compact" data-rvc-pitch="12">男歌女唱 · 高八度</button></div>
+                <p id="rvc-pitch-summary" class="meta">保留原曲演唱音高。</p>
+              </div>
               <div class="toolbar"><button id="rvc-cover-train" class="ghost compact" type="button">没有模型？去训练音色</button></div>
               <div class="advanced-grid"><label>检索贴合度<input id="rvc-index-rate" type="number" min="0" max="1" step="0.05" value="0.75"></label><label>辅音保护<input id="rvc-protect" type="number" min="0" max="0.5" step="0.01" value="0.33"></label></div>
               <p class="meta">检索贴合度并非越高越好。听到咬字异常或杂音时，可先关闭检索进行对照。</p><button id="rvc-disable-index" type="button" class="ghost compact">关闭检索，保留当前音高</button>
@@ -289,12 +291,16 @@ This melody still waits for you</textarea></label>
               <audio controls preload="metadata" aria-label="参考音色试听"></audio>
               <p data-preview-status role="status">可先试听，确认音色与录音内容。</p>
             </div>
+            <div id="seed-pitch-settings" class="pitch-preset-card">
+              <label>Seed-VC 演唱音高（半音）<input id="voice-shift" type="number" min="-12" max="12" step="1" value="0"></label>
+              <div class="toolbar"><button type="button" class="ghost compact" data-seed-pitch="-12">女歌男唱 · 低八度</button><button type="button" class="ghost compact" data-seed-pitch="0">保留原调</button><button type="button" class="ghost compact" data-seed-pitch="12">男歌女唱 · 高八度</button></div>
+              <p id="seed-pitch-summary" class="meta">保留原曲演唱音高。</p>
+            </div>
             <details class="advanced voice-settings">
               <summary>音色转换高级设置</summary>
               <div class="advanced-grid">
                 <label>转换精度（步数）<input id="voice-steps" type="number" min="4" max="50" step="1" value="30"></label>
                 <label>音色贴合度<input id="voice-cfg" type="number" min="0" max="1.5" step="0.05" value="0.7"></label>
-                <label>Seed-VC 演唱音高（半音）<input id="voice-shift" type="number" min="-12" max="12" step="1" value="0"></label>
                 <label>人声音量 dB<input id="voice-gain" type="number" min="-18" max="12" step="0.5" value="0"></label>
                 <label>伴奏音量 dB<input id="backing-gain" type="number" min="-18" max="12" step="0.5" value="0"></label>
                 <label class="check"><input id="voice-auto-f0" type="checkbox">自动匹配参考音域</label>

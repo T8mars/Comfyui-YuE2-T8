@@ -267,6 +267,31 @@ def run_browser(url: str, output: Path) -> dict:
         assert style.evaluate("field => field.validationMessage").startswith("请填写风格提示")
         style.fill(original_style)
 
+        page.locator('.studio-sidebar [data-tab="cover"]').click()
+        page.locator("#cover-mode").select_option("direct")
+        seed_pitch = page.locator("#seed-pitch-settings")
+        seed_pitch.wait_for(state="visible")
+        assert seed_pitch.locator("[data-seed-pitch]").count() == 3
+        page.locator("#voice-auto-f0").evaluate("element => element.checked = true")
+        seed_pitch.locator('[data-seed-pitch="-12"]').click()
+        assert page.locator("#voice-shift").input_value() == "-12"
+        assert not page.locator("#voice-auto-f0").is_checked()
+        assert seed_pitch.locator('[data-seed-pitch="-12"]').get_attribute("aria-pressed") == "true"
+        assert "女声原曲" in page.locator("#seed-pitch-summary").inner_text()
+        assert page.evaluate("localStorage.getItem('yue2:seed-pitch-shift')") == "-12"
+        assert "-12 半音" in page.evaluate("voiceDescription({backend:'seed-vc',settings:{semi_tone_shift:-12}})")
+        page.locator("#voice-backend").select_option("rvc")
+        assert seed_pitch.is_hidden() and page.locator("#rvc-cover-settings").is_visible()
+        page.locator('[data-rvc-pitch="-12"]').click()
+        assert page.locator("#rvc-pitch-shift").input_value() == "-12"
+        assert page.evaluate("localStorage.getItem('yue2:rvc-pitch-shift')") == "-12"
+        page.locator("#voice-backend").select_option("compare")
+        assert seed_pitch.is_visible() and page.locator("#rvc-cover-settings").is_visible()
+        page.locator("#voice-backend").select_option("seed-vc")
+        seed_pitch.scroll_into_view_if_needed()
+        assert_no_page_overflow(page, "desktop cover pitch controls")
+        page.screenshot(path=output / "desktop-cover-pitch.png", full_page=False)
+
         page.set_viewport_size({"width": 820, "height": 900})
         page.reload(wait_until="domcontentloaded")
         wait_for_ui(page)
@@ -282,6 +307,11 @@ def run_browser(url: str, output: Path) -> dict:
         page.evaluate("window.scrollTo(0, 0)")
         menu = page.locator("#mobile-workspace-menu")
         menu.wait_for(state="visible")
+        page.locator("#voice-backend").select_option("seed-vc")
+        page.locator("#seed-pitch-settings").scroll_into_view_if_needed()
+        assert_no_page_overflow(page, "phone cover pitch controls")
+        page.screenshot(path=output / "phone-cover-pitch.png", full_page=False)
+        page.evaluate("window.scrollTo(0, 0)")
         page.evaluate("""() => renderTaskCenter({current_job: 'ui-smoke-running'}, [{
           id: 'ui-smoke-running', kind: 'generate', status: 'running', stage: 'semantic',
           progress: .42, created_at: Date.now() / 1000 - 12, source: 'webui', summary: '后台进度回归'
@@ -334,6 +364,7 @@ def run_browser(url: str, output: Path) -> dict:
             "full and partial technical failures use a public summary and required fields use Chinese validation",
             "ordinary workspace buttons use current-page semantics without unsupported selected state",
             "backend-reported progress stays fixed across workspaces and opens the full task details",
+            "Seed-VC and RVC expose independent remembered octave presets in the main cover flow",
             "mobile workspace switching resets a long-page scroll position",
             "all nine workspaces meet WCAG AA contrast for visible normal-size text",
         ],

@@ -80,6 +80,16 @@ class VoiceAdmission(unittest.TestCase):
         self.assertEqual(saved['semi_tone_shift'], 0)
         self.assertEqual(saved['rvc_pitch_shift'], -12)
 
+    def test_seed_vc_octave_shift_is_validated_and_preserved(self):
+        request = {**self.request(), 'backend':'seed-vc', 'semi_tone_shift':-12}
+        job = self.store.create('voice_convert', request)
+        saved = json.loads((self.root/'outputs/jobs'/job['id']/'job.json').read_text())['request']
+        self.assertEqual(saved['semi_tone_shift'], -12)
+
+        for value in (-13, 13, True):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                self.store.create('voice_convert', {**request, 'semi_tone_shift':value})
+
     def test_no_f0_model_cannot_silently_ignore_a_requested_pitch_change(self):
         with patch('app.yue2_app.rvc_library.verify_voice', return_value={'indices':{'1':'index'}, 'f0':False}):
             with self.assertRaisesRegex(ValueError, '未启用音高条件'):

@@ -151,6 +151,11 @@ textarea { resize: vertical; }
 .upload-box b, .mini-upload b { overflow-wrap: anywhere; }
 .voice-settings { margin-top: 12px; }
 .voice-settings .advanced-grid { grid-template-columns: repeat(2, 1fr); }
+.pitch-preset-card { margin-top: 12px; padding: 13px; border: 1px solid var(--blue-line); border-radius: 10px; background: var(--blue-soft); }
+.pitch-preset-card > label { margin: 0; }
+.pitch-preset-card .toolbar { margin-top: 10px; justify-content: flex-start; }
+.pitch-preset-card .toolbar button[aria-pressed="true"] { color: #fff; border-color: var(--accent-strong); background: var(--accent-strong); }
+.pitch-preset-card .meta { margin: 9px 0 0; }
 .results { display: grid; gap: 14px; margin-top: 28px; }
 .result-card, .history-card { padding: 20px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); box-shadow: 0 7px 20px rgba(31, 41, 55, .05); }
 .result-card header, .history-card header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0; margin: 0; border: 0; background: none; }

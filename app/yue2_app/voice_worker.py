@@ -33,8 +33,11 @@ def _audio_path(root: Path, value: object, *, reference: bool = False) -> Path:
 
 
 def _number(request: dict, name: str, default: float, low: float, high: float) -> float:
+    raw = request.get(name, default)
+    if isinstance(raw, bool):
+        raise ValueError(f"{name} 必须是数字")
     try:
-        value = float(request.get(name, default))
+        value = float(raw)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"{name} 必须是数字") from exc
     if not math.isfinite(value) or not low <= value <= high:

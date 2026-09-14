@@ -5,6 +5,32 @@
   const e = escapeHtml;
   const post = (path, value) => api(path, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(value)});
   const notice = (text, bad = false) => { $('#rvc-result').innerHTML = `<div class="result-card${bad ? ' status-failed' : ''}">${e(text)}</div>`; };
+  function validPitch(value) { const pitch=Number(value); return Number.isInteger(pitch)&&pitch>=-12&&pitch<=12; }
+  function pitchSummary(value) {
+    const pitch=Number(value);
+    if(!validPitch(pitch))return '请输入 -12 到 +12 之间的整数。';
+    if(pitch===-12)return '低一个八度：适合女声原曲改用男声音色，可避开过高音区。伴奏保持不变。';
+    if(pitch===12)return '高一个八度：适合男声原曲改用女声音色。伴奏保持不变。';
+    if(pitch===0)return '保留原曲演唱音高。音色模型高音失真时，可先试听低一个八度。';
+    return `${pitch>0?'+':''}${pitch} 半音只移动人声，伴奏不会转调；非整八度可能与伴奏不和谐。`;
+  }
+  function syncPitch(input, buttons, storageKey, summary) {
+    const pitch=Number(input.value), valid=validPitch(pitch);
+    if(valid)savedValue(storageKey,String(pitch));
+    summary.textContent=pitchSummary(input.value);
+    for(const button of buttons)button.setAttribute('aria-pressed',String(valid&&Number(button.dataset.seedPitch??button.dataset.rvcPitch)===pitch));
+  }
+  function setupPitch(inputId, selector, storageKey, summaryId, disableAuto=false) {
+    const input=$(inputId),buttons=$$(selector),summary=$(summaryId),stored=savedValue(storageKey);
+    if(stored!==null&&validPitch(stored))input.value=String(Number(stored));
+    const refresh=()=>syncPitch(input,buttons,storageKey,summary);
+    input.addEventListener('input',refresh);
+    for(const button of buttons)button.onclick=()=>{input.value=button.dataset.seedPitch??button.dataset.rvcPitch;if(disableAuto)$('#voice-auto-f0').checked=false;refresh();};
+    refresh();
+    return refresh;
+  }
+  const refreshSeedPitch=setupPitch('#voice-shift','[data-seed-pitch]','seed-pitch-shift','#seed-pitch-summary',true);
+  const refreshRvcPitch=setupPitch('#rvc-pitch-shift','[data-rvc-pitch]','rvc-pitch-shift','#rvc-pitch-summary');
   async function update(value) {
     if (!project) throw new Error('请先新建或选择训练项目');
     project = await post(`/api/rvc/projects/${project.id}`, value); renderProject();
@@ -64,8 +90,10 @@
     $('#voice-compare-hint').classList.toggle('hidden', !compare);
     $('#reference-drop-zone').classList.toggle('hidden', rvc);
     $('#reference-preview').classList.toggle('hidden', rvc || !$('#reference-file').files[0]);
+    $('#seed-pitch-settings').classList.toggle('hidden', rvc);
     if (rvc) $('#reference-preview audio').pause();
-    for (const id of ['voice-steps','voice-cfg','voice-auto-f0','voice-shift']) $(`#${id}`).closest('label').classList.toggle('hidden', rvc);
+    for (const id of ['voice-steps','voice-cfg','voice-auto-f0']) $(`#${id}`).closest('label').classList.toggle('hidden', rvc);
+    refreshSeedPitch(); refreshRvcPitch();
     if (!$('#generate-reference-cover').dataset.jobId) restoreButton($('#generate-reference-cover'));
     savedValue('voice-backend', $('#voice-backend').value);
   }
@@ -200,7 +228,6 @@
   $('#voice-backend').onchange = updateCover;
   $('#rvc-cover-model').onchange = () => { savedValue('rvc-voice',$('#rvc-cover-model').value); renderCoverSpeakers(); };
   $('#rvc-cover-speaker').onchange = updateCover;
-  for (const button of document.querySelectorAll('[data-rvc-pitch]')) button.onclick = () => { $('#rvc-pitch-shift').value = button.dataset.rvcPitch; };
   $('#rvc-disable-index').onclick = () => { $('#rvc-index-rate').value = '0'; };
   $('#rvc-cover-train').onclick = () => $('.tab[data-tab="voices"]').click();
   window.addEventListener('rvc-voice-selected', event => {

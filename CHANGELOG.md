@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.9 - 2026-09-15
+
+- Put Seed-VC and RVC octave controls directly in the reference-cover workflow, with clear female-song-to-male-voice and male-song-to-female-voice presets.
+- Preserve independent Seed-VC and RVC pitch choices, explain the effect of non-octave shifts, and show the selected pitch in completed-result descriptions.
+- Reject boolean values in numeric voice parameters before a task enters the queue.
+
 ## 1.4.8 - 2026-09-15
 
 - Raise the contrast of rose section markers, primary buttons, completed workflow stages and completed history states to meet WCAG AA for normal-size text.

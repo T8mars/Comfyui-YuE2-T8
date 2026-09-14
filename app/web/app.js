@@ -479,7 +479,7 @@ function voiceDescription(result) {
   if (!result.backend) return '';
   if (result.backend === 'compare') return 'Seed-VC / RVC 同曲对比';
   const shift = result.settings?.semi_tone_shift;
-  const pitch = result.backend === 'rvc' && Number.isInteger(shift) ? ` · ${shift === 0 ? '原调' : (shift > 0 ? '+' : '') + shift + ' 半音'}` : '';
+  const pitch = Number.isInteger(shift) ? ` · ${shift === 0 ? '原调' : (shift > 0 ? '+' : '') + shift + ' 半音'}` : '';
   return escapeHtml((result.backend === 'rvc' ? 'RVC 专属音色' : 'Seed-VC 参考音色') + (result.voice_name ? ` · ${result.voice_name}` : '') + pitch);
 }
 
