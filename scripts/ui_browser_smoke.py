@@ -194,6 +194,32 @@ def run_browser(url: str, output: Path) -> dict:
         assert_named_controls(page)
         page.screenshot(path=output / "desktop.png", full_page=False)
 
+        page.evaluate("""() => renderTaskCenter({current_job: 'ui-smoke-running'}, [{
+          id: 'ui-smoke-running', kind: 'generate', status: 'running', stage: 'semantic',
+          progress: .42, created_at: Date.now() / 1000 - 12, source: 'webui', summary: '后台进度回归'
+        }])""")
+        workload = page.locator("#task-center-jump")
+        workload.wait_for(state="visible")
+        assert page.locator("#background-progress-title").inner_text() == "歌曲生成 · 正在生成音乐结构"
+        assert page.locator("#background-progress-detail").inner_text() == "42%"
+        assert page.locator("#background-progress-bar").get_attribute("style") == "width: 42%;"
+        assert workload.evaluate("element => getComputedStyle(element).position") == "fixed"
+        assert page.locator("#task-center").is_visible()
+        page.screenshot(path=output / "desktop-progress.png", full_page=False)
+        page.locator("#global-player").evaluate("element => element.classList.remove('hidden')")
+        positions = page.evaluate("""() => {
+          const task = document.querySelector('#task-center-jump').getBoundingClientRect();
+          const player = document.querySelector('#global-player').getBoundingClientRect();
+          return {taskBottom: task.bottom, playerTop: player.top};
+        }""")
+        assert positions["taskBottom"] <= positions["playerTop"] + 1, positions
+        page.locator("#global-player").evaluate("element => element.classList.add('hidden')")
+        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        workload.click()
+        page.wait_for_timeout(250)
+        assert section_top(page, "#task-center") < 900
+        page.evaluate("renderTaskCenter({current_job: null}, []); window.scrollTo(0, 0)")
+
         for panel_id in ("project", "assets", "create", "plan", "cover", "assistant", "training", "voices", "history"):
             page.locator(f'.studio-sidebar [data-tab="{panel_id}"]').click()
             assert_text_contrast(page, panel_id)
@@ -256,6 +282,16 @@ def run_browser(url: str, output: Path) -> dict:
         page.evaluate("window.scrollTo(0, 0)")
         menu = page.locator("#mobile-workspace-menu")
         menu.wait_for(state="visible")
+        page.evaluate("""() => renderTaskCenter({current_job: 'ui-smoke-running'}, [{
+          id: 'ui-smoke-running', kind: 'generate', status: 'running', stage: 'semantic',
+          progress: .42, created_at: Date.now() / 1000 - 12, source: 'webui', summary: '后台进度回归'
+        }])""")
+        workload = page.locator("#task-center-jump")
+        workload.wait_for(state="visible")
+        assert workload.evaluate("element => getComputedStyle(element).position") == "fixed"
+        assert_no_page_overflow(page, "phone with background progress")
+        page.screenshot(path=output / "phone-progress.png", full_page=False)
+        page.evaluate("renderTaskCenter({current_job: null}, [])")
         assert page.locator(".studio-sidebar").evaluate("element => element.scrollWidth > element.clientWidth")
         menu.click()
         dialog = page.locator("#workspace-menu-dialog")
@@ -297,6 +333,7 @@ def run_browser(url: str, output: Path) -> dict:
             "completed generation stays playable with an accessible audio name on its originating page",
             "full and partial technical failures use a public summary and required fields use Chinese validation",
             "ordinary workspace buttons use current-page semantics without unsupported selected state",
+            "backend-reported progress stays fixed across workspaces and opens the full task details",
             "mobile workspace switching resets a long-page scroll position",
             "all nine workspaces meet WCAG AA contrast for visible normal-size text",
         ],

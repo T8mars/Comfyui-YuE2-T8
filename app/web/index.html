@@ -67,7 +67,10 @@
     <div class="status-card">
       <span id="health-dot" class="dot"></span>
       <div><b id="health-title">正在检查运行环境</b><small id="health-detail">请稍候</small></div>
-      <button id="task-center-jump" class="workload hidden" type="button" aria-label="打开当前任务进度"></button>
+      <button id="task-center-jump" class="workload hidden" type="button" aria-label="打开后台任务进度">
+        <span class="workload-copy"><b id="background-progress-title">后台任务</b><small id="background-progress-detail">正在读取进度</small></span>
+        <span id="background-progress-track" class="workload-track" aria-hidden="true"><span id="background-progress-bar"></span></span>
+      </button>
       <div class="header-actions">
         <div class="doctor-action"><button id="doctor-button" class="ghost" type="button">重新进行完整自检</button><small>环境正常时通常无需运行</small></div>
         <div class="update-action">

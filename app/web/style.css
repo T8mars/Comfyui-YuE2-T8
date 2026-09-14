@@ -68,7 +68,13 @@ h1 { max-width: 760px; margin: 12px 0 14px; font-size: clamp(38px, 5vw, 62px); l
 .update-action small { margin: 0; color: var(--muted); }
 .update-action.available small { color: var(--accent-strong); font-weight: 700; }
 .update-action.installing small { color: #3156c8; }
-.workload { grid-column: 2; width: 100%; padding: 10px 12px; border: 1px solid rgba(216, 88, 150, .24); border-radius: 9px; color: var(--accent-strong); background: var(--accent-soft); font: 750 13px var(--sans); text-align: left; cursor: pointer; }
+.workload { position: fixed; z-index: 29; right: 22px; bottom: 18px; width: min(390px,calc(100vw - 44px)); padding: 11px 13px; display: grid; gap: 8px; border: 1px solid rgba(216, 88, 150, .3); border-radius: 11px; color: var(--accent-strong); background: rgba(255,248,252,.98); box-shadow: 0 12px 30px rgba(35,48,79,.18); font: 750 13px var(--sans); text-align: left; cursor: pointer; }
+.workload-copy { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.workload-copy b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workload-copy small { flex: 0 0 auto; margin: 0; color: #59667a; font-size: 11px; }
+.workload-track { height: 5px; overflow: hidden; border-radius: 5px; background: #e7dce3; }
+.workload-track span { width: 0; height: 100%; display: block; border-radius: inherit; background: var(--accent); transition: width .25s ease; }
+body:has(.global-player:not(.hidden)) .workload { bottom: 104px; }
 .dot { width: 10px; height: 10px; border-radius: 50%; background: #a3abba; box-shadow: 0 0 0 5px rgba(163, 171, 186, .16); }
 .dot.ok { background: #34b878; box-shadow: 0 0 0 5px rgba(52, 184, 120, .14); }
 .dot.bad { background: #e05d6f; box-shadow: 0 0 0 5px rgba(224, 93, 111, .12); }

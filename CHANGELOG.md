@@ -3,6 +3,7 @@
 ## 1.4.8 - 2026-09-15
 
 - Raise the contrast of rose section markers, primary buttons, completed workflow stages and completed history states to meet WCAG AA for normal-size text.
+- Keep backend-reported task progress visible while users switch workspaces or scroll, with direct access to the full task details.
 - Recheck the complete desktop and mobile workbench, fresh-start guidance, keyboard dialog flow, persistent asset membership and code-only update package.
 
 ## 1.4.7 - 2026-09-15

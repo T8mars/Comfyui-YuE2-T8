@@ -43,9 +43,6 @@ body > header .status-card .doctor-action small { display: none; }
 body > header .status-card .update-action { grid-column: 2 / 4; padding-top: 8px; }
 body > header .status-card .workload { grid-column: 2 / 4; }
 main { max-width: 1380px; padding: 32px 28px 160px; }
-body[data-active-tab="project"] #task-center,
-body[data-active-tab="assets"] #task-center,
-body[data-active-tab="training"] #task-center { display: none !important; }
 .workspace-heading { margin-bottom: 22px; display: flex; align-items: end; justify-content: space-between; gap: 24px; }
 .workspace-heading h2 { margin: 4px 0 7px; font-size: 28px; }
 .workspace-heading > div > p:last-child { margin: 0; color: var(--muted); font-size: 13px; }
@@ -179,6 +176,8 @@ body[data-active-tab="training"] #task-center { display: none !important; }
   .metric-row { grid-template-columns: 1fr; }
   .global-player { right: 10px; bottom: 10px; left: 10px; grid-template-columns: 1fr auto; }
   .global-player audio { grid-column: 1 / -1; grid-row: 2; }
+  .workload { right: 10px; bottom: 10px; left: 10px; width: auto; }
+  body:has(.global-player:not(.hidden)) .workload { bottom: 132px; }
   button, a.primary, a.ghost, input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]), select { min-height: 44px; }
   .model-settings-copy a { min-height: 44px; display: inline-flex; align-items: center; }
   .meta, .asset-card small, .project-track small, .inspector-asset small, .metric-row small, .global-player small { font-size: 11px; line-height: 1.45; }

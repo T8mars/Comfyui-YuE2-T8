@@ -271,9 +271,8 @@ async function saveModelDirectory(value) {
   } finally { button.disabled = false; }
 }
 
-function stepsFor(job) {
-  if (job.kind === 'assistant') return '';
-  const steps = {
+function taskSteps(job) {
+  return {
     generate: [['starting', '加载模型'], ['planning', '创作乐谱'], ['semantic', '生成结构'], ['synthesis', '合成人声与伴奏'], ['decoding', '输出音频']],
     render_plan: [['starting', '加载模型'], ['semantic', '生成结构'], ['synthesis', '合成人声与伴奏'], ['decoding', '输出音频']],
     plan: [['starting', '加载模型'], ['planning', '创作乐谱']],
@@ -284,6 +283,27 @@ function stepsFor(job) {
     reference_cover: [['starting', '加载模型'], ['planning', '检查乐谱'], ['semantic', '生成结构'], ['synthesis', '合成歌曲'], ['decoding', '输出歌曲'], ['separating_vocals', '分离人声'], ['loading_voice_model', '加载音色'], ['converting_voice', '转换音色'], ['remixing', '混音']],
     voice_convert: [['starting', '准备音频'], ['separating_vocals', '分离人声'], ['loading_voice_model', '加载音色模型'], ['converting_voice', '转换音色'], ['remixing', '重新混音']]
   }[job.kind] || [['starting', '准备'], [job.stage, stageLabel(job.stage)]];
+}
+
+function taskProgress(job) {
+  const explicit = Number(job.progress);
+  if (job.progress !== null && job.progress !== undefined && Number.isFinite(explicit) && explicit >= 0) {
+    const value = Math.max(0, Math.min(100, Math.round(explicit * 100)));
+    return {value, label: `${value}%`};
+  }
+  const completed = Number(job.completed), total = Number(job.total);
+  if (job.completed !== null && job.completed !== undefined && Number.isFinite(completed) && Number.isFinite(total) && total > 0) {
+    return {value: Math.max(0, Math.min(100, completed / total * 100)), label: `${completed} / ${total}`};
+  }
+  const steps = taskSteps(job), stage = job.stage === 'candidate' ? 'starting' : job.stage;
+  const current = steps.findIndex(([key]) => key === stage);
+  if (current < 0 || steps.length < 2) return null;
+  return {value: current / steps.length * 100, label: `阶段 ${current + 1} / ${steps.length}`};
+}
+
+function stepsFor(job) {
+  if (job.kind === 'assistant') return '';
+  const steps = taskSteps(job);
   const stage = job.stage === 'candidate' ? 'starting' : job.stage;
   const current = Math.max(0, steps.findIndex(([key]) => key === stage));
   return `<ol class="task-steps" aria-label="任务步骤">${steps.map(([, label], index) => `<li class="${index < current ? 'done' : index === current ? 'current' : ''}">${escapeHtml(label)}</li>`).join('')}</ol>`;
@@ -359,7 +379,12 @@ function renderTaskCenter(healthData, jobs) {
   $('#queue-list').innerHTML = queued.map(renderQueuedJob).join('');
   const workload = $('#task-center-jump');
   workload.classList.toggle('hidden', !current && !queued.length);
-  workload.textContent = current ? `GPU 工作中 · 1 个执行 / ${queued.length} 个等待` : `${queued.length} 个任务等待开始`;
+  const progress = current ? taskProgress(current) : null;
+  $('#background-progress-title').textContent = current ? `${kindLabel(current.kind)} · ${stageLabel(current.stage)}` : '后台任务正在排队';
+  $('#background-progress-detail').textContent = current ? `${progress?.label || '处理中'}${queued.length ? ` · ${queued.length} 个等待` : ''}` : `${queued.length} 个任务等待开始`;
+  $('#background-progress-track').classList.toggle('hidden', !progress);
+  $('#background-progress-bar').style.width = `${progress?.value || 0}%`;
+  workload.setAttribute('aria-label', `打开后台任务进度：${$('#background-progress-title').textContent}，${$('#background-progress-detail').textContent}`);
   const cover = jobs.find(job => job.kind === 'reference_cover' && !TERMINAL.has(job.status));
   if (cover && !$('#generate-reference-cover').dataset.jobId) bindButton($('#generate-reference-cover'), cover);
   updateBoundButtons(jobs, queued);
