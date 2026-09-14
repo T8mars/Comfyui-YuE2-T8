@@ -1,9 +1,12 @@
 (() => {
   const kindNames = {song:'歌曲',work:'作品',vocal:'人声',instrumental:'伴奏',reference_voice:'参考音色',lyrics:'歌词',style:'曲风',score:'乐谱',model:'模型',other:'其他'};
   const kindIcons = {song:'bi-disc',work:'bi-music-note-beamed',vocal:'bi-mic',instrumental:'bi-soundwave',reference_voice:'bi-person-bounding-box',lyrics:'bi-file-text',style:'bi-tags',score:'bi-music-note-list',model:'bi-gpu-card',other:'bi-file-earmark'};
-  let projects = [], assets = [], currentProjectId = savedValue('workbench-project') || '';
-  let currentRun = null, trainingJobId = savedValue('training-job') || '', pollingTraining = false;
+  let projects = [], assets = [], trainingAssets = [], lyricsAssets = [], styleAssets = [];
+  let assetOffset = 0, assetTotal = 0; const assetPageSize = 24;
+  let currentProjectId = savedValue('workbench-project') || '';
+  let currentRun = null, trainingRuns = [], trainingJobId = savedValue('training-job') || '', pollingTraining = false;
   const audioKinds = new Set(['song','work','vocal','instrumental','reference_voice']);
+  const exportAudioKinds = new Set(['song','work','vocal','instrumental']);
   const player = $('#global-player'), globalAudio = $('#global-audio');
 
   window.workbenchProjectId = () => currentProjectId;
@@ -24,18 +27,25 @@
   $('#global-player-close').onclick = () => { globalAudio.pause(); globalAudio.removeAttribute('src'); player.classList.add('hidden'); };
 
   async function loadProjects() {
+    const previousProjectId = currentProjectId;
     projects = (await api('/api/workbench/projects')).projects;
-    if (currentProjectId && !projects.some(project => project.id === currentProjectId)) currentProjectId = '';
-    if (!currentProjectId && projects.length) currentProjectId = projects[0].id;
+    let nextProjectId = currentProjectId;
+    if (nextProjectId && !projects.some(project => project.id === nextProjectId)) nextProjectId = '';
+    if (!nextProjectId && projects.length) nextProjectId = projects[0].id;
+    if (nextProjectId !== previousProjectId) await window.assistantSwitchProject?.(nextProjectId);
+    currentProjectId = nextProjectId;
     const select = $('#workbench-project-select');
     select.innerHTML = '<option value="">选择或新建项目</option>' + projects.map(project =>
       `<option value="${project.id}">${escapeHtml(project.title)} · ${project.asset_count} 项</option>`).join('');
     select.value = currentProjectId;
+    const historyProject=$('#history-project');
+    if(historyProject){const previous=historyProject.value;historyProject.innerHTML='<option value="">全部项目</option><option value="__global__">未归档 / 全局</option>'+projects.map(project=>`<option value="${project.id}">${escapeHtml(project.title)}</option>`).join('');if([...historyProject.options].some(option=>option.value===previous))historyProject.value=previous;}
     const selected = projects.find(project => project.id === currentProjectId);
     $('#sidebar-project-name').textContent = selected?.title || '未选择项目';
     savedValue('workbench-project', currentProjectId);
     await renderProject();
   }
+  window.refreshWorkbenchProject = loadProjects;
   async function renderProject() {
     const timeline = $('#project-timeline'), inspector = $('#project-assets');
     if (!currentProjectId) {
@@ -44,6 +54,7 @@
       timeline.className = 'project-timeline empty-state';
       timeline.innerHTML = '<i class="bi bi-music-note-beamed"></i><b>项目还没有音乐版本</b><p>新建或选择项目后，从资产库加入素材，或生成第一首歌曲。</p>';
       inspector.innerHTML = '<p class="meta">选择项目后显示固定版本的素材。</p>';
+      $('#export-project').disabled = true;
       return;
     }
     try {
@@ -51,21 +62,59 @@
       $('#project-title').textContent = project.title;
       $('#project-state').textContent = `${project.assets.length} 项内容 · 生成结果会固定版本并自动加入`;
       const audio = project.assets.filter(item => audioKinds.has(item.kind));
+      const configuredMaster = String(project.metadata?.master_asset_id || '');
+      const masterRevision = String(project.metadata?.master_revision_id || '');
+      const masterItem = audio.find(item => exportAudioKinds.has(item.kind) && item.id===configuredMaster && (!masterRevision || item.revision_id===masterRevision));
+      const master = masterItem ? `${masterItem.id}:${masterItem.revision_id}` : '';
       timeline.className = 'project-timeline' + (audio.length ? '' : ' empty-state');
-      timeline.innerHTML = audio.length ? audio.map(item => `<article class="project-track"><span class="track-icon"><i class="bi ${kindIcons[item.kind]}"></i></span><div><b>${escapeHtml(item.title)}</b><small>${escapeHtml(kindNames[item.kind] || item.kind)} · ${(Number(item.metadata?.duration)||0).toFixed(1)} 秒 · 固定版本</small></div><button class="ghost compact" data-play-project="${item.id}" data-revision="${item.revision_id}"><i class="bi bi-play-fill"></i> 试听</button></article>`).join('') : '<i class="bi bi-music-note-beamed"></i><b>这个项目还没有音乐版本</b><p>生成、音色转换和从资产库加入的内容会显示在这里。</p>';
-      inspector.innerHTML = project.assets.length ? project.assets.map(item => `<div class="inspector-asset"><b>${escapeHtml(item.title)}</b><small>${escapeHtml(kindNames[item.kind] || item.kind)} · ${escapeHtml(item.role)}</small></div>`).join('') : '<p class="meta">还没有关联内容。</p>';
+      timeline.innerHTML = audio.length ? audio.map(item => {const selected=master===`${item.id}:${item.revision_id}`,masterButton=exportAudioKinds.has(item.kind)?`<button class="${selected?'primary':'ghost'} compact" data-master-project="${item.id}" data-revision="${item.revision_id}">${selected?'已选主版本':'设为主版本'}</button>`:'';return `<article class="project-track"><span class="track-icon"><i class="bi ${kindIcons[item.kind]}"></i></span><div><b>${escapeHtml(item.title)}</b><small>${escapeHtml(kindNames[item.kind] || item.kind)} · ${(Number(item.metadata?.duration)||0).toFixed(1)} 秒 · 固定版本${selected?' · 主版本':''}</small></div><div class="toolbar"><button class="ghost compact" data-play-project="${item.id}" data-revision="${item.revision_id}"><i class="bi bi-play-fill"></i> 试听</button>${masterButton}</div></article>`;}).join('') : '<i class="bi bi-music-note-beamed"></i><b>这个项目还没有音乐版本</b><p>生成、音色转换和从资产库加入的内容会显示在这里。</p>';
+      inspector.innerHTML = project.assets.length ? project.assets.map(item => `<div class="inspector-asset"><b>${escapeHtml(item.title)}</b><small>${escapeHtml(kindNames[item.kind] || item.kind)} · ${escapeHtml(item.role)}</small><button class="ghost compact" type="button" data-remove-project-asset="${item.id}" data-revision="${item.revision_id}" data-role="${escapeHtml(item.role)}">移出</button></div>`).join('') : '<p class="meta">还没有关联内容。</p>';
+      inspector.querySelectorAll('[data-remove-project-asset]').forEach(button => button.onclick = async () => {
+        await api(`/api/workbench/projects/${currentProjectId}/remove-asset`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({asset_id:button.dataset.removeProjectAsset,revision_id:button.dataset.revision,role:button.dataset.role})});
+        await Promise.all([renderProject(), loadProjects()]);
+      });
+      const kinds = new Set(project.assets.map(item => item.kind));
+      const stage = kinds.has('work') ? 4 : (kinds.has('vocal') || kinds.has('reference_voice')) ? 3 : kinds.has('song') ? 2 : (kinds.has('lyrics') || kinds.has('style') || kinds.has('score')) ? 1 : 0;
+      $$('.workflow-strip span').forEach((item,index) => { item.classList.toggle('active', index===stage); item.classList.toggle('done', index<stage); });
       timeline.querySelectorAll('[data-play-project]').forEach(button => button.onclick = () => {
         const item = project.assets.find(value => value.id === button.dataset.playProject);
         if (item) playAsset(item, button.dataset.revision);
       });
+      timeline.querySelectorAll('[data-master-project]').forEach(button => button.onclick = async () => {
+        try {
+          await api(`/api/workbench/projects/${currentProjectId}/update`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({metadata:{...(project.metadata||{}),master_asset_id:button.dataset.masterProject,master_revision_id:button.dataset.revision}})});
+          await renderProject();
+        } catch(error) { alert(error.message); }
+      });
+      $('#export-project').disabled = !master;
     } catch (error) { showError(timeline, error); }
   }
-  $('#workbench-project-select').onchange = async event => { currentProjectId = event.target.value; await loadProjects(); };
+  $('#workbench-project-select').onchange = async event => {
+    const next = event.target.value;
+    try { await window.assistantSwitchProject?.(next); currentProjectId = next; await loadProjects(); }
+    catch (error) { event.target.value = currentProjectId; alert(`切换项目前无法保存独立草稿：${error.message}`); }
+  };
   $('#refresh-project').onclick = loadProjects;
+  $('#rename-project').onclick = async () => {
+    if (!currentProjectId) return alert('请先选择项目');
+    const current = projects.find(project => project.id === currentProjectId), title = prompt('新的项目名称', current?.title || '');
+    if (!title?.trim()) return;
+    try { await api(`/api/workbench/projects/${currentProjectId}/update`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:title.trim()})}); await loadProjects(); } catch(error) { alert(error.message); }
+  };
+  $('#archive-project').onclick = async () => {
+    if (!currentProjectId) return alert('请先选择项目');
+    if (!confirm('归档这个项目？资产仍会保留在资产库。')) return;
+    try { await api(`/api/workbench/projects/${currentProjectId}/update`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'archived'})}); await window.assistantSwitchProject?.(''); currentProjectId=''; await loadProjects(); } catch(error) { alert(error.message); }
+  };
+  $('#export-project').onclick = async () => {
+    if (!currentProjectId) return alert('请先选择项目');
+    try { const result=await api(`/api/workbench/projects/${currentProjectId}/export`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}); alert(`主版本和项目清单已导出到\n${result.destination}`); }
+    catch(error) { alert(error.message); }
+  };
   $('#new-project').onclick = async () => {
     const title = prompt('新项目名称', '我的歌曲项目');
     if (!title?.trim()) return;
-    try { const project = await api('/api/workbench/projects', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:title.trim()})}); currentProjectId = project.id; await loadProjects(); }
+    try { const project = await api('/api/workbench/projects', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:title.trim()})}); await window.assistantSwitchProject?.(project.id); currentProjectId = project.id; await loadProjects(); }
     catch (error) { alert(error.message); }
   };
   $('#sidebar-project-button').onclick = () => { $('.tab[data-tab="project"]').click(); $('#workbench-project-select').focus(); };
@@ -81,16 +130,45 @@
       catch { card.innerHTML = '<span style="height:2px"></span>'; }
     }
   }
+  async function assetFile(asset) {
+    const response = await fetch(contentUrl(asset)); if(!response.ok) throw new Error(`读取素材失败：HTTP ${response.status}`);
+    const blob = await response.blob(), suffix = asset.blob_suffix || (/audio\/flac/.test(blob.type)?'.flac':'.wav');
+    return new File([blob], asset.title.toLowerCase().endsWith(suffix) ? asset.title : asset.title + suffix, {type:blob.type});
+  }
+  async function putAssetInInput(asset, selector, tab, configure=()=>{}) {
+    const input=$(selector), transfer=new DataTransfer(); transfer.items.add(await assetFile(asset)); input.files=transfer.files;
+    configure(); input.dispatchEvent(new Event('change',{bubbles:true})); $(`.tab[data-tab="${tab}"]`).click();
+  }
+  async function useAsset(asset, action) {
+    if(action==='cover-source') return putAssetInInput(asset,'#cover-file','cover',()=>window.setCoverMode?.('direct'));
+    if(action==='reference') return putAssetInInput(asset,'#reference-file','cover');
+    if(action==='rvc') return putAssetInInput(asset,'#rvc-files','voices');
+    if(action==='model') return useStyleModel(asset.id);
+    const text=await(await fetch(contentUrl(asset))).text();
+    const targets={create_lyrics:['#create-form [name=lyrics]','create'],create_style:['#create-form [name=style]','create'],plan_lyrics:['#plan-form [name=lyrics]','plan'],plan_style:['#plan-form [name=style]','plan'],plan_score:['#plan-abc','plan']};
+    const target=targets[action]; if(!target)return; $(target[0]).value=text; $(target[0]).dispatchEvent(new Event('input',{bubbles:true})); $(`.tab[data-tab="${target[1]}"]`).click();
+  }
+  function openUseDialog(asset) {
+    const actions=[];
+    if(audioKinds.has(asset.kind)){actions.push(['cover-source','作为原曲去翻唱'],['reference','作为参考音色'],['rvc','加入 RVC 训练素材']);}
+    if(asset.kind==='lyrics')actions.push(['create_lyrics','填入歌曲创作歌词'],['plan_lyrics','填入乐谱计划歌词']);
+    if(asset.kind==='style')actions.push(['create_style','填入歌曲创作曲风'],['plan_style','填入乐谱计划曲风']);
+    if(asset.kind==='score')actions.push(['plan_score','填入乐谱计划']);
+    if(asset.kind==='model'&&asset.metadata?.model_type==='yue2_ar_lora')actions.push(['model','用于歌曲创作']);
+    const dialog=document.createElement('dialog');dialog.innerHTML=`<form method="dialog"><h3>使用“${escapeHtml(asset.title)}”</h3><p class="meta">选择目标后会切换到对应工作区，仍由你确认并开始任务。</p><div class="asset-use-actions">${actions.map(([id,label])=>`<button class="ghost" type="button" data-use-action="${id}">${label}</button>`).join('')||'<p>这个素材暂时没有可用目标。</p>'}</div><div class="toolbar"><button class="ghost">关闭</button></div></form>`;document.body.append(dialog);dialog.onclose=()=>dialog.remove();dialog.querySelectorAll('[data-use-action]').forEach(button=>button.onclick=async()=>{try{await useAsset(asset,button.dataset.useAction);dialog.close();}catch(error){alert(error.message);}});dialog.showModal();
+  }
+  async function editAsset(asset) {
+    const text=['lyrics','style','score'].includes(asset.kind) ? await(await fetch(contentUrl(asset))).text() : null;
+    const dialog=document.createElement('dialog');dialog.innerHTML=`<form><h3>编辑素材</h3><label>名称<input name="title" value="${escapeHtml(asset.title)}" required maxlength="200"></label><label>标签（逗号分隔）<input name="tags" value="${escapeHtml((asset.tags||[]).join(', '))}"></label>${text!==null?`<label>内容（保存后建立新版本）<textarea name="text" rows="16">${escapeHtml(text)}</textarea></label>`:''}<div class="toolbar"><button class="ghost" type="button" data-cancel>取消</button><button class="primary" type="submit">保存</button></div></form>`;document.body.append(dialog);dialog.onclose=()=>dialog.remove();dialog.querySelector('[data-cancel]').onclick=()=>dialog.close();dialog.querySelector('form').onsubmit=async event=>{event.preventDefault();const data=Object.fromEntries(new FormData(event.currentTarget)),tags=data.tags.split(',').map(value=>value.trim()).filter(Boolean);try{await api(`/api/workbench/assets/${asset.id}/update`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:data.title,tags})});if(text!==null&&data.text!==text)await api('/api/workbench/assets/text',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({asset_id:asset.id,parent_revision_id:asset.current_revision_id,kind:asset.kind,title:data.title,text:data.text,tags})});dialog.close();await Promise.all([loadAssets(),loadTrainingInputs(),loadProjects()]);}catch(error){alert(error.message);}};dialog.showModal();
+  }
   function renderAssets() {
     const grid = $('#asset-grid');
     if (!assets.length) { grid.innerHTML = '<div class="empty-state"><i class="bi bi-collection-play"></i><b>还没有符合条件的资产</b><p>导入音频，或从创作页面生成第一个作品。</p></div>'; return; }
-    grid.innerHTML = assets.map(asset => { const primary=audioKinds.has(asset.kind)?`<button class="ghost compact" data-play-asset="${asset.id}"><i class="bi bi-play-fill"></i> 试听</button>`:asset.kind==='model'&&asset.metadata?.model_type==='yue2_ar_lora'?`<button class="primary compact" data-use-style-model="${asset.id}"><i class="bi bi-music-note-beamed"></i> 用于创作</button>`:`<button class="ghost compact" data-read-asset="${asset.id}"><i class="bi bi-eye"></i> 查看</button>`; return `<article class="asset-card"><div class="asset-card-head"><i class="bi ${kindIcons[asset.kind] || kindIcons.other}"></i><div><b title="${escapeHtml(asset.title)}">${escapeHtml(asset.title)}</b><small>${escapeHtml(kindNames[asset.kind] || asset.kind)} · ${asset.size ? (asset.size/1048576).toFixed(1)+' MB' : '文本版本'}</small></div></div>${audioKinds.has(asset.kind) ? `<div class="wave-mini" data-wave="${asset.id}"></div>` : '<div class="wave-mini"><span style="height:2px;width:100%"></span></div>'}<div class="toolbar">${primary}${currentProjectId ? `<button class="ghost compact" data-add-asset="${asset.id}"><i class="bi bi-plus-circle"></i> 加入项目</button>` : ''}</div></article>`; }).join('');
+    grid.innerHTML = assets.map(asset => { const primary=audioKinds.has(asset.kind)?`<button class="ghost compact" data-play-asset="${asset.id}"><i class="bi bi-play-fill"></i> 试听</button>`:asset.kind==='model'&&asset.metadata?.model_type==='yue2_ar_lora'?`<button class="primary compact" data-use-style-model="${asset.id}"><i class="bi bi-music-note-beamed"></i> 用于创作</button>`:`<button class="ghost compact" data-read-asset="${asset.id}"><i class="bi bi-eye"></i> 查看</button>`; return `<article class="asset-card"><div class="asset-card-head"><i class="bi ${kindIcons[asset.kind] || kindIcons.other}"></i><div><b title="${escapeHtml(asset.title)}">${escapeHtml(asset.title)}</b><small>${escapeHtml(kindNames[asset.kind] || asset.kind)} · ${asset.size ? (asset.size/1048576).toFixed(1)+' MB' : '文本版本'}</small></div></div>${audioKinds.has(asset.kind) ? `<div class="wave-mini" data-wave="${asset.id}"></div>` : '<div class="wave-mini"><span style="height:2px;width:100%"></span></div>'}<div class="toolbar">${primary}<button class="ghost compact" data-use-asset="${asset.id}">发送到…</button><button class="ghost compact" data-edit-asset="${asset.id}">编辑</button>${currentProjectId ? `<button class="ghost compact" data-add-asset="${asset.id}"><i class="bi bi-plus-circle"></i> 加入项目</button>` : ''}</div></article>`; }).join('');
     grid.querySelectorAll('[data-play-asset]').forEach(button => button.onclick = () => playAsset(assets.find(item => item.id === button.dataset.playAsset)));
-    grid.querySelectorAll('[data-read-asset]').forEach(button => button.onclick = async () => {
-      const asset = assets.find(item => item.id === button.dataset.readAsset);
-      try { const text = await (await fetch(contentUrl(asset))).text(); const dialog = document.createElement('dialog'); dialog.innerHTML = `<form method="dialog"><h3>${escapeHtml(asset.title)}</h3><textarea rows="18" readonly>${escapeHtml(text)}</textarea><div class="toolbar"><button class="ghost">关闭</button></div></form>`; document.body.append(dialog); dialog.onclose=()=>dialog.remove(); dialog.showModal(); }
-      catch (error) { alert(error.message); }
-    });
+    grid.querySelectorAll('[data-read-asset]').forEach(button => button.onclick = async () => {const asset=assets.find(item=>item.id===button.dataset.readAsset);try{const text=await(await fetch(contentUrl(asset))).text();const dialog=document.createElement('dialog');dialog.innerHTML=`<form method="dialog"><h3>${escapeHtml(asset.title)}</h3><textarea rows="18" readonly>${escapeHtml(text)}</textarea><div class="toolbar"><button class="ghost">关闭</button></div></form>`;document.body.append(dialog);dialog.onclose=()=>dialog.remove();dialog.showModal();}catch(error){alert(error.message);}});
+    grid.querySelectorAll('[data-use-asset]').forEach(button=>button.onclick=()=>openUseDialog(assets.find(item=>item.id===button.dataset.useAsset)));
+    grid.querySelectorAll('[data-edit-asset]').forEach(button=>button.onclick=()=>editAsset(assets.find(item=>item.id===button.dataset.editAsset)).catch(error=>alert(error.message)));
     grid.querySelectorAll('[data-add-asset]').forEach(button => button.onclick = async () => {
       try { await api(`/api/workbench/projects/${currentProjectId}/assets`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({asset_id:button.dataset.addAsset,role:'asset'})}); button.textContent='已加入'; button.disabled=true; await loadProjects(); }
       catch (error) { alert(error.message); }
@@ -102,11 +180,15 @@
     const query = new URLSearchParams();
     if ($('#asset-kind').value) query.set('kind',$('#asset-kind').value);
     if ($('#asset-query').value.trim()) query.set('q',$('#asset-query').value.trim());
-    try { assets = (await api('/api/workbench/assets?' + query)).assets; renderAssets(); renderTrainingAssets(); await loadStyleModels(); }
+    query.set('limit', assetPageSize); query.set('offset', assetOffset);
+    try { const result=await api('/api/workbench/assets?' + query); assets=result.assets;assetTotal=result.total;renderAssets();renderAssetPagination();await loadStyleModels(); }
     catch (error) { showError($('#asset-grid'), error); }
   }
-  $('#asset-kind').onchange = loadAssets;
-  let queryTimer; $('#asset-query').oninput = () => { clearTimeout(queryTimer); queryTimer=setTimeout(loadAssets,250); };
+  $('#asset-kind').onchange = () => { assetOffset=0; loadAssets(); };
+  let queryTimer; $('#asset-query').oninput = () => { clearTimeout(queryTimer); assetOffset=0; queryTimer=setTimeout(loadAssets,250); };
+  function renderAssetPagination(){const page=Math.floor(assetOffset/assetPageSize)+1,pages=Math.max(1,Math.ceil(assetTotal/assetPageSize));$('#asset-page-status').textContent=`第 ${page} / ${pages} 页 · ${assetTotal} 项`;$('#asset-prev').disabled=assetOffset<=0;$('#asset-next').disabled=assetOffset+assetPageSize>=assetTotal;}
+  $('#asset-prev').onclick=()=>{assetOffset=Math.max(0,assetOffset-assetPageSize);loadAssets();};
+  $('#asset-next').onclick=()=>{if(assetOffset+assetPageSize<assetTotal){assetOffset+=assetPageSize;loadAssets();}};
   $('#asset-upload').onchange = async event => {
     const files = [...event.target.files], status = $('#asset-import-status'), kind = $('#asset-import-kind').value;
     if (!files.length) return;
@@ -119,7 +201,7 @@
         if (currentProjectId) await api(`/api/workbench/projects/${currentProjectId}/assets`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({asset_id:asset.id,role:'source'})});
         done++;
       }
-      status.textContent = `已导入 ${done} 个文件，可立即试听。`; event.target.value=''; await Promise.all([loadAssets(),loadProjects()]);
+      status.textContent = `已导入 ${done} 个文件，可立即试听。`; event.target.value=''; assetOffset=0; await Promise.all([loadAssets(),loadTrainingInputs(),loadProjects()]);
     } catch (error) { status.textContent = error.message; }
   };
   $('#new-text-asset').onclick = () => $('#text-asset-form').classList.remove('hidden');
@@ -127,26 +209,27 @@
   $('#cancel-text-asset').onclick = () => $('#text-asset-form').classList.add('hidden');
   $('#text-asset-form').onsubmit = async event => {
     event.preventDefault(); const form = event.currentTarget, data = Object.fromEntries(new FormData(form));
-    try { const asset = await api('/api/workbench/assets/text',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}); if(currentProjectId) await api(`/api/workbench/projects/${currentProjectId}/assets`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({asset_id:asset.id,role:data.kind})}); form.reset(); form.classList.add('hidden'); await Promise.all([loadAssets(),loadProjects()]); }
+    try { const asset = await api('/api/workbench/assets/text',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}); if(currentProjectId) await api(`/api/workbench/projects/${currentProjectId}/assets`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({asset_id:asset.id,role:data.kind})}); form.reset(); form.classList.add('hidden'); assetOffset=0; await Promise.all([loadAssets(),loadTrainingInputs(),loadProjects()]); }
     catch(error){ alert(error.message); }
   };
 
   async function loadStyleModels() {
-    let models = assets.filter(asset => asset.kind === 'model' && asset.metadata?.model_type === 'yue2_ar_lora');
-    if ($('#asset-kind').value || $('#asset-query').value) {
-      try { models = (await api('/api/workbench/assets?kind=model&limit=500')).assets.filter(asset=>asset.metadata?.model_type==='yue2_ar_lora'); } catch {}
-    }
+    let models = [];
+    try { models = (await api('/api/workbench/assets?kind=model&limit=500')).assets.filter(asset=>asset.metadata?.model_type==='yue2_ar_lora'); } catch {}
     $$('[data-style-model]').forEach(select => {
       const previous=select.value; select.innerHTML='<option value="">使用原版 YuE2</option>'+models.map(model=>`<option value="${model.id}">${escapeHtml(model.title)} · 仅直接生成</option>`).join(''); select.value=previous;
       select.onchange=()=>{ if(select.value){ const mode=select.closest('form')?.querySelector('[name=cot]'); if(mode) mode.value='off'; } };
     });
   }
 
+  function textOptions(values,label){return `<option value="">${label}</option>`+values.map(value=>`<option value="${value.current_revision_id}">${escapeHtml(value.title)}</option>`).join('');}
   function renderTrainingAssets() {
     const list = $('#training-assets'); if (!list) return;
-    const choices = assets.filter(asset => ['song','work','vocal'].includes(asset.kind) && Number(asset.metadata?.duration) >= 1);
-    list.innerHTML = choices.length ? choices.map(asset => `<label class="training-asset"><input type="checkbox" data-training-asset="${asset.id}"><span><b>${escapeHtml(asset.title)}</b><small>${kindNames[asset.kind]} · ${Number(asset.metadata.duration).toFixed(1)} 秒</small></span><select data-training-split="${asset.id}"><option value="train">训练集</option><option value="validation">验证集</option></select></label>`).join('') : '<div class="empty-state"><b>资产库里还没有可训练的歌曲</b><p>先导入至少两首不同歌曲；一首用于训练，一首用于验证。</p></div>';
+    const retained=new Map($$('#training-assets [data-training-asset]').map(box=>{const id=box.dataset.trainingAsset;return[id,{checked:box.checked,split:$(`[data-training-split="${id}"]`)?.value||'train',lyrics:$(`[data-training-lyrics="${id}"]`)?.value||'',style:$(`[data-training-style="${id}"]`)?.value||'',instrumental:$(`[data-training-instrumental="${id}"]`)?.checked||false}];}));
+    list.innerHTML = trainingAssets.length ? trainingAssets.map(asset => `<div class="training-asset"><input type="checkbox" data-training-asset="${asset.id}" aria-label="选择 ${escapeHtml(asset.title)}"><span><b>${escapeHtml(asset.title)}</b><small>${kindNames[asset.kind]} · ${Number(asset.metadata.duration).toFixed(1)} 秒</small></span><select data-training-split="${asset.id}" aria-label="${escapeHtml(asset.title)} 的数据集"><option value="train">训练集</option><option value="validation">验证集</option></select><div class="training-asset-options"><label>这首歌的歌词<select data-training-lyrics="${asset.id}">${textOptions(lyricsAssets,'使用公共歌词')}</select></label><label>这首歌的曲风<select data-training-style="${asset.id}">${textOptions(styleAssets,'使用公共曲风')}</select></label><label class="check"><input type="checkbox" data-training-instrumental="${asset.id}">纯器乐</label></div></div>`).join('') : '<div class="empty-state"><b>资产库里还没有可训练的歌曲</b><p>先导入至少两首不同歌曲；一首用于训练，一首用于验证。</p></div>';
+    for(const [id,state] of retained){const box=$(`[data-training-asset="${id}"]`);if(!box)continue;box.checked=state.checked;$(`[data-training-split="${id}"]`).value=state.split;if([...$(`[data-training-lyrics="${id}"]`).options].some(option=>option.value===state.lyrics))$(`[data-training-lyrics="${id}"]`).value=state.lyrics;if([...$(`[data-training-style="${id}"]`).options].some(option=>option.value===state.style))$(`[data-training-style="${id}"]`).value=state.style;$(`[data-training-instrumental="${id}"]`).checked=state.instrumental;}
   }
+  async function loadTrainingInputs(){try{const [songs,works,vocals,lyrics,styles]=await Promise.all(['song','work','vocal','lyrics','style'].map(kind=>api(`/api/workbench/assets?kind=${kind}&limit=500`)));trainingAssets=[...songs.assets,...works.assets,...vocals.assets].filter(asset=>Number(asset.metadata?.duration)>=1);lyricsAssets=lyrics.assets;styleAssets=styles.assets;renderTrainingAssets();}catch(error){showError($('#training-assets'),error);}}
   $('#training-select-all').onclick = () => { const boxes=$$('#training-assets [data-training-asset]'); boxes.forEach(box=>box.checked=true); if(boxes.length>1) $(`[data-training-split="${boxes.at(-1).dataset.trainingAsset}"]`).value='validation'; };
   $('#training-style-scale').oninput = event => $('#training-style-scale-value').textContent=Number(event.target.value).toFixed(2);
   function drawChart(history=[]) {
@@ -167,7 +250,8 @@
   function updateTrainingJob(job) {
     if(!job)return; const completed=Number(job.completed ?? job.result?.step ?? 0), total=Number(job.total || currentRun?.config?.steps || 0);
     $('#training-step').textContent=`${completed} / ${total} 步`; $('#training-progress-bar').style.width=`${total?Math.min(100,completed/total*100):0}%`;
-    $('#training-loss').textContent=Number.isFinite(Number(job.train_loss))?Number(job.train_loss).toFixed(3):'—'; $('#training-val-loss').textContent=Number.isFinite(Number(job.validation_loss))?Number(job.validation_loss).toFixed(3):'—';
+    const metric=value=>value!==null&&value!==undefined&&Number.isFinite(Number(value))?Number(value).toFixed(3):'—';
+    $('#training-loss').textContent=metric(job.train_loss); $('#training-val-loss').textContent=metric(job.validation_loss);
     const history=job.history || job.result?.history || currentRun?.config?.history || []; drawChart(history);
     $('#training-run-state').textContent=stageLabel(job.stage || job.status); $('#training-pause').classList.toggle('hidden',!(job.kind==='yue2_train' && job.status==='running')); $('#training-resume').classList.toggle('hidden',job.status!=='paused');
     if(job.kind==='yue2_prepare') setTrainingStage(job.status==='complete'?3:2);
@@ -181,13 +265,27 @@
   async function pollTrainingJob() {
     if(pollingTraining||!trainingJobId)return; pollingTraining=true;
     try{const job=await api(`/api/jobs/${trainingJobId}`);updateTrainingJob(job);if(TERMINAL.has(job.status)){if(job.status==='complete'||job.status==='paused'){await Promise.all([loadRuns(),loadAssets(),checkTrainingResources()]);}if(job.status!=='paused') {trainingJobId='';savedValue('training-job','');}}}
-    catch{}finally{pollingTraining=false;}
+    catch(error){$('#training-run-state').textContent='连接中断';$('#training-result').innerHTML=`<p class="meta">训练状态刷新失败，将自动重试：${escapeHtml(error.message)}</p>`;}finally{pollingTraining=false;}
   }
   async function submitTrainingJob(kind,request){const job=await api('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind,request,source:'webui',client_request_id:crypto.randomUUID(),result_panel:'training'})});trainingJobId=job.id;savedValue('training-job',job.id);updateTrainingJob(job);return job;}
-  async function loadRuns(){try{const runs=(await api('/api/workbench/training-runs?training_kind=yue2_style')).runs;const saved=savedValue('training-run');currentRun=runs.find(run=>run.id===saved)||runs[0]||null;if(currentRun){savedValue('training-run',currentRun.id);$('#training-run-title').textContent=currentRun.title;$('#start-training').disabled=!currentRun.config?.prepared;$('#training-run-state').textContent=stageLabel(currentRun.state);const form=$('#training-form');if(!form.elements.style.value&&currentRun.config?.default_style)form.elements.style.value=currentRun.config.default_style;if(!form.elements.lyrics.value&&currentRun.config?.default_lyrics)form.elements.lyrics.value=currentRun.config.default_lyrics;const history=currentRun.config?.history||[],last=history.at(-1);$('#training-step').textContent=`${Number(last?.step||0)} / ${Number(currentRun.config?.steps||0)} 步`;$('#training-progress-bar').style.width=`${currentRun.config?.steps?Math.min(100,Number(last?.step||0)/Number(currentRun.config.steps)*100):0}%`;$('#training-loss').textContent=Number.isFinite(Number(last?.train_loss))?Number(last.train_loss).toFixed(3):'—';$('#training-val-loss').textContent=Number.isFinite(Number(last?.validation_loss))?Number(last.validation_loss).toFixed(3):'—';setTrainingStage(currentRun.state==='complete'?4:currentRun.config?.prepared?3:currentRun.state==='preparing'?2:1);if(currentRun.current_job_id&&!trainingJobId){trainingJobId=currentRun.current_job_id;savedValue('training-job',trainingJobId);}drawChart(history);}}catch(error){showError($('#training-result'),error);}}
+  async function loadRunCheckpoints(runId){
+    const select=$('#training-checkpoint-select'),previous=select.dataset.runId===runId?select.value:'';select.dataset.runId=runId;select.disabled=true;select.innerHTML='<option value="">正在读取检查点…</option>';
+    if(!runId){select.innerHTML='<option value="">尚无检查点</option>';return;}
+    try{const result=await api(`/api/workbench/training-runs/${encodeURIComponent(runId)}/checkpoints`);if(currentRun?.id!==runId)return;select.innerHTML=result.checkpoints.length?result.checkpoints.map(item=>`<option value="${item.step}" ${!previous&&item.current?'selected':''}>第 ${item.step} 步${item.current?' · 当前':''}</option>`).join(''):'<option value="">尚无检查点</option>';if(previous&&result.checkpoints.some(item=>String(item.step)===previous))select.value=previous;select.disabled=!result.checkpoints.length;}
+    catch(error){if(currentRun?.id===runId){select.innerHTML='<option value="">检查点读取失败</option>';select.title=error.message;}}
+  }
+  function renderRun(){
+    const select=$('#training-run-select');select.innerHTML=trainingRuns.length?trainingRuns.map(run=>`<option value="${run.id}">${escapeHtml(run.title)} · ${stageLabel(run.state)}</option>`).join(''):'<option value="">尚无训练记录</option>';select.value=currentRun?.id||'';
+    if(!currentRun){$('#training-run-title').textContent='尚未创建训练';$('#training-run-state').textContent='待设置';$('#start-training').disabled=true;$('#training-preview-checkpoint').classList.add('hidden');loadRunCheckpoints('');return;}
+    savedValue('training-run',currentRun.id);$('#training-run-title').textContent=currentRun.title;$('#start-training').disabled=!currentRun.config?.prepared;$('#training-run-state').textContent=stageLabel(currentRun.state);
+    const form=$('#training-form');if(!form.elements.style.value&&currentRun.config?.default_style)form.elements.style.value=currentRun.config.default_style;if(!form.elements.lyrics.value&&currentRun.config?.default_lyrics)form.elements.lyrics.value=currentRun.config.default_lyrics;
+    const history=currentRun.config?.history||[],last=history.at(-1),metric=value=>value!==null&&value!==undefined&&Number.isFinite(Number(value))?Number(value).toFixed(3):'—';$('#training-step').textContent=`${Number(last?.step||0)} / ${Number(currentRun.config?.steps||0)} 步`;$('#training-progress-bar').style.width=`${currentRun.config?.steps?Math.min(100,Number(last?.step||0)/Number(currentRun.config.steps)*100):0}%`;$('#training-loss').textContent=metric(last?.train_loss);$('#training-val-loss').textContent=metric(last?.validation_loss);setTrainingStage(currentRun.state==='complete'?4:currentRun.config?.prepared?3:currentRun.state==='preparing'?2:1);$('#training-preview-checkpoint').classList.toggle('hidden',!currentRun.model_asset_id&&!currentRun.config?.last_checkpoint);if(currentRun.current_job_id&&!trainingJobId&&!TERMINAL.has(currentRun.state)){trainingJobId=currentRun.current_job_id;savedValue('training-job',trainingJobId);}drawChart(history);loadRunCheckpoints(currentRun.id);
+  }
+  async function loadRuns(){try{trainingRuns=(await api('/api/workbench/training-runs?training_kind=yue2_style')).runs;const saved=savedValue('training-run');currentRun=trainingRuns.find(run=>run.id===saved)||trainingRuns[0]||null;renderRun();}catch(error){showError($('#training-result'),error);}}
+  $('#training-run-select').onchange=event=>{currentRun=trainingRuns.find(run=>run.id===event.target.value)||null;renderRun();};
   async function checkTrainingResources(){try{const health=await api('/api/health'),ready=health.ready?.training_resources?.ready,card=$('#training-resource-card');card.classList.toggle('ready',!!ready);card.querySelector('b').textContent=ready?'YuE2 训练资源已就绪':'需要安装 YuE2 训练资源';$('#install-training-resources').classList.toggle('hidden',!!ready);}catch{}}
   $('#install-training-resources').onclick=async()=>{try{await submitTrainingJob('yue2_training_assets',{});}catch(error){showError($('#training-result'),error);}};
-  $('#training-form').onsubmit=async event=>{event.preventDefault();try{const selected=$$('#training-assets [data-training-asset]:checked');if(selected.length<2)throw new Error('至少选择两首不同歌曲，并留一首作为验证集');const items=selected.map(box=>{const asset=assets.find(value=>value.id===box.dataset.trainingAsset);return{asset_id:asset.id,revision_id:asset.current_revision_id,start:0,end:Number(asset.metadata.duration),track_group_id:asset.id,split:$(`[data-training-split="${asset.id}"]`).value};});if(!items.some(item=>item.split==='train')||!items.some(item=>item.split==='validation'))throw new Error('训练集和验证集都不能为空');const form=Object.fromEntries(new FormData(event.currentTarget));if(form.rights_confirmed!=='on')throw new Error('请先确认你有权使用所选音乐进行训练');const snapshot=await api('/api/workbench/snapshots',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:`${form.title} · 固定素材`,training_kind:'yue2_style',items,options:{default_style:form.style,default_lyrics:form.lyrics,rights_confirmed:true,rights_statement:'用户确认有权使用所选音乐进行模型训练',rights_confirmed_at:new Date().toISOString()}})});const config={rank:Number(form.rank),steps:Number(form.steps),gradient_accumulation:Number(form.gradient_accumulation),learning_rate:Number(form.learning_rate),default_style:form.style,default_lyrics:form.lyrics,user_fraction:.7,warmup_steps:50,schedule_steps:Number(form.steps),validate_every:100,save_every:100,seed:831001};currentRun=await api('/api/workbench/training-runs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:form.title,training_kind:'yue2_style',snapshot_id:snapshot.id,config})});savedValue('training-run',currentRun.id);$('#training-run-title').textContent=currentRun.title;$('#start-training').disabled=true;await submitTrainingJob('yue2_prepare',{run_id:currentRun.id});}catch(error){showError($('#training-result'),error);}};
+  $('#training-form').onsubmit=async event=>{event.preventDefault();try{const selected=$$('#training-assets [data-training-asset]:checked');if(selected.length<2)throw new Error('至少选择两首不同歌曲，并留一首作为验证集');const form=Object.fromEntries(new FormData(event.currentTarget));const items=selected.map(box=>{const asset=trainingAssets.find(value=>value.id===box.dataset.trainingAsset),instrumental=$(`[data-training-instrumental="${asset.id}"]`).checked,lyricsRevision=$(`[data-training-lyrics="${asset.id}"]`).value;if(!instrumental&&!lyricsRevision&&!String(form.lyrics||'').trim())throw new Error(`“${asset.title}”需要选择歌词，或明确标记为纯器乐`);return{asset_id:asset.id,revision_id:asset.current_revision_id,start:0,end:Number(asset.metadata.duration),track_group_id:asset.metadata?.track_group_id||asset.blob_sha256,split:$(`[data-training-split="${asset.id}"]`).value,lyrics_revision_id:lyricsRevision||null,style_revision_id:$(`[data-training-style="${asset.id}"]`).value||null,instrumental};});if(!items.some(item=>item.split==='train')||!items.some(item=>item.split==='validation'))throw new Error('训练集和验证集都不能为空');if(form.rights_confirmed!=='on')throw new Error('请先确认你有权使用所选音乐进行训练');const snapshot=await api('/api/workbench/snapshots',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:`${form.title} · 固定素材`,training_kind:'yue2_style',items,options:{default_style:form.style,default_lyrics:form.lyrics||'',rights_confirmed:true,rights_statement:'用户确认有权使用所选音乐进行模型训练',rights_confirmed_at:new Date().toISOString()}})});const config={rank:Number(form.rank),steps:Number(form.steps),gradient_accumulation:Number(form.gradient_accumulation),learning_rate:Number(form.learning_rate),default_style:form.style,default_lyrics:form.lyrics||'',user_fraction:.7,warmup_steps:50,schedule_steps:Number(form.steps),validate_every:100,save_every:100,seed:831001};currentRun=await api('/api/workbench/training-runs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:form.title,training_kind:'yue2_style',snapshot_id:snapshot.id,config})});savedValue('training-run',currentRun.id);$('#training-run-title').textContent=currentRun.title;$('#start-training').disabled=true;await submitTrainingJob('yue2_prepare',{run_id:currentRun.id});}catch(error){showError($('#training-result'),error);}};
   $('#start-training').onclick=async()=>{if(!currentRun)return;try{await submitTrainingJob('yue2_train',{run_id:currentRun.id});}catch(error){showError($('#training-result'),error);}};
   $('#training-pause').onclick=async()=>{if(!trainingJobId)return;try{const job=await api(`/api/jobs/${trainingJobId}/pause`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});updateTrainingJob(job);}catch(error){alert(error.message);}};
   $('#training-resume').onclick=async()=>{if(!trainingJobId)return;try{const job=await api(`/api/jobs/${trainingJobId}/resume`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});trainingJobId=job.id;savedValue('training-job',job.id);updateTrainingJob(job);}catch(error){alert(error.message);}};
@@ -195,12 +293,15 @@
 
   async function previewTrainingRun(){
     try {
-      await loadRuns();
-      if(!currentRun?.model_asset_id) throw new Error('训练尚未生成可试听的模型资产');
+      if(!currentRun?.model_asset_id&&!currentRun?.config?.last_checkpoint) throw new Error('训练尚未保存可试听的检查点');
       const data=Object.fromEntries(new FormData($('#training-form'))),memory=Number($('[data-generation-memory]')?.value||23.5);
-      await submitTrainingJob('yue2_preview',{run_id:currentRun.id,model_asset_id:currentRun.model_asset_id,style_model_scale:Number($('#training-style-scale').value),generate:{style:data.style||'instrumental music',lyrics:data.lyrics||'[instrumental]',cot:'off',seed:831001,cfg_scale:1.01,candidates:1,backend:'torch-eager',memory_budget_gib:memory,offload_ar:true,nar_attention:'sdpa',nar_query_chunk_size:256,semantic_sampling:{min_tokens:200,max_tokens:256}}});
+      const selectedStep=Number($('#training-checkpoint-select').value||0);
+      await submitTrainingJob('yue2_preview',{run_id:currentRun.id,checkpoint_step:selectedStep||undefined,model_asset_id:selectedStep?undefined:(currentRun.model_asset_id||undefined),style_model_scale:Number($('#training-style-scale').value),generate:{style:data.style||'instrumental music',lyrics:data.lyrics||'[instrumental]',cot:'off',seed:831001,cfg_scale:1.01,candidates:1,backend:'torch-eager',memory_budget_gib:memory,offload_ar:true,nar_attention:'sdpa',nar_query_chunk_size:256,semantic_sampling:{min_tokens:200,max_tokens:256}}});
     } catch(error) { showError($('#training-result'),error); }
   }
+  $('#training-preview-checkpoint').onclick=previewTrainingRun;
+  const trainingPresets={quick:{rank:8,steps:200,gradient_accumulation:1,learning_rate:.00015},standard:{rank:16,steps:800,gradient_accumulation:2,learning_rate:.0001},quality:{rank:32,steps:1600,gradient_accumulation:2,learning_rate:.00008}};
+  $('#training-preset').onchange=event=>{const preset=trainingPresets[event.target.value];if(!preset)return;for(const[key,value]of Object.entries(preset))$('#training-form').elements[key].value=value;};
   function useStyleModel(assetId){
     const select=$('#create-form [data-style-model]');
     if(!assetId||!select?.querySelector(`option[value="${CSS.escape(assetId)}"]`)){showError($('#training-result'),new Error('歌曲风格模型尚未载入，请刷新资产库后重试'));return;}
@@ -210,5 +311,5 @@
 
   document.addEventListener('click',event=>{const tab=event.target.closest('.tab[data-tab]');if(tab&&tab.dataset.tab==='assets')loadAssets();if(tab&&tab.dataset.tab==='project')renderProject();if(tab&&tab.dataset.tab==='training'){loadRuns();checkTrainingResources();pollTrainingJob();}});
   setInterval(()=>{if(trainingJobId)pollTrainingJob();},1500);
-  Promise.all([loadProjects(),loadAssets(),loadRuns(),checkTrainingResources()]).then(pollTrainingJob);
+  Promise.all([loadProjects(),loadAssets(),loadTrainingInputs(),loadRuns(),checkTrainingResources()]).then(pollTrainingJob);
 })();

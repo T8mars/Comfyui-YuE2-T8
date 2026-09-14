@@ -12,7 +12,7 @@ import soundfile as sf
 from app.yue2_app.asset_library import AssetLibrary
 from app.yue2_app import service
 from app.yue2_app.io import atomic_json
-from app.yue2_app.workbench_api import parse_byte_range, waveform
+from app.yue2_app.workbench_api import export_project, parse_byte_range, training_checkpoints, waveform
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -76,7 +76,7 @@ class AssetLibraryTest(unittest.TestCase):
                                                 {**base, "split": "validation"}],
                                          options={"rights_confirmed": True})
         snapshot = self.library.create_snapshot(title="正确划分", training_kind="yue2_style",
-                                                items=[{**base, "split": "train"}],
+                                                items=[{**base, "split": "train", "instrumental": True}],
                                                 options={"rights_confirmed": True})
         self.assertEqual(snapshot["item_count"] if "item_count" in snapshot else len(snapshot["items"]), 1)
         listed = self.library.list_snapshots("yue2_style")
@@ -100,7 +100,8 @@ class AssetLibraryTest(unittest.TestCase):
         snapshot = self.library.create_snapshot(
             title="数据集", training_kind="yue2_style",
             items=[{"asset_id": asset["id"], "revision_id": asset["current_revision_id"],
-                    "start": 0, "end": 1, "track_group_id": "song-a", "split": "train"}],
+                    "start": 0, "end": 1, "track_group_id": "song-a", "split": "train",
+                    "instrumental": True}],
             options={"default_style": "warm jazz", "rights_confirmed": True})
         run = self.library.create_training_run(title="风格模型", training_kind="yue2_style",
                                                snapshot_id=snapshot["id"], config={"rank": 16})
@@ -109,6 +110,84 @@ class AssetLibraryTest(unittest.TestCase):
         updated = self.library.update_training_run(run["id"], state="queued", current_job_id="job-1")
         self.assertEqual(updated["state"], "queued")
         self.assertEqual(self.library.list_training_runs("yue2_style")[0]["id"], run["id"])
+
+    def test_snapshot_rejects_duplicate_blob_with_different_asset_ids(self):
+        first = self.library.import_file(self.source, kind="song", title="歌曲 A")
+        second = self.library.import_file(self.source, kind="song", title="歌曲 A 的重复导入")
+        def item(asset, split):
+            return {"asset_id": asset["id"], "revision_id": asset["current_revision_id"],
+                    "start": 0, "end": 1, "track_group_id": asset["id"], "split": split,
+                    "instrumental": True}
+        with self.assertRaisesRegex(ValueError, "内容相同"):
+            self.library.create_snapshot(title="重复内容", training_kind="yue2_style",
+                                         items=[item(first, "train"), item(second, "validation")],
+                                         options={"rights_confirmed": True})
+
+    def test_vocal_training_requires_lyrics_or_explicit_instrumental(self):
+        asset = self.library.import_file(self.source, kind="song", title="含人声歌曲")
+        item = {"asset_id": asset["id"], "revision_id": asset["current_revision_id"],
+                "start": 0, "end": 1, "split": "train"}
+        with self.assertRaisesRegex(ValueError, "必须选择歌词"):
+            self.library.create_snapshot(title="缺少歌词", training_kind="yue2_style", items=[item],
+                                         options={"default_style": "pop", "rights_confirmed": True})
+        lyrics = self.library.create_text(kind="lyrics", title="歌词", text="[Verse]\n回家")
+        snapshot = self.library.create_snapshot(
+            title="固定歌词", training_kind="yue2_style",
+            items=[{**item, "lyrics_revision_id": lyrics["current_revision_id"]}],
+            options={"default_style": "pop", "rights_confirmed": True})
+        self.assertEqual(snapshot["items"][0]["lyrics_revision_id"], lyrics["current_revision_id"])
+
+    def test_asset_paging_and_project_management(self):
+        project = self.library.create_project("初版")
+        assets = [self.library.import_file(self.source, kind="song", title=f"歌曲 {i}") for i in range(3)]
+        self.assertEqual(self.library.count_assets(kind="song"), 3)
+        self.assertEqual(len(self.library.list_assets(kind="song", limit=2, offset=0)), 2)
+        self.assertEqual(len(self.library.list_assets(kind="song", limit=2, offset=2)), 1)
+        self.library.add_to_project(project["id"], assets[0]["id"], role="source")
+        renamed = self.library.update_project(project["id"], title="新版")
+        self.assertEqual(renamed["title"], "新版")
+        removed = self.library.remove_from_project(project["id"], assets[0]["id"])
+        self.assertEqual(removed["assets"], [])
+        archived = self.library.update_project(project["id"], status="archived")
+        self.assertEqual(archived["status"], "archived")
+        self.assertNotIn(project["id"], {item["id"] for item in self.library.list_projects()})
+
+    def test_project_master_export_and_checkpoint_listing(self):
+        project = self.library.create_project("夜航：最终版")
+        asset = self.library.import_file(self.source, kind="work", title="母带")
+        linked = self.library.add_to_project(project["id"], asset["id"], role="master")
+        revision_id = linked["assets"][0]["revision_id"]
+        self.library.update_project(project["id"], metadata={"master_asset_id": asset["id"],
+                                                              "master_revision_id": revision_id})
+        result = export_project(self.library, self.root, project["id"])
+        self.assertTrue(Path(result["audio"]).is_file())
+        manifest = json.loads((Path(result["destination"]) / "project.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["sha256"], result["manifest"]["sha256"])
+        removed = self.library.remove_from_project(project["id"], asset["id"], revision_id=revision_id)
+        self.assertNotIn("master_asset_id", removed["metadata"])
+
+        song = self.library.import_file(self.source, kind="song", title="训练歌曲")
+        snapshot = self.library.create_snapshot(
+            title="训练快照", training_kind="yue2_style",
+            items=[{"asset_id": song["id"], "revision_id": song["current_revision_id"],
+                    "start": 0, "end": 1, "split": "train", "instrumental": True}],
+            options={"rights_confirmed": True})
+        run = self.library.create_training_run(title="测试训练", training_kind="yue2_style",
+                                               snapshot_id=snapshot["id"], config={})
+        checkpoint = self.library.home / "training" / run["id"] / "checkpoints" / "step-00000100"
+        checkpoint.mkdir(parents=True)
+        files = {"adapter.safetensors": b"adapter", "state.pt": b"state", "sampler.json": b"{}"}
+        import hashlib
+        for name, content in files.items():
+            (checkpoint / name).write_bytes(content)
+        manifest = {"schema": 1, "identity": "fixed", "step": 100, "files": {
+            name: {"sha256": hashlib.sha256(content).hexdigest(), "bytes": len(content)}
+            for name, content in files.items()}}
+        (checkpoint / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        self.library.update_training_run(run["id"], config={"last_checkpoint": str(checkpoint),
+                                                             "training_identity": "fixed"})
+        self.assertEqual(training_checkpoints(self.library, run["id"]),
+                         [{"step": 100, "name": "step-00000100", "current": True}])
 
     def test_completed_job_is_promoted_once_and_malformed_nested_request_is_safe(self):
         outputs = self.root / "outputs"

@@ -445,9 +445,12 @@ class JobStore:
             now = time.time()
             job = {"id": job_id, "kind": kind, "request": request, "created_at": now,
                    "source": source, "client_request_id": client_request_id, "result_panel": result_panel}
+            nested_project_id = (request.get("generate", {}).get("project_id")
+                                 if isinstance(request.get("generate"), dict) else "")
             status = {"id": job_id, "kind": kind, "status": "queued", "stage": "queued",
                       "created_at": now, "updated_at": now, "job_dir": str(directory),
-                      "source": source, "summary": self._summary(kind, request), "result_panel": result_panel}
+                      "source": source, "summary": self._summary(kind, request), "result_panel": result_panel,
+                      "project_id": str(request.get("project_id") or nested_project_id or "")}
             atomic_json(directory / "job.json", job)
             atomic_json(directory / "status.json", status)
             with self.lock:
@@ -474,6 +477,15 @@ class JobStore:
                 status["result_panel"] = ("cover" if kind in {"reference_cover", "voice_convert"} or
                                           (kind == "generate" and job.get("request", {}).get("abc")) else
                                           "plan" if kind == "render_plan" else "create")
+            if "project_id" not in status:
+                try:
+                    saved_job = json.loads((directory / "job.json").read_text(encoding="utf-8"))
+                    saved_request = saved_job.get("request", {})
+                    nested_project_id = (saved_request.get("generate", {}).get("project_id")
+                                         if isinstance(saved_request.get("generate"), dict) else "")
+                    status["project_id"] = str(saved_request.get("project_id") or nested_project_id or "")
+                except (OSError, ValueError, json.JSONDecodeError):
+                    status["project_id"] = ""
             with self.lock:
                 self.jobs[job_id] = status
         return public_job(status)
@@ -533,6 +545,44 @@ class JobStore:
             except KeyError:
                 continue
         return result
+
+    def list_page(self, *, limit: int = 100, offset: int = 0, kind: str = "",
+                  status: str = "", query: str = "", project_id: str = "") -> tuple[list[dict], int]:
+        limit, offset, needle = max(1, min(int(limit), 500)), max(0, int(offset)), str(query).strip().lower()[:200]
+        with self.lock:
+            values = list(self.jobs.items())
+        values.sort(key=lambda item: item[1].get("created_at", 0), reverse=True)
+        def matches(item):
+            job_id, value = item
+            if kind and value.get("kind") != kind:
+                return False
+            if status and value.get("status") != status:
+                return False
+            if project_id:
+                scoped = str(value.get("project_id") or "")
+                if "project_id" not in value:
+                    try:
+                        saved = json.loads((job_directory(job_id) / "job.json").read_text(encoding="utf-8"))
+                        saved_request = saved.get("request", {})
+                        nested_project_id = (saved_request.get("generate", {}).get("project_id")
+                                             if isinstance(saved_request.get("generate"), dict) else "")
+                        scoped = str(saved_request.get("project_id") or nested_project_id or "")
+                    except (OSError, ValueError, json.JSONDecodeError):
+                        scoped = ""
+                if (project_id == "__global__" and scoped) or (project_id != "__global__" and scoped != project_id):
+                    return False
+            if needle and needle not in " ".join((job_id, str(value.get("summary", "")),
+                                                   str(value.get("kind", "")), str(value.get("error", "")))).lower():
+                return False
+            return True
+        filtered = [item for item in values if matches(item)]
+        result = []
+        for job_id, _ in filtered[offset:offset + limit]:
+            try:
+                result.append(self.get(job_id))
+            except KeyError:
+                continue
+        return result, len(filtered)
 
     def cancel(self, job_id: str, force: bool = False) -> dict:
         status = self.get(job_id)
@@ -674,9 +724,9 @@ class JobStore:
         protected_uploads: set[str] = set()
         protected_logs = {f"{job_id}.log" for job_id in active}
         requests = []
-        saved_drafts = assistant_data.drafts(ROOT)
+        saved_drafts = assistant_data.all_drafts(ROOT)
         requests.append(saved_drafts)
-        if any(draft.get("error") for draft in saved_drafts.values()):
+        if any(draft.get("error") for scope in saved_drafts.values() for draft in scope.values()):
             # An older/corrupt schema cannot reveal every referenced artifact safely.
             protected_jobs.update(self.jobs)
             protected_uploads.update(path.name for path in UPLOADS.iterdir() if path.is_file())
@@ -960,12 +1010,18 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/settings":
                 return self._json(200, settings_info(ROOT))
             if path == "/api/jobs":
-                limit = int(urllib.parse.parse_qs(parsed.query).get("limit", ["100"])[0])
-                return self._json(200, {"jobs": STORE.list(limit)})
+                query = urllib.parse.parse_qs(parsed.query)
+                limit, offset = int(query.get("limit", ["100"])[0]), int(query.get("offset", ["0"])[0])
+                jobs, total = STORE.list_page(limit=limit, offset=offset, kind=query.get("kind", [""])[0],
+                                              status=query.get("status", [""])[0], query=query.get("q", [""])[0],
+                                              project_id=query.get("project_id", [""])[0])
+                return self._json(200, {"jobs": jobs, "total": total,
+                                        "limit": max(1, min(limit, 500)), "offset": max(0, offset)})
             if path == "/api/assistant/config":
                 return self._json(200, assistant_data.config_info(ROOT))
             if path == "/api/assistant/drafts":
-                return self._json(200, assistant_data.drafts(ROOT))
+                query = urllib.parse.parse_qs(parsed.query)
+                return self._json(200, assistant_data.drafts(ROOT, query.get("project_id", [""])[0]))
             if path.startswith("/api/assistant/jobs/"):
                 job_id = path.removeprefix("/api/assistant/jobs/")
                 status = STORE.get(job_id)

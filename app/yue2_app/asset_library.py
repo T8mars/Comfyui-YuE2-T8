@@ -314,8 +314,8 @@ class AssetLibrary:
                         _json({"characters": len(text)}), _json(dict(provenance or {})), now))
         return self.get_asset(asset_id)
 
-    def list_assets(self, *, kind: str = "", query: str = "", project_id: str = "",
-                    limit: int = 100, include_trashed: bool = False) -> list[dict]:
+    def _asset_query(self, *, kind: str = "", query: str = "", project_id: str = "",
+                     include_trashed: bool = False) -> tuple[str, list, str]:
         clauses, values = ([] if include_trashed else ["a.status='active'"]), []
         if kind:
             if kind not in ASSET_KINDS:
@@ -332,13 +332,29 @@ class AssetLibrary:
             join = " JOIN project_assets pa ON pa.asset_id=a.id AND pa.revision_id=r.id "
             clauses.append("pa.project_id=?")
             values.append(project_id)
-        limit = min(500, max(1, int(limit)))
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        return join, values, where
+
+    def list_assets(self, *, kind: str = "", query: str = "", project_id: str = "",
+                    limit: int = 100, offset: int = 0,
+                    include_trashed: bool = False) -> list[dict]:
+        join, values, where = self._asset_query(kind=kind, query=query, project_id=project_id,
+                                                include_trashed=include_trashed)
+        limit = min(500, max(1, int(limit)))
+        offset = max(0, int(offset))
         sql = ("SELECT a.*,r.mime,r.size,r.metadata_json,r.provenance_json,r.blob_sha256,r.blob_suffix "
                "FROM assets a JOIN revisions r ON r.id=a.current_revision_id" + join + where +
-               " ORDER BY a.updated_at DESC LIMIT ?")
+               " ORDER BY a.updated_at DESC LIMIT ? OFFSET ?")
         with self.reading() as db:
-            return [self._asset_row(row) for row in db.execute(sql, (*values, limit)).fetchall()]
+            return [self._asset_row(row) for row in db.execute(sql, (*values, limit, offset)).fetchall()]
+
+    def count_assets(self, *, kind: str = "", query: str = "", project_id: str = "",
+                     include_trashed: bool = False) -> int:
+        join, values, where = self._asset_query(kind=kind, query=query, project_id=project_id,
+                                                include_trashed=include_trashed)
+        with self.reading() as db:
+            return int(db.execute("SELECT COUNT(DISTINCT a.id) FROM assets a JOIN revisions r "
+                                  "ON r.id=a.current_revision_id" + join + where, values).fetchone()[0])
 
     def get_asset(self, asset_id: str) -> dict:
         asset_id = _ident(asset_id, "素材 ID")
@@ -411,6 +427,29 @@ class AssetLibrary:
                        (ident, title, _json(dict(metadata or {})), now, now))
         return self.get_project(ident)
 
+    def update_project(self, project_id: str, *, title=None, status=None, metadata=None) -> dict:
+        project_id = _ident(project_id, "项目 ID")
+        fields, values = [], []
+        if title is not None:
+            title = str(title).strip()[:160]
+            if not title:
+                raise ValueError("项目名称不能为空")
+            fields.append("title=?"); values.append(title)
+        if status is not None:
+            if status not in {"active", "archived"}:
+                raise ValueError("项目状态无效")
+            fields.append("status=?"); values.append(status)
+        if metadata is not None:
+            if not isinstance(metadata, dict):
+                raise ValueError("项目信息格式无效")
+            fields.append("metadata_json=?"); values.append(_json(metadata))
+        if fields:
+            fields.append("updated_at=?"); values.append(_now()); values.append(project_id)
+            with self.transaction() as db:
+                if not db.execute(f"UPDATE projects SET {','.join(fields)} WHERE id=?", values).rowcount:
+                    raise KeyError(project_id)
+        return self.get_project(project_id)
+
     def list_projects(self, limit: int = 100) -> list[dict]:
         with self.reading() as db:
             rows = db.execute("SELECT p.*,COUNT(pa.asset_id) AS asset_count FROM projects p "
@@ -458,6 +497,31 @@ class AssetLibrary:
             db.execute("UPDATE projects SET updated_at=? WHERE id=?", (_now(), project_id))
         return self.get_project(project_id)
 
+    def remove_from_project(self, project_id: str, asset_id: str, *, revision_id: str = "",
+                            role: str = "") -> dict:
+        project_id, asset_id = _ident(project_id, "项目 ID"), _ident(asset_id, "素材 ID")
+        clauses, values = ["project_id=?", "asset_id=?"], [project_id, asset_id]
+        if revision_id:
+            clauses.append("revision_id=?"); values.append(_ident(revision_id, "版本 ID"))
+        if role:
+            clauses.append("role=?"); values.append(str(role).strip()[:50])
+        with self.transaction() as db:
+            project = db.execute("SELECT metadata_json FROM projects WHERE id=?", (project_id,)).fetchone()
+            if project is None:
+                raise KeyError(project_id)
+            db.execute("DELETE FROM project_assets WHERE " + " AND ".join(clauses), values)
+            metadata = _decoded(project["metadata_json"], {})
+            master_matches = metadata.get("master_asset_id") == asset_id
+            revision_matches = not revision_id or metadata.get("master_revision_id") == revision_id
+            if master_matches and revision_matches:
+                metadata.pop("master_asset_id", None)
+                metadata.pop("master_revision_id", None)
+                db.execute("UPDATE projects SET metadata_json=?,updated_at=? WHERE id=?",
+                           (_json(metadata), _now(), project_id))
+            else:
+                db.execute("UPDATE projects SET updated_at=? WHERE id=?", (_now(), project_id))
+        return self.get_project(project_id)
+
     def create_snapshot(self, *, title: str, training_kind: str, items: list[dict], options=None) -> dict:
         if training_kind not in {"yue2_style", "rvc_voice"}:
             raise ValueError("训练类型无效")
@@ -489,6 +553,7 @@ class AssetLibrary:
                     "split": "validation" if raw.get("split") == "validation" else "train",
                     "lyrics_revision_id": raw.get("lyrics_revision_id") or None,
                     "style_revision_id": raw.get("style_revision_id") or None,
+                    "instrumental": raw.get("instrumental") is True,
                 })
                 for key, kind in (("lyrics_revision_id", "lyrics"), ("style_revision_id", "style")):
                     linked = normalized[-1][key]
@@ -501,11 +566,19 @@ class AssetLibrary:
                         if text_row is None:
                             raise ValueError("训练素材关联的歌词或曲风版本无效")
                         normalized[-1][key] = linked
-        groups = {}
+        groups, blobs = {}, {}
         for item in normalized:
             previous = groups.setdefault(item["track_group_id"], item["split"])
             if previous != item["split"]:
                 raise ValueError("同一首歌的衍生素材不能跨训练集与验证集")
+            previous_blob = blobs.setdefault(item["blob_sha256"], item["split"])
+            if previous_blob != item["split"]:
+                raise ValueError("内容相同的音频不能跨训练集与验证集")
+        if training_kind == "yue2_style":
+            default_lyrics = str(options.get("default_lyrics", "")).strip()
+            for item in normalized:
+                if not item["instrumental"] and not item["lyrics_revision_id"] and not default_lyrics:
+                    raise ValueError("含人声训练素材必须选择歌词版本；纯器乐请逐首明确标记")
         manifest = {"schema": 1, "training_kind": training_kind, "items": normalized,
                     "options": options}
         import hashlib

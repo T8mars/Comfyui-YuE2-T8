@@ -34,9 +34,9 @@ body > header .status-card .workload { grid-column: 2 / 4; }
 .tool-nav { top: 0; justify-content: flex-start; padding-left: max(26px, calc((100vw - 218px - 1380px)/2)); overflow-x: auto; }
 .tool-nav .tab { padding: 13px 20px; font-size: 12px; white-space: nowrap; }
 main { max-width: 1380px; padding: 32px 28px 160px; }
-body[data-active-tab="project"] #latest-task, body[data-active-tab="project"] #task-center, body[data-active-tab="project"] #model-settings,
-body[data-active-tab="assets"] #latest-task, body[data-active-tab="assets"] #task-center, body[data-active-tab="assets"] #model-settings,
-body[data-active-tab="training"] #latest-task, body[data-active-tab="training"] #task-center, body[data-active-tab="training"] #model-settings { display: none !important; }
+body[data-active-tab="project"] #latest-task, body[data-active-tab="project"] #task-center,
+body[data-active-tab="assets"] #latest-task, body[data-active-tab="assets"] #task-center,
+body[data-active-tab="training"] #latest-task, body[data-active-tab="training"] #task-center { display: none !important; }
 .workspace-heading { margin-bottom: 22px; display: flex; align-items: end; justify-content: space-between; gap: 24px; }
 .workspace-heading h2 { margin: 4px 0 7px; font-size: 28px; }
 .workspace-heading > div > p:last-child { margin: 0; color: var(--muted); font-size: 13px; }
@@ -61,9 +61,11 @@ body[data-active-tab="training"] #latest-task, body[data-active-tab="training"] 
 .project-track div { min-width: 0; }
 .project-track b, .project-track small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-track small { margin-top: 3px; color: var(--muted); font-size: 10px; }
+.project-track > .toolbar { justify-content: flex-end; }
 .workflow-strip { margin-top: 18px; display: grid; grid-template-columns: repeat(5,1fr); border-top: 1px solid var(--line); }
 .workflow-strip span { padding: 14px 6px 0; color: #98a2b2; font-size: 10px; text-align: center; }
 .workflow-strip span.active { color: var(--accent-strong); font-weight: 800; box-shadow: inset 0 2px var(--accent); }
+.workflow-strip span.done { color: #25865d; font-weight: 700; }
 #project-assets { display: grid; gap: 8px; }
 .inspector-asset { padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
 .inspector-asset b { display: block; overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
@@ -77,6 +79,7 @@ body[data-active-tab="training"] #latest-task, body[data-active-tab="training"] 
 .asset-controls button { margin-bottom: 0; }
 .inline-editor { margin-bottom: 15px; padding: 16px; display: grid; grid-template-columns: 180px minmax(0,1fr); gap: 14px; border: 1px solid var(--blue-line); border-radius: 10px; background: var(--blue-soft); }
 .asset-grid { min-height: 360px; display: grid; grid-template-columns: repeat(auto-fill,minmax(245px,1fr)); gap: 12px; align-items: start; }
+.asset-pagination { margin-top: 16px; display: flex; align-items: center; justify-content: center; gap: 12px; }
 .asset-card { min-width: 0; padding: 15px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); box-shadow: 0 5px 14px rgba(31,41,55,.035); }
 .asset-card-head { display: flex; gap: 11px; align-items: center; }
 .asset-card-head > i { width: 38px; height: 38px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 8px; color: #5572cf; background: var(--blue-soft); font-size: 17px; }
@@ -86,6 +89,7 @@ body[data-active-tab="training"] #latest-task, body[data-active-tab="training"] 
 .asset-card .wave-mini { height: 44px; margin: 12px 0; display: flex; align-items: center; gap: 2px; overflow: hidden; }
 .wave-mini span { width: 2px; min-height: 2px; border-radius: 2px; background: #9baddf; }
 .asset-card .toolbar { margin-top: 10px; justify-content: flex-start; }
+.asset-use-actions { display: grid; gap: 8px; margin: 16px 0; }
 .training-switch { margin-bottom: 16px; display: flex; gap: 5px; border-bottom: 1px solid var(--line); }
 .training-switch button { padding: 10px 14px; border: 0; border-bottom: 2px solid transparent; color: var(--muted); background: transparent; font: 700 12px var(--sans); cursor: pointer; }
 .training-switch button.active { color: var(--accent-strong); border-color: var(--accent); }
@@ -101,12 +105,14 @@ body[data-active-tab="training"] #latest-task, body[data-active-tab="training"] 
 .training-inspector output { color: var(--accent-strong); font-size: 12px; font-weight: 800; }
 .training-inspector .rights-check { padding: 10px 11px; border: 1px solid var(--blue-line); border-radius: 8px; background: var(--blue-soft); line-height: 1.45; }
 .training-preview-result audio { width: 100%; margin: 14px 0 8px; }
+.training-run-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .training-stage { padding: 0 8px; display: grid; grid-template-columns: repeat(5,1fr); gap: 5px; }
 .training-stage span { padding: 8px 6px; border-bottom: 2px solid var(--line); color: #97a1b1; font-size: 10px; text-align: center; }
 .training-stage span.active { color: var(--accent-strong); border-color: var(--accent); font-weight: 800; }
 .training-stage span.done { color: #25865d; border-color: #8ad4b2; font-weight: 700; }
 .training-assets { max-height: 300px; margin-top: 14px; display: grid; gap: 7px; overflow: auto; }
-.training-asset { padding: 10px; display: grid; grid-template-columns: auto minmax(0,1fr) 120px; gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: 8px; }
+.training-asset { padding: 10px; display: grid; grid-template-columns: auto minmax(0,1fr) 110px; gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: 8px; }
+.training-asset-options { grid-column: 2 / -1; display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: end; }
 .training-asset input { width: auto; }
 .training-asset b { display: block; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .training-asset small { color: var(--muted); font-size: 9px; }
@@ -131,18 +137,19 @@ body[data-active-tab="training"] #latest-task, body[data-active-tab="training"] 
   body > header { grid-template-columns: 1fr; }
 }
 @media (max-width: 760px) {
-  body { padding: 72px 0 0; }
-  .studio-sidebar { inset: 0 0 auto 0; width: auto; height: 62px; padding: 8px 12px; flex-direction: row; align-items: center; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+  body { padding: 80px 0 0; }
+  .studio-sidebar { inset: 0 0 auto 0; width: auto; height: 70px; padding: 8px 12px; flex-direction: row; align-items: center; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); scrollbar-width: thin; }
+  .studio-sidebar::after { content: ""; position: sticky; right: -12px; width: 28px; height: 52px; flex: 0 0 28px; pointer-events: none; background: linear-gradient(90deg,rgba(249,251,255,0),rgba(249,251,255,.98)); }
   .studio-brand { padding: 0 12px 0 0; border-right: 1px solid var(--line); border-bottom: 0; }
   .studio-brand small, .sidebar-project, .sidebar-group > small, .sidebar-settings { display: none; }
   .sidebar-group { display: flex; flex-direction: row; }
-  .studio-sidebar .tab { width: auto; min-width: max-content; padding: 9px; }
+  .studio-sidebar .tab { width: auto; min-width: max-content; min-height: 44px; padding: 10px 12px; }
   .studio-sidebar .tab.active { box-shadow: inset 0 -3px var(--accent); }
   body > header { margin: 10px 12px; }
   body > header .status-card { grid-template-columns: auto 1fr; }
   body > header .status-card .doctor-action { grid-column: 2; grid-row: auto; }
   body > header .status-card .update-action, body > header .status-card .workload { grid-column: 2; }
-  .tool-nav { padding-left: 5px; }
+  .tool-nav { display: none; }
   main { padding: 25px 14px 150px; }
   .workspace-heading, .project-toolbar, .asset-controls { align-items: stretch; flex-direction: column; }
   .project-toolbar label, .asset-controls label { min-width: 0; width: 100%; }
@@ -154,7 +161,14 @@ body[data-active-tab="training"] #latest-task, body[data-active-tab="training"] 
   .inline-editor { grid-template-columns: 1fr; }
   .training-asset { grid-template-columns: auto minmax(0,1fr); }
   .training-asset select { grid-column: 2; }
+  .training-asset-options { grid-column: 1 / -1; grid-template-columns: 1fr; }
+  .project-track { grid-template-columns: auto minmax(0,1fr); }
+  .project-track > .toolbar { grid-column: 1 / -1; justify-content: flex-start; }
+  .training-run-controls { grid-template-columns: 1fr; }
   .metric-row { grid-template-columns: 1fr; }
   .global-player { right: 10px; bottom: 10px; left: 10px; grid-template-columns: 1fr auto; }
   .global-player audio { grid-column: 1 / -1; grid-row: 2; }
+  button, a.primary, a.ghost, input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]), select { min-height: 44px; }
+  .model-settings-copy a { min-height: 44px; display: inline-flex; align-items: center; }
+  .meta, .asset-card small, .project-track small, .inspector-asset small, .metric-row small, .global-player small { font-size: 11px; line-height: 1.45; }
 }

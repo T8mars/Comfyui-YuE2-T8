@@ -237,7 +237,7 @@ def save_config(root: Path, value: dict) -> dict:
 
 
 def normalize_request(root: Path, value: dict) -> dict:
-    allowed = {"values", "config", "variant_id", "resume_from", "test_connection", "retry_stages", "final_fields"}
+    allowed = {"values", "config", "project_id", "variant_id", "resume_from", "test_connection", "retry_stages", "final_fields"}
     if set(value) - allowed:
         raise ValueError("助手请求包含未知字段；不要把 API Key 放入任务")
     values = value.get("values", {})
@@ -266,6 +266,10 @@ def normalize_request(root: Path, value: dict) -> dict:
         raise ValueError("请填写 API 模型名或选择本地 GGUF")
     result = {"values": values, "config": config, "variant_id": str(value.get("variant_id") or uuid.uuid4().hex)[:100],
               "test_connection": value.get("test_connection") is True}
+    project_id = str(value.get("project_id") or "")
+    if project_id and not re.fullmatch(r"[a-f0-9]{32}", project_id):
+        raise ValueError("无效的项目 ID")
+    result["project_id"] = project_id
     if not result["test_connection"] and not values["music_idea"].strip():
         raise ValueError("请填写歌曲想法")
     if config["provider"] == "local":
@@ -299,6 +303,14 @@ def normalize_request(root: Path, value: dict) -> dict:
     return result
 
 
+def _draft_path(root: Path, panel: str, project_id: str = "") -> Path:
+    if project_id:
+        if not re.fullmatch(r"[a-f0-9]{32}", project_id):
+            raise ValueError("无效的项目 ID")
+        return root / "userdata/assistant/drafts/projects" / project_id / (panel + ".json")
+    return root / "userdata/assistant/drafts" / (panel + ".json")
+
+
 def save_draft(root: Path, data: dict) -> dict:
     panel = data.get("panel")
     if panel not in PANELS:
@@ -318,7 +330,8 @@ def save_draft(root: Path, data: dict) -> dict:
         elif isinstance(item, str) and engine.API_KEY_PATTERN.search(item):
             raise ValueError("草稿不能包含密钥")
     inspect(payload)
-    path = root / "userdata/assistant/drafts" / (panel + ".json")
+    project_id = str(data.get("project_id") or "")
+    path = _draft_path(root, panel, project_id)
     with LOCK:
         current = read(path, {"schema": 1, "revision": 0, "draft": {}})
         if not isinstance(current, dict) or current.get("schema") != 1 or type(current.get("revision")) is not int:
@@ -327,23 +340,35 @@ def save_draft(root: Path, data: dict) -> dict:
             raise ValueError("草稿已在其他页面更新，请重新载入后合并")
         if path.exists():
             atomic_json(path.with_suffix(".previous.json"), current)
-        result = {"schema": 1, "panel": panel, "revision": current["revision"] + 1, "draft": payload}
+        result = {"schema": 1, "panel": panel, "project_id": project_id,
+                  "revision": current["revision"] + 1, "draft": payload}
         atomic_json(path, result)
         return result
 
 
-def drafts(root: Path) -> dict:
+def drafts(root: Path, project_id: str = "") -> dict:
     result = {}
     for panel in PANELS:
         empty = {"schema": 1, "panel": panel, "revision": 0, "draft": {}}
         try:
-            value = read(root / "userdata/assistant/drafts" / (panel + ".json"), empty)
+            value = read(_draft_path(root, panel, project_id), empty)
             if (not isinstance(value, dict) or value.get("schema") != 1 or type(value.get("revision")) is not int
                     or value["revision"] < 0 or not isinstance(value.get("draft"), dict)):
                 raise ValueError("unsupported draft")
             result[panel] = value
         except (OSError, ValueError):
             result[panel] = {**empty, "error": "草稿版本或格式不支持，原文件已保留；请使用匹配版本或从 previous 备份恢复"}
+    return result
+
+
+def all_drafts(root: Path) -> dict:
+    """Return every valid draft for retention scanning without mixing project scopes."""
+    result = {"global": drafts(root)}
+    projects = root / "userdata/assistant/drafts/projects"
+    if projects.is_dir():
+        for directory in projects.iterdir():
+            if directory.is_dir() and re.fullmatch(r"[a-f0-9]{32}", directory.name):
+                result[directory.name] = drafts(root, directory.name)
     return result
 
 

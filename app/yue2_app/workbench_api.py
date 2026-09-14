@@ -3,12 +3,16 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import os
 import re
+import shutil
+import time
 import urllib.parse
+import uuid
 from pathlib import Path
 
 from .asset_library import ASSET_KINDS, AssetLibrary
-from .io import atomic_json, within
+from .io import atomic_json, sha256, within
 
 
 def parse_byte_range(value: str, size: int) -> tuple[int, int] | None:
@@ -132,6 +136,28 @@ def waveform(library: AssetLibrary, asset_id: str, revision_id: str = "", bins: 
     return result
 
 
+def training_checkpoints(library: AssetLibrary, run_id: str) -> list[dict]:
+    from .yue2_trainer import inspect_training_checkpoint
+    run = library.get_training_run(run_id)
+    directory = library.home / "training" / run["id"] / "checkpoints"
+    current = Path(str(run.get("config", {}).get("last_checkpoint") or "")).name
+    values = []
+    if directory.is_dir():
+        for checkpoint in directory.glob("step-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]"):
+            match = re.fullmatch(r"step-(\d{8})", checkpoint.name)
+            if not match:
+                continue
+            try:
+                inspected = inspect_training_checkpoint(checkpoint,
+                    identity=str(run.get("config", {}).get("training_identity") or ""),
+                    step=int(match.group(1)), verify_files=False)
+            except ValueError:
+                continue
+            values.append({"step": inspected["step"], "name": checkpoint.name,
+                           "current": checkpoint.name == current})
+    return sorted(values, key=lambda item: item["step"], reverse=True)
+
+
 def _query(parsed) -> dict[str, list[str]]:
     return urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
 
@@ -139,9 +165,12 @@ def _query(parsed) -> dict[str, list[str]]:
 def get(handler, parsed, library: AssetLibrary, *, head: bool = False) -> bool:
     path, query = parsed.path, _query(parsed)
     if path == "/api/workbench/assets":
-        handler._json(200, {"assets": library.list_assets(
-            kind=query.get("kind", [""])[0], query=query.get("q", [""])[0],
-            project_id=query.get("project_id", [""])[0], limit=int(query.get("limit", ["100"])[0]))})
+        filters = {"kind": query.get("kind", [""])[0], "query": query.get("q", [""])[0],
+                   "project_id": query.get("project_id", [""])[0]}
+        limit, offset = int(query.get("limit", ["100"])[0]), int(query.get("offset", ["0"])[0])
+        handler._json(200, {"assets": library.list_assets(**filters, limit=limit, offset=offset),
+                            "total": library.count_assets(**filters), "limit": min(500, max(1, limit)),
+                            "offset": max(0, offset)})
         return True
     if path.startswith("/api/workbench/assets/"):
         pieces = path.split("/")
@@ -173,6 +202,9 @@ def get(handler, parsed, library: AssetLibrary, *, head: bool = False) -> bool:
         return True
     if path.startswith("/api/workbench/training-runs/"):
         pieces = path.split("/")
+        if len(pieces) == 6 and pieces[4] and pieces[5] == "checkpoints":
+            handler._json(200, {"checkpoints": training_checkpoints(library, pieces[4])})
+            return True
         if len(pieces) == 5 and pieces[4]:
             handler._json(200, library.get_training_run(pieces[4]))
             return True
@@ -188,6 +220,37 @@ def _allowed_source(root: Path, value: object) -> Path:
         except ValueError:
             continue
     raise ValueError("只能将上传文件、任务结果、导出内容或已有 RVC 素材加入资产库")
+
+
+def export_project(library: AssetLibrary, root: Path, project_id: str) -> dict:
+    project = library.get_project(project_id)
+    master_id = str(project.get("metadata", {}).get("master_asset_id") or "")
+    master_revision = str(project.get("metadata", {}).get("master_revision_id") or "")
+    linked = next((item for item in project["assets"]
+                   if item["id"] == master_id and (not master_revision or item["revision_id"] == master_revision)), None)
+    if linked is None or linked["kind"] not in {"song", "work", "vocal", "instrumental"}:
+        raise ValueError("请先在项目里选定一个音频主版本")
+    source, info = library.revision_file(linked["id"], linked["revision_id"])
+    title = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "_", project["title"]).strip(" .")[:80] or "YuE2-project"
+    exports = root / "exports"
+    exports.mkdir(parents=True, exist_ok=True)
+    final = exports / f"{title}-{time.strftime('%Y%m%d-%H%M%S')}"
+    if final.exists():
+        final = exports / f"{final.name}-{uuid.uuid4().hex[:6]}"
+    staging = exports / f".{final.name}.{uuid.uuid4().hex}.tmp"
+    staging.mkdir()
+    try:
+        audio = staging / ("master" + (info.get("blob_suffix") or source.suffix))
+        shutil.copy2(source, audio)
+        manifest = {"schema": 1, "project_id": project["id"], "title": project["title"],
+                    "asset_id": linked["id"], "revision_id": linked["revision_id"],
+                    "audio": audio.name, "sha256": sha256(audio), "exported_at": time.time()}
+        atomic_json(staging / "project.json", manifest)
+        os.replace(staging, final)
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    return {"destination": str(final), "audio": str(final / audio.name), "manifest": manifest}
 
 
 def post(handler, parsed, library: AssetLibrary, root: Path) -> bool:
@@ -226,6 +289,24 @@ def post(handler, parsed, library: AssetLibrary, root: Path) -> bool:
         handler._json(200, library.add_to_project(project_id, data.get("asset_id", ""),
                                                    revision_id=data.get("revision_id", ""),
                                                    role=data.get("role", "asset")))
+        return True
+    if path.startswith("/api/workbench/projects/") and path.endswith("/update"):
+        project_id = path.split("/")[4]
+        data = handler._body_json(128 * 1024)
+        handler._json(200, library.update_project(project_id, title=data.get("title"),
+                                                  status=data.get("status"), metadata=data.get("metadata")))
+        return True
+    if path.startswith("/api/workbench/projects/") and path.endswith("/remove-asset"):
+        project_id = path.split("/")[4]
+        data = handler._body_json(128 * 1024)
+        handler._json(200, library.remove_from_project(project_id, data.get("asset_id", ""),
+                                                       revision_id=data.get("revision_id", ""),
+                                                       role=data.get("role", "")))
+        return True
+    if path.startswith("/api/workbench/projects/") and path.endswith("/export"):
+        project_id = path.split("/")[4]
+        handler._body_json(1024) if int(handler.headers.get("Content-Length", "0")) else {}
+        handler._json(200, export_project(library, root, project_id))
         return True
     if path == "/api/workbench/snapshots":
         data = handler._body_json(2 * 1024 * 1024)

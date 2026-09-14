@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.4.1 - 2026-09-14
+
+- Make model settings reachable from every workbench page and simplify mobile navigation, tap targets, assistant setup and YuE2 training presets.
+- Keep project-scoped assistant, creation, score and cover drafts isolated across initial selection, switching, archiving, refresh and failed draft loads; assistant tasks now retain their project scope.
+- Add asset paging, editing, text revisions and direct transfer into song creation, score planning, reference-voice cover and RVC training while keeping training inputs independent from asset filters.
+- Require per-song lyrics or an explicit instrumental marker, preserve per-song style/lyrics choices, and reject duplicate audio blobs across training and validation splits.
+- Add training-run and checkpoint selectors, integrity-bound previews for paused checkpoints, accurate missing validation metrics and visible polling failures.
+- Add project rename/archive/remove actions, dynamic workflow progress, master-version selection and a verified audio-plus-manifest project export.
+- Add type, project, status and text filters to paged task history; refresh the active project after completed jobs and keep unrelated results off the current page.
+- Add the missing favicon and responsive/accessibility fixes. GitHub updater artifacts remain code-only and contain no Python runtime, models, GGUF files or user data.
+
 ## 1.4.0 - 2026-09-14
 
 - Redesign the standalone WebUI as a connected music workbench while preserving the established light blue-gray and berry palette.

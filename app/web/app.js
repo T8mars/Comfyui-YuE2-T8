@@ -7,6 +7,8 @@ let currentJobId = null;
 let workspaceRefreshing = false;
 let modelSettingsInitialized = false;
 let displayedTerminal = null;
+let projectAssetSignature = '';
+let historyOffset = 0, historyTotal = 0; const historyPageSize = 20;
 let availableUpdate = null;
 let updateInstalling = false;
 const panelStates = new Map();
@@ -199,9 +201,10 @@ async function resumeJob(id, button) {
 window.resumeJob = resumeJob;
 
 function renderLatestTask(jobs) {
-  const job = jobs.find(item => ['generate', 'reference_cover', 'voice_convert', 'render_plan', 'decode'].includes(item.kind));
-  if (!job) return;
   const target = $('#latest-task');
+  const active = document.body.dataset.activeTab || 'project';
+  const job = jobs.find(item => ['generate', 'reference_cover', 'voice_convert', 'render_plan', 'decode'].includes(item.kind) && resultPanel(item) === active);
+  if (!job) { target.classList.add('hidden'); displayedTerminal = null; return; }
   if (!TERMINAL.has(job.status)) { target.classList.add('hidden'); displayedTerminal = null; return; }
   const signature = `${job.id}:${job.status}`;
   if (signature === displayedTerminal) return;
@@ -380,6 +383,9 @@ async function refreshWorkspace() {
   try {
     const [healthData, listData] = await Promise.all([api('/api/health'), api('/api/jobs?limit=100')]);
     renderHealth(healthData); renderTaskCenter(healthData, listData.jobs); renderLatestTask(listData.jobs); renderPanelResults(listData.jobs);
+    const assetJob = listData.jobs.find(job => job.asset_ids?.length);
+    const assetSignature = assetJob ? `${assetJob.id}:${assetJob.asset_ids.length}` : '';
+    if (assetSignature && assetSignature !== projectAssetSignature) { projectAssetSignature = assetSignature; window.refreshWorkbenchProject?.(); }
   } catch (error) {
     $('#health-dot').className = 'dot bad'; $('#health-title').textContent = '服务连接中断';
     $('#health-detail').textContent = `正在重试 · ${error.message}`;
@@ -413,7 +419,7 @@ async function waitForJob(id, resultTarget) {
     await refreshWorkspace();
     if (job.status === 'complete') {
       restoreButton(buttonBindings.get(id));
-      await Promise.all([refreshWorkspace(), loadHistory()]); return job;
+      await Promise.all([refreshWorkspace(), loadHistory(), window.refreshWorkbenchProject?.()]); return job;
     }
     if (job.status === 'paused') {
       restoreButton(buttonBindings.get(id)); await Promise.all([refreshWorkspace(), loadHistory()]); return job;
@@ -475,7 +481,7 @@ window.exportJob = exportJob;
 $$('.tab').forEach(button => button.onclick = () => {
   savedValue('active-tab', button.dataset.tab);
   document.body.dataset.activeTab = button.dataset.tab;
-  $$('.tab').forEach(item => item.classList.toggle('active', item.dataset.tab === button.dataset.tab));
+  $$('.tab').forEach(item => { const active=item.dataset.tab===button.dataset.tab;item.classList.toggle('active',active);item.setAttribute('aria-selected',String(active));if(active)item.setAttribute('aria-current','page');else item.removeAttribute('aria-current'); });
   $$('.panel').forEach(panel => panel.classList.toggle('active', panel.id === button.dataset.tab));
   if (button.dataset.tab === 'history') loadHistory();
 });
@@ -755,7 +761,9 @@ function firstResultAudio(job) {
 
 async function loadHistory() {
   try {
-    const {jobs} = await api('/api/jobs?limit=100');
+    const query=new URLSearchParams({limit:historyPageSize,offset:historyOffset});
+    if($('#history-status').value)query.set('status',$('#history-status').value);if($('#history-kind').value)query.set('kind',$('#history-kind').value);if($('#history-project').value)query.set('project_id',$('#history-project').value);if($('#history-query').value.trim())query.set('q',$('#history-query').value.trim());
+    const {jobs,total} = await api('/api/jobs?' + query); historyTotal=total;
     $('#history-list').innerHTML = jobs.map(job => {
       const result = job.result || {}; const audio = relativeAudio(job, result.audio || result.candidates?.[0]?.audio);
       const exportButton = (job.status === 'complete' || (TERMINAL.has(job.status) && result.comparison && result.candidates?.length)) && job.result ? `<button class="ghost" onclick="exportJob('${job.id}')">导出</button>` : '';
@@ -766,7 +774,8 @@ async function loadHistory() {
         return `<div class="comparison-result"><p class="meta">${voiceDescription(candidate)}</p>${rel ? `<audio controls preload="none" src="${audioUrl(job.id,rel)}"></audio><a class="ghost compact" href="${audioUrl(job.id,rel)}" download>下载音频</a>` : ''}${stemPlayers(job,candidate)}</div>`;
       }).join('') : '';
       return `<article class="history-card"><header><div><b>${escapeHtml(kindLabel(job.kind))}</b><div class="meta">${escapeHtml(job.id)} · ${new Date(job.created_at * 1000).toLocaleString()} · ${escapeHtml(sourceLabel(job.source))}</div></div></header><b class="status-${job.status}">${escapeHtml(job.status === 'running' ? stageLabel(job.stage) : stageLabel(job.status))}</b>${job.error ? `<div class="meta">${escapeHtml(job.error)}</div>` : ''}${!result.comparison && audio ? `<audio controls preload="none" src="${audioUrl(job.id, audio)}"></audio>` : ''}<p class="meta">${voiceDescription(result)}</p>${comparison || stemPlayers(job,result)}<div class="toolbar">${exportButton}${retryButton}${logButtons}</div><pre class="job-log hidden"></pre></article>`;
-    }).join('') || '<p class="meta">还没有任务。</p>';
+    }).join('') || '<p class="meta">还没有符合条件的任务。</p>';
+    const page=Math.floor(historyOffset/historyPageSize)+1,pages=Math.max(1,Math.ceil(historyTotal/historyPageSize));$('#history-page-status').textContent=`第 ${page} / ${pages} 页 · ${historyTotal} 项`;$('#history-prev').disabled=historyOffset<=0;$('#history-next').disabled=historyOffset+historyPageSize>=historyTotal;
   } catch (error) { $('#history-list').innerHTML = `<p class="status-failed">${escapeHtml(error.message)}</p>`; }
 }
 
@@ -794,6 +803,12 @@ window.cancelJob = cancelJob;
 
 $('#cancel-active').onclick = () => cancelJob(currentJobId);
 $('#refresh-history').onclick = () => { loadHistory(); loadRetention(); };
+$('#history-status').onchange=()=>{historyOffset=0;loadHistory();};
+$('#history-kind').onchange=()=>{historyOffset=0;loadHistory();};
+$('#history-project').onchange=()=>{historyOffset=0;loadHistory();};
+let historyQueryTimer;$('#history-query').oninput=()=>{clearTimeout(historyQueryTimer);historyOffset=0;historyQueryTimer=setTimeout(loadHistory,250);};
+$('#history-prev').onclick=()=>{historyOffset=Math.max(0,historyOffset-historyPageSize);loadHistory();};
+$('#history-next').onclick=()=>{if(historyOffset+historyPageSize<historyTotal){historyOffset+=historyPageSize;loadHistory();}};
 $('#cleanup-storage').onclick = cleanupStorage;
 $('#doctor-button').onclick = async () => {
   const button = $('#doctor-button'); const action = $('.doctor-action');

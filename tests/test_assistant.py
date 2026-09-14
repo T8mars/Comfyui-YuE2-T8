@@ -308,6 +308,27 @@ class AssistantTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "凭据"):
             data.save_draft(self.root, {"panel": "create", "revision": 0, "draft": {"api_key": "dummy"}})
 
+    def test_drafts_are_isolated_by_project(self):
+        project_a, project_b = "a" * 32, "b" * 32
+        saved = data.save_draft(self.root, {"panel": "create", "project_id": project_a,
+                                            "revision": 0, "draft": {"form": {"lyrics": "A"}}})
+        self.assertEqual(saved["project_id"], project_a)
+        self.assertEqual(data.drafts(self.root, project_a)["create"]["draft"]["form"]["lyrics"], "A")
+        self.assertEqual(data.drafts(self.root, project_b)["create"]["draft"], {})
+        self.assertEqual(data.drafts(self.root)["create"]["draft"], {})
+        with self.assertRaisesRegex(ValueError, "项目 ID"):
+            data.save_draft(self.root, {"panel": "create", "project_id": "../escape",
+                                        "revision": 0, "draft": {}})
+
+    def test_assistant_job_project_scope_is_validated_and_preserved(self):
+        raw = {"values": {"music_idea": "A warm song about home", "lyrics_language": "English"},
+               "config": {"provider": "compatible", "base_url": "http://127.0.0.1:9999/v1",
+                          "model": "fixture"}, "project_id": "a" * 32}
+        self.assertEqual(data.normalize_request(self.root, raw)["project_id"], "a" * 32)
+        raw["project_id"] = "../escape"
+        with self.assertRaisesRegex(ValueError, "项目 ID"):
+            data.normalize_request(self.root, raw)
+
     def test_unknown_draft_schema_is_not_applied_or_overwritten(self):
         path = self.root / "userdata/assistant/drafts/plan.json"
         path.parent.mkdir(parents=True)
@@ -348,6 +369,25 @@ class AssistantTests(unittest.TestCase):
             self.assertEqual(store.pending.qsize(), 1)
             fresh = store.create("assistant", request, client_request_id="another-click")
             self.assertNotEqual(fresh["id"], first["id"])
+
+    def test_job_history_filters_assistant_project_scope(self):
+        import queue
+        import threading
+        from app.yue2_app import service
+        store = service.JobStore.__new__(service.JobStore)
+        store.updating = False
+        store.lock, store.storage_lock = threading.RLock(), threading.RLock()
+        store.jobs, store.pending = {}, queue.Queue()
+        with patch.object(service, "ROOT", self.root), patch.object(service, "OUTPUTS", self.root / "outputs/jobs"), \
+             patch.object(service, "runtime_ready", return_value={"capabilities": {}}):
+            first_request = self.request(); first_request["project_id"] = "a" * 32
+            second_request = self.request(); second_request["project_id"] = "b" * 32
+            first = store.create("assistant", first_request, client_request_id="project-a")
+            store.create("assistant", second_request, client_request_id="project-b")
+            jobs, total = store.list_page(project_id="a" * 32)
+            self.assertEqual(total, 1)
+            self.assertEqual(jobs[0]["id"], first["id"])
+            self.assertEqual(jobs[0]["project_id"], "a" * 32)
 
     def test_secret_config_rejected_and_endpoint_no_credential_redirect(self):
         with self.assertRaises(ValueError):

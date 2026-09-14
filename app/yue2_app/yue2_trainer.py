@@ -74,6 +74,41 @@ def _checkpoint_files(directory: Path) -> dict:
             for name in ("adapter.safetensors", "state.pt", "sampler.json")}
 
 
+def inspect_training_checkpoint(directory: Path, *, identity: str, step: int | None = None,
+                                verify_files: bool = True) -> dict:
+    """Validate a checkpoint without deserializing its optimizer state."""
+    directory = Path(directory)
+    try:
+        manifest = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise ValueError("检查点清单不可读取") from exc
+    if manifest.get("schema") != CHECKPOINT_SCHEMA or not identity or manifest.get("identity") != identity:
+        raise ValueError("检查点与当前训练记录不一致")
+    actual_step = int(manifest.get("step", -1))
+    if step is not None and actual_step != int(step):
+        raise ValueError("检查点步数与目录不一致")
+    expected = manifest.get("files", {})
+    if set(expected) != {"adapter.safetensors", "state.pt", "sampler.json"}:
+        raise ValueError("检查点文件清单不完整")
+    for name, record in expected.items():
+        path = within(directory, directory / name)
+        if (not path.is_file() or path.is_symlink() or path.stat().st_size != int(record.get("bytes", -1))
+                or (verify_files and sha256(path) != record.get("sha256"))):
+            raise ValueError("检查点已损坏或未完整写入")
+    if not verify_files:
+        return {"manifest": manifest, "step": actual_step}
+    inspected = inspect_adapter(directory / "adapter.safetensors")
+    recorded = manifest.get("adapter", {})
+    for key in ("sha256", "content_sha256", "bytes", "rank", "scaling_convention"):
+        if recorded.get(key) != inspected.get(key):
+            raise ValueError("检查点适配器与清单不一致")
+    if inspected.get("metadata", {}).get("training_identity") != identity:
+        raise ValueError("检查点适配器与当前训练记录不一致")
+    if int(inspected.get("metadata", {}).get("step", -1)) != actual_step:
+        raise ValueError("检查点适配器步数与清单不一致")
+    return {"manifest": manifest, "step": actual_step, "adapter": inspected}
+
+
 def save_training_checkpoint(directory: Path, *, attached: dict, optimizer, step: int,
                              rank: int, identity: str, sampler: random.Random,
                              numpy_generator, history: list[dict], best_validation: float | None,

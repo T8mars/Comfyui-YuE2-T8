@@ -1,7 +1,8 @@
 /* Standalone WebUI only. Drafts are revisioned; credentials never enter them. */
 const assistant = {config: null, defaults: {}, result: null, job: null, polling: false, originalLyrics: '', resultEdited: false, resultJobId: null,
   drafts: {}, providers: {}, localModels: [], remoteModels: {}, providerSelections: {}, providerBaseUrls: {}, providerCredentials: {}, activeProvider: null,
-  ticks: {assistant: 0, create: 0, plan: 0, cover: 0}, queues: {}, timers: {}, undo: null, sending: null};
+  ticks: {assistant: 0, create: 0, plan: 0, cover: 0}, queues: {}, timers: {}, undo: null, sending: null,
+  projectId: '', baselines: {}, switchQueue: Promise.resolve()};
 const assistantPost = (path, value) => api(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(value)});
 const assistantText = (id, text) => { $(id).textContent = text; };
 const cloneText = value => JSON.parse(JSON.stringify(value));
@@ -68,7 +69,7 @@ function savePanel(panel, value) {
   const snapshot = cloneText(value || captureDraft(panel));
   const operation = (assistant.queues[panel] || Promise.resolve()).catch(() => {}).then(async () => {
     const revision = assistant.drafts[panel]?.revision ?? 0;
-    const saved = await assistantPost('/api/assistant/drafts', {panel, revision, draft: snapshot});
+    const saved = await assistantPost('/api/assistant/drafts', {panel, project_id: assistant.projectId, revision, draft: snapshot});
     assistant.drafts[panel] = saved;
     return saved;
   });
@@ -85,6 +86,44 @@ function changedDraft(panel) {
 window.assistantDraftRevision = panel => assistant.ticks[panel];
 window.assistantDraftChanged = changedDraft;
 window.assistantCaptureDraft = captureDraft;
+function draftEndpoint(projectId = assistant.projectId) {
+  return '/api/assistant/drafts' + (projectId ? `?project_id=${encodeURIComponent(projectId)}` : '');
+}
+function resetDraftPanel(panel) {
+  if (panel === 'assistant') {
+    assistant.result = null; assistant.job = null; assistant.resultEdited = false; assistant.resultJobId = null;
+    $('#assistant-result').classList.add('hidden'); $('#assistant-progress').replaceChildren();
+  } else if (panel === 'plan') {
+    planState = null; $('#plan-workbench').classList.add('hidden'); $('#plan-abc').value = '';
+  } else if (panel === 'cover') {
+    $('#cover-review').classList.add('hidden');
+  }
+  applyDraft(panel, cloneText(assistant.baselines[panel] || {}));
+}
+async function switchAssistantProject(projectId) {
+  projectId = String(projectId || '');
+  if (projectId === assistant.projectId) return;
+  const panels=['create','plan','cover','assistant'],elements=panels.map(panel=>$(`#${panel}`));
+  elements.forEach(element=>element.inert=true);
+  try {
+    for (const panel of panels) clearTimeout(assistant.timers[panel]);
+    await Promise.all(panels.map(panel => savePanel(panel)));
+    const drafts = await api(draftEndpoint(projectId));
+    assistant.projectId = projectId;
+    assistant.queues = {};
+    assistant.drafts = drafts;
+    for (const panel of panels) {
+      resetDraftPanel(panel); applyDraft(panel, drafts[panel]?.draft); assistant.ticks[panel]++;
+    }
+    assistantText('#assistant-draft-status', projectId ? '已切换到当前项目的独立草稿' : '已切换到未归档草稿');
+    await restoreAssistantJobForCurrentScope();
+  } finally { elements.forEach(element=>element.inert=false); }
+}
+window.assistantSwitchProject = projectId => {
+  const operation=assistant.switchQueue.catch(()=>{}).then(()=>switchAssistantProject(projectId));
+  assistant.switchQueue=operation;
+  return operation;
+};
 function updateInstrumental(panel) {
   if (panel === 'cover') {
     const instrumental = $('#cover').dataset.instrumental === 'true';
@@ -225,7 +264,7 @@ function updateCostHint() {
 }
 const assistantStages = {assistant_lyrics: '创作歌词', assistant_lyrics_language_repair: '修正歌词语言', assistant_style: '创作曲风', assistant_review: '审校文本', assistant_review_repair: '修订文本', assistant_abc: '创作 ABC', assistant_abc_repair: '修正 ABC', assistant_connection: '测试模型连接'};
 window.assistantStageLabel = stage => assistantStages[stage];
-async function pollAssistant(id, startingRevision) {
+async function pollAssistant(id, startingRevision, projectId = assistant.projectId) {
   if (assistant.polling) return;
   assistant.polling = true;
   $('#assistant-generate').disabled = true; $('#assistant-test').disabled = true; $('#assistant-retry').disabled = true;
@@ -233,6 +272,11 @@ async function pollAssistant(id, startingRevision) {
     let lastResult = '';
     while (true) {
       const job = await api(`/api/jobs/${id}`);
+      if (assistant.projectId !== projectId) {
+        if (TERMINAL.has(job.status)) break;
+        await new Promise(resolve => setTimeout(resolve, 1200));
+        continue;
+      }
       assistant.job = job;
       const seconds = Math.max(0, Math.round(Date.now() / 1000 - (job.started_at || job.created_at)));
       const progress = $('#assistant-progress'); progress.replaceChildren();
@@ -261,6 +305,16 @@ async function pollAssistant(id, startingRevision) {
   } catch (error) { assistantText('#assistant-progress', `连接中断：${error.message}。任务可能仍在运行，刷新后可恢复查看。`); }
   finally { assistant.polling = false; $('#assistant-generate').disabled = false; $('#assistant-test').disabled = false; $('#assistant-retry').disabled = false; }
 }
+async function restoreAssistantJobForCurrentScope() {
+  const id=assistant.job?.id,projectId=assistant.projectId;
+  if(!id)return;
+  const current=await api(`/api/jobs/${id}`).catch(()=>null);
+  if(!current||String(current.project_id||'')!==projectId){assistant.job=null;return;}
+  if(!TERMINAL.has(current.status)){pollAssistant(current.id,assistant.ticks.assistant,projectId);return;}
+  assistant.job=current;
+  if(current.result&&!current.result.connection&&!assistant.resultEdited){showAssistantResult(current.result);await savePanel('assistant');}
+  if(current.error){const error=document.createElement('p');error.textContent=current.error;$('#assistant-progress').append(error);}
+}
 async function startAssistant(test = false, retry = false) {
   if (assistant.polling) return;
   try {
@@ -280,7 +334,7 @@ async function startAssistant(test = false, retry = false) {
       if (stage === 'abc') body.values.quality_mode = assistant.defaults.quality_mode;
       job = await assistantPost(`/api/jobs/${assistant.job.id}/retry-assistant`, body);
     } else job = await assistantPost('/api/jobs', {kind: 'assistant', source: 'webui', result_panel: 'assistant', client_request_id: body.client_request_id,
-      request: {values, config, variant_id: crypto.randomUUID(), test_connection: test}});
+      request: {values, config, project_id: assistant.projectId, variant_id: crypto.randomUUID(), test_connection: test}});
     assistant.job = job;
     await savePanel('assistant');
     refreshWorkspace();
@@ -355,6 +409,7 @@ function downloadText(name, text) {
 window.openAssistantJob = async id => {
   try {
     const data = await api(`/api/assistant/jobs/${id}`);
+    if(String(data.request.project_id||'')!==assistant.projectId)throw new Error('这个助手任务属于另一个项目，请先切换到对应项目再载入');
     if (assistant.result && !confirm('载入该任务？当前内容可先保存或下载。')) return;
     putFields($('#assistant-form'), data.request.values); assistant.originalLyrics = data.request.values.lyrics || '';
     if (data.job.result) showAssistantResult(data.job.result);
@@ -382,7 +437,8 @@ function addAdvanced(defaults, options) {
 async function initAssistant() {
   for (const panel of ['create', 'plan']) addInstrumentalControl(panel);
   try {
-    const [info, drafts] = await Promise.all([api('/api/assistant/config'), api('/api/assistant/drafts')]);
+    assistant.projectId = window.workbenchProjectId?.() || '';
+    const [info, drafts] = await Promise.all([api('/api/assistant/config'), api(draftEndpoint())]);
     assistant.config = info.config; assistant.defaults = info.defaults; assistant.drafts = drafts; assistant.providers = info.providers;
     assistant.providerSelections[info.config.provider] = info.config.model;
     assistant.providerBaseUrls[info.config.provider] = info.config.base_url;
@@ -394,6 +450,7 @@ async function initAssistant() {
     addAdvanced(info.defaults, info.options); putFields($('#assistant-form'), info.defaults);
     putFields($('#assistant-config-form'), info.config); $('#assistant-extra').value = JSON.stringify(info.config.extra_parameters || {});
     updateModelInfo(info); providerChanged();
+    assistant.baselines = Object.fromEntries(['create', 'plan', 'cover', 'assistant'].map(panel => [panel, cloneText(captureDraft(panel))]));
     for (const panel of ['create', 'plan', 'cover', 'assistant']) applyDraft(panel, drafts[panel]?.draft);
     const draftErrors = Object.entries(drafts).filter(([, draft]) => draft.error);
     if (draftErrors.length) assistantText('#assistant-draft-status', draftErrors.map(([panel, draft]) => `${panel}：${draft.error}`).join('；'));
@@ -422,7 +479,7 @@ async function initAssistant() {
     updateCostHint();
     if (!assistant.job?.id) {
       const recent = await api('/api/jobs?limit=100');
-      assistant.job = recent.jobs.find(job => job.kind === 'assistant' && !job.result?.connection && job.summary !== '测试 LLM 连接') || null;
+      assistant.job = recent.jobs.find(job => job.kind === 'assistant' && !job.result?.connection && job.summary !== '测试 LLM 连接' && String(job.project_id||'')===assistant.projectId) || null;
     }
     if (assistant.job?.id) {
       const current = await api(`/api/jobs/${assistant.job.id}`).catch(() => null);

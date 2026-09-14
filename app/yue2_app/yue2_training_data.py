@@ -237,7 +237,7 @@ def prepare_snapshot(root: Path, snapshot_id: str, output: Path, ctx=None) -> di
         raise ValueError("这个素材快照不是 YuE2 歌曲风格训练")
     options = snapshot.get("options", {})
     default_style = str(options.get("default_style", "")).strip()
-    default_lyrics = str(options.get("default_lyrics", "[instrumental]")).strip() or "[instrumental]"
+    default_lyrics = str(options.get("default_lyrics", "")).strip()
     if not torch.cuda.is_available():
         raise RuntimeError("YuE2 训练数据准备需要 NVIDIA CUDA")
     models = model_paths(root, strict=True)
@@ -273,6 +273,10 @@ def prepare_snapshot(root: Path, snapshot_id: str, output: Path, ctx=None) -> di
         lyrics = _read_text_revision(library, item.get("lyrics_revision_id"), default_lyrics)
         if not style:
             raise ValueError("每条 YuE2 训练素材都需要曲风描述，或设置公共曲风")
+        if item.get("instrumental"):
+            lyrics = "[instrumental]"
+        elif not lyrics:
+            raise ValueError("含人声训练素材缺少固定歌词版本")
         features = _mert_features(mert, processor, waveform, device)
         codec = _semantic_tokens(head, features, device)
         request = SongRequest(style=style[:1500], lyrics=lyrics, cot="off", seed=1,

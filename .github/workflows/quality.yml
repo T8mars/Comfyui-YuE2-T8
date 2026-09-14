@@ -34,6 +34,7 @@ jobs:
           node --check app/web/app.js
           node --check app/web/assistant.js
           node --check app/web/rvc.js
+          node --check app/web/workbench.js
       - name: Parse PowerShell scripts
         shell: pwsh
         run: |

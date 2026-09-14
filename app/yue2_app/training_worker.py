@@ -58,9 +58,48 @@ def preview(root: Path, ctx: JobContext, request: dict) -> dict:
     from .core_worker import add_upstream, run_generate
     library = AssetLibrary(root)
     run = library.get_training_run(str(request.get("run_id", "")))
-    model_asset_id = str(request.get("model_asset_id") or run.get("model_asset_id") or "")
+    selected_step = int(request.get("checkpoint_step") or 0)
+    model_asset_id = "" if selected_step else str(request.get("model_asset_id") or run.get("model_asset_id") or "")
     if not model_asset_id:
-        raise ValueError("训练尚未生成可试听的模型资产")
+        from .training_resources import manifest as resource_manifest
+        from .yue2_trainer import inspect_training_checkpoint
+        checkpoint_value = str((library.home / "training" / run["id"] / "checkpoints" /
+                                f"step-{selected_step:08d}") if selected_step else
+                               (run.get("config", {}).get("last_checkpoint") or ""))
+        if not checkpoint_value:
+            raise ValueError("训练尚未保存可试听的检查点")
+        checkpoints = library.home / "training" / run["id"] / "checkpoints"
+        checkpoint = within(checkpoints, Path(checkpoint_value))
+        adapter = checkpoint / "adapter.safetensors"
+        inspected_checkpoint = inspect_training_checkpoint(
+            checkpoint, identity=str(run.get("config", {}).get("training_identity") or ""),
+            step=int(checkpoint.name.removeprefix("step-") or 0))
+        inspected = inspected_checkpoint["adapter"]
+        resources = resource_manifest()
+        step = int(checkpoint.name.removeprefix("step-") or 0)
+        existing = next((item for item in library.list_assets(kind="model", limit=500)
+                         if item.get("metadata", {}).get("model_type") == "yue2_ar_lora"
+                         and (item.get("metadata", {}).get("training_run_id") == run["id"]
+                              or item.get("provenance", {}).get("training_run_id") == run["id"])
+                         and int(item.get("metadata", {}).get("checkpoint_step") or -1) == step), None)
+        if existing:
+            model_asset_id = existing["id"]
+        else:
+            model = library.import_file(
+                adapter, kind="model", title=f"{run['title']} · 第 {step} 步检查点",
+                tags=["YuE2", "AR LoRA", "训练检查点"],
+                provenance={"training_run_id": run["id"], "snapshot_id": run["snapshot_id"],
+                            "checkpoint": checkpoint.name},
+                metadata={"model_type": "yue2_ar_lora", "rank": inspected["rank"],
+                          "adapter_content_sha256": inspected["content_sha256"], "supported_cot": ["off"],
+                          "nar_companion_sha256": resources["files"]["nar_lora_joint_v4.pt"]["sha256"],
+                          "checkpoint_step": step, "training_run_id": run["id"],
+                          "training_incomplete": True},
+            )
+            model_asset_id = model["id"]
+        current_checkpoint = Path(str(run.get("config", {}).get("last_checkpoint") or "")).name
+        if not run.get("model_asset_id") or checkpoint.name == current_checkpoint:
+            run = library.update_training_run(run["id"], model_asset_id=model_asset_id)
     generated = dict(request.get("generate") or {})
     generated.update(style_model_asset_id=model_asset_id,
                      style_model_scale=float(request.get("style_model_scale", 1.0)), candidates=1)

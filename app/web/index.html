@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="/static/favicon.ico" sizes="any">
   <title>YuE2 本地音乐工作室</title>
   <link rel="stylesheet" href="/static/vendor/bootstrap-icons.css">
   <link rel="stylesheet" href="/static/style.css">
@@ -113,6 +114,9 @@
       <div class="project-toolbar">
         <label>当前项目<select id="workbench-project-select"><option value="">选择或新建项目</option></select></label>
         <button id="refresh-project" class="ghost" type="button"><i class="bi bi-arrow-clockwise"></i> 刷新</button>
+        <button id="rename-project" class="ghost" type="button">重命名</button>
+        <button id="archive-project" class="ghost" type="button">归档</button>
+        <button id="export-project" class="primary" type="button" disabled>导出主版本</button>
         <span id="project-state" class="meta" role="status">先选择项目，后续作品会自动归档到这里。</span>
       </div>
       <div class="project-workspace">
@@ -131,6 +135,7 @@
       <div id="asset-import-options" class="inline-editor"><label>导入为<select id="asset-import-kind"><option value="song">歌曲</option><option value="reference_voice">参考音色</option><option value="vocal">人声</option><option value="instrumental">伴奏</option></select></label><span id="asset-import-status" class="meta">先选择类型，再点击“导入文件”；导入后可立即试听。</span></div>
       <form id="text-asset-form" class="inline-editor hidden"><label>类型<select name="kind"><option value="lyrics">歌词</option><option value="style">曲风</option><option value="score">ABC 乐谱</option></select></label><label>名称<input name="title" required maxlength="200"></label><label class="wide">内容<textarea name="text" rows="8" required></textarea></label><div class="toolbar wide"><button type="button" class="ghost" id="cancel-text-asset">取消</button><button class="primary" type="submit">保存到资产库</button></div></form>
       <div id="asset-grid" class="asset-grid"><div class="empty-state"><i class="bi bi-collection-play"></i><b>正在读取资产库</b></div></div>
+      <nav class="asset-pagination" aria-label="资产库分页"><button id="asset-prev" class="ghost compact" type="button">上一页</button><span id="asset-page-status" class="meta">第 1 页</span><button id="asset-next" class="ghost compact" type="button">下一页</button></nav>
     </section>
 
     <section id="training" class="panel">
@@ -141,10 +146,10 @@
         <section class="training-main">
           <div class="training-stage"><span class="active">1 选择素材</span><span>2 固定快照</span><span>3 预处理</span><span>4 训练与保存</span><span>5 检查点试听</span></div>
           <div class="result-card"><div class="canvas-head"><div><small>素材集</small><h3>为训练集和验证集选择不同歌曲</h3></div><button id="training-select-all" class="ghost compact" type="button">选择全部</button></div><p class="meta">同一首歌的衍生片段不会跨集合。首期训练是 YuE2 AR LoRA，适配歌曲风格，不承诺复制歌手音色。</p><div id="training-assets" class="training-assets"></div></div>
-          <div id="training-progress-card" class="result-card"><div class="canvas-head"><div><small>训练记录</small><h3 id="training-run-title">尚未创建训练</h3></div><span id="training-run-state" class="badge">待设置</span></div><div class="metric-row"><span><small>进度</small><b id="training-step">0 / 0 步</b></span><span><small>训练 loss</small><b id="training-loss">—</b></span><span><small>验证 loss</small><b id="training-val-loss">—</b></span></div><div class="progress-track"><span id="training-progress-bar"></span></div><canvas id="training-chart" width="760" height="150" aria-label="训练损失曲线"></canvas><p class="meta">曲线用于观察训练，最终以固定提示和种子的试听对比判断。</p><div class="toolbar"><button id="training-pause" class="ghost hidden" type="button">安全暂停</button><button id="training-resume" class="primary hidden" type="button">继续训练</button></div></div>
+          <div id="training-progress-card" class="result-card"><div class="canvas-head"><div><small>训练记录</small><h3 id="training-run-title">尚未创建训练</h3></div><span id="training-run-state" class="badge">待设置</span></div><div class="training-run-controls"><label>查看训练记录<select id="training-run-select"><option value="">尚无训练记录</option></select></label><label>试听检查点<select id="training-checkpoint-select" disabled><option value="">尚无检查点</option></select></label></div><div class="metric-row"><span><small>进度</small><b id="training-step">0 / 0 步</b></span><span><small>训练 loss</small><b id="training-loss">—</b></span><span><small>验证 loss</small><b id="training-val-loss">—</b></span></div><div class="progress-track"><span id="training-progress-bar"></span></div><canvas id="training-chart" width="760" height="150" aria-label="训练损失曲线"></canvas><p class="meta">曲线用于观察训练，最终以固定提示和种子的试听对比判断。</p><div class="toolbar"><button id="training-preview-checkpoint" class="ghost hidden" type="button">试听所选检查点</button><button id="training-pause" class="ghost hidden" type="button">安全暂停</button><button id="training-resume" class="primary hidden" type="button">继续训练</button></div></div>
           <div id="training-result" class="results" aria-live="polite"></div>
         </section>
-        <aside class="training-inspector"><h3>模型与使用</h3><form id="training-form"><label>训练名称<input name="title" value="我的歌曲风格" maxlength="160" required></label><label>公共曲风<textarea name="style" rows="3" required placeholder="例如：warm jazz, Rhodes piano, tight drums"></textarea></label><label>公共歌词<textarea name="lyrics" rows="5">[instrumental]</textarea></label><label>LoRA rank<select name="rank"><option>8</option><option selected>16</option><option>32</option><option>64</option></select></label><label>训练步数<input name="steps" type="number" min="1" max="100000" value="800"></label><label>梯度累积<input name="gradient_accumulation" type="number" min="1" max="32" value="2"></label><label>学习率<input name="learning_rate" type="number" min="0.000001" max="0.01" step="0.000001" value="0.0001"></label><label>歌曲风格强度<input id="training-style-scale" type="range" min="0" max="2" step="0.05" value="1"><output id="training-style-scale-value">1.00</output></label><label class="check rights-check"><input name="rights_confirmed" type="checkbox" required>我确认有权使用所选音乐进行模型训练</label><p class="meta">配套解码：v4 NAR 自动关联。中文歌词保留歌词条件，不启用上游英文 cursor 对齐。</p><button id="create-training-run" class="primary full" type="submit">创建快照并预处理</button><button id="start-training" class="primary full" type="button" disabled>开始训练</button></form></aside>
+        <aside class="training-inspector"><h3>模型与使用</h3><form id="training-form"><label>训练名称<input name="title" value="我的歌曲风格" maxlength="160" required></label><label>公共曲风<textarea name="style" rows="3" required placeholder="例如：warm jazz, Rhodes piano, tight drums"></textarea></label><label>公共歌词（选填）<textarea name="lyrics" rows="5" placeholder="只会用于没有单独选择歌词的含人声歌曲"></textarea></label><label>训练方案<select id="training-preset"><option value="quick">快速试训 · 200 步</option><option value="standard" selected>标准 · 800 步</option><option value="quality">高质量 · 1600 步</option><option value="custom">自定义</option></select></label><details><summary>高级训练参数</summary><label>LoRA rank<select name="rank"><option>8</option><option selected>16</option><option>32</option><option>64</option></select></label><label>训练步数<input name="steps" type="number" min="1" max="100000" value="800"></label><label>梯度累积<input name="gradient_accumulation" type="number" min="1" max="32" value="2"></label><label>学习率<input name="learning_rate" type="number" min="0.000001" max="0.01" step="0.000001" value="0.0001"></label></details><label>歌曲风格强度<input id="training-style-scale" type="range" min="0" max="2" step="0.05" value="1"><output id="training-style-scale-value">1.00</output></label><label class="check rights-check"><input name="rights_confirmed" type="checkbox" required>我确认有权使用所选音乐进行模型训练</label><p class="meta">每首含人声歌曲应选择对应歌词；纯器乐必须逐首标记。配套 v4 NAR 会自动关联。</p><button id="create-training-run" class="primary full" type="submit">创建快照并预处理</button><button id="start-training" class="primary full" type="button" disabled>开始训练</button></form></aside>
       </div>
     </section>
 
@@ -345,7 +350,7 @@ This melody still waits for you</textarea></label>
 
     <section id="assistant" class="panel">
       <div class="section-title"><div><span>AI</span><h2>从一个想法开始写歌</h2></div><p>先创作歌词与曲风，也可以让 LLM 作谱。编辑满意后，发送到对应页面制作音乐。</p></div>
-      <details id="assistant-settings" class="workbench" open>
+      <details id="assistant-settings" class="workbench">
         <summary>创作渠道与模型 <span id="assistant-capability" class="meta"></span></summary>
         <form id="assistant-config-form" class="grid-form assistant-settings-grid">
           <label>渠道<select name="provider" id="assistant-provider"></select></label>
@@ -410,8 +415,10 @@ This melody still waits for you</textarea></label>
 
     <section id="history" class="panel">
       <div class="section-title"><div><span>04</span><h2>任务与版本</h2></div><p>失败、取消和截断结果都会保留，便于定位问题与继续编辑。</p></div>
+      <div class="asset-controls"><label>状态<select id="history-status"><option value="">全部状态</option><option value="complete">已完成</option><option value="failed">失败</option><option value="cancelled">已取消</option><option value="paused">已暂停</option><option value="running">运行中</option><option value="queued">排队中</option></select></label><label>类型<select id="history-kind"><option value="">全部类型</option><option value="generate">歌曲生成</option><option value="plan">乐谱计划</option><option value="render_plan">乐谱渲染</option><option value="transcribe">音频转谱</option><option value="reference_cover">参考音色翻唱</option><option value="voice_convert">音色转换</option><option value="assistant">AI 创作助手</option><option value="rvc_train">RVC 训练</option><option value="yue2_train">YuE2 训练</option><option value="yue2_preview">训练试听</option></select></label><label>项目<select id="history-project"><option value="">全部项目</option><option value="__global__">未归档 / 全局</option></select></label><label class="asset-search"><i class="bi bi-search"></i><input id="history-query" type="search" placeholder="搜索任务名称、ID 或错误"></label></div>
       <div class="toolbar"><button id="refresh-history" class="ghost">刷新</button><button class="ghost" type="button" onclick="openDirectory('logs')">打开日志目录</button><button class="ghost" type="button" onclick="openDirectory('outputs')">打开输出目录</button><button id="cleanup-storage" class="ghost">按策略清理</button><span id="storage-usage" class="meta"></span><button id="cancel-active" class="danger">取消当前任务</button></div>
       <div id="history-list" class="history-list"></div>
+      <nav class="asset-pagination" aria-label="历史任务分页"><button id="history-prev" class="ghost compact" type="button">上一页</button><span id="history-page-status" class="meta">第 1 页</span><button id="history-next" class="ghost compact" type="button">下一页</button></nav>
     </section>
   </main>
 
@@ -419,8 +426,8 @@ This melody still waits for you</textarea></label>
 
   <footer>YuE2 本地整合包 · 制作者 By B站UP主：T8star-Aix · 仅绑定 127.0.0.1 · 权重与输出保存在本机</footer>
   <script src="/static/app.js"></script>
-  <script src="/static/assistant.js"></script>
   <script src="/static/rvc.js"></script>
   <script src="/static/workbench.js"></script>
+  <script src="/static/assistant.js"></script>
 </body>
 </html>

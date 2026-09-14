@@ -25,7 +25,7 @@ class CheckpointTests(unittest.TestCase):
         import numpy as np
         import torch
         from app.yue2_app.yue2_adapter import attach_ar_lora
-        from app.yue2_app.yue2_trainer import load_training_checkpoint, save_training_checkpoint
+        from app.yue2_app.yue2_trainer import inspect_training_checkpoint, load_training_checkpoint, save_training_checkpoint
         with tempfile.TemporaryDirectory() as temporary:
             model = tiny_model(); attached = attach_ar_lora(model, 2)
             params = [p for module in attached.values() for p in (module.A, module.B)]
@@ -37,7 +37,11 @@ class CheckpointTests(unittest.TestCase):
             save_training_checkpoint(Path(temporary) / "step", attached=attached, optimizer=optimizer,
                                      step=7, rank=2, identity="fixed", sampler=sampler,
                                      numpy_generator=numpy_generator, history=[{"step": 7}],
-                                     best_validation=1.25, metadata={})
+                                     best_validation=1.25, metadata={"training_identity": "fixed", "step": 7})
+            checked = inspect_training_checkpoint(Path(temporary) / "step", identity="fixed", step=7)
+            self.assertEqual(checked["adapter"]["rank"], 2)
+            with self.assertRaisesRegex(ValueError, "训练记录"):
+                inspect_training_checkpoint(Path(temporary) / "step", identity="other", step=7)
             expected_python = sampler.random(); expected_numpy = numpy_generator.random()
             with torch.no_grad():
                 for parameter in params: parameter.zero_()
