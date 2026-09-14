@@ -358,6 +358,9 @@ function renderTaskCenter(healthData, jobs) {
   const current = jobs.find(job => job.id === healthData.current_job) || active.find(job => job.status !== 'queued');
   const queued = active.filter(job => job.id !== current?.id && job.status === 'queued').sort((a, b) => a.created_at - b.created_at);
   currentJobId = current?.id || null;
+  const cancelActive = $('#cancel-active');
+  cancelActive.disabled = !currentJobId;
+  cancelActive.title = currentJobId ? '取消当前正在执行的任务' : '当前没有正在执行的任务';
   $('#task-center').classList.toggle('hidden', !current && !queued.length);
   $('#running-section').classList.toggle('hidden', !current);
   $('#queue-section').classList.toggle('hidden', !queued.length);
@@ -646,7 +649,7 @@ async function checkUpdate({quiet = false} = {}) {
       button.textContent = `更新到 v${result.latest_version}`;
       updateMessage(`当前 v${result.current_version} · 新版已发布`, 'available');
     } else {
-      button.textContent = '再次检查';
+      button.textContent = '检查更新';
       updateMessage(`当前 v${result.current_version} · 已是最新版本`);
     }
   } catch (error) {
@@ -802,6 +805,7 @@ async function loadHistory() {
     const query=new URLSearchParams({limit:historyPageSize,offset:historyOffset});
     if($('#history-status').value)query.set('status',$('#history-status').value);if($('#history-kind').value)query.set('kind',$('#history-kind').value);if($('#history-project').value)query.set('project_id',$('#history-project').value);if($('#history-query').value.trim())query.set('q',$('#history-query').value.trim());
     const {jobs,total} = await api('/api/jobs?' + query);if(revision!==historyLoadRevision)return;historyTotal=total;
+    const historyHasFilters=Boolean($('#history-status').value||$('#history-kind').value||$('#history-project').value||$('#history-query').value.trim());
     $('#history-list').innerHTML = jobs.map(job => {
       const result = job.result || {}; const audio = relativeAudio(job, result.audio || result.candidates?.[0]?.audio);
       const exportButton = (job.status === 'complete' || (TERMINAL.has(job.status) && result.comparison && result.candidates?.length)) && job.result ? `<button class="ghost" onclick="exportJob('${job.id}')">导出</button>` : '';
@@ -811,8 +815,11 @@ async function loadHistory() {
         const rel = relativeAudio(job, candidate.audio);
         return `<div class="comparison-result"><p class="meta">${voiceDescription(candidate)}</p>${rel ? `<audio controls preload="none" src="${audioUrl(job.id,rel)}"></audio><a class="ghost compact" href="${audioUrl(job.id,rel)}" download>下载音频</a>` : ''}${stemPlayers(job,candidate)}</div>`;
       }).join('') : '';
-      return `<article class="history-card"><header><div><b>${escapeHtml(kindLabel(job.kind))}</b><div class="meta">${escapeHtml(job.id)} · ${new Date(job.created_at * 1000).toLocaleString()} · ${escapeHtml(sourceLabel(job.source))}</div></div></header><b class="status-${job.status}">${escapeHtml(job.status === 'running' ? stageLabel(job.stage) : stageLabel(job.status))}</b>${job.error ? `<div class="meta">${escapeHtml(job.error)}</div>` : ''}${!result.comparison && audio ? `<audio controls preload="none" src="${audioUrl(job.id, audio)}"></audio>` : ''}<p class="meta">${voiceDescription(result)}</p>${comparison || stemPlayers(job,result)}<div class="toolbar">${exportButton}${retryButton}${logButtons}</div><pre class="job-log hidden"></pre></article>`;
-    }).join('') || '<p class="meta">还没有符合条件的任务。</p>';
+      const errorDetail=String(job.error||'').trim(),technicalError=/Traceback|\b(?:NameError|KeyError|AttributeError|RuntimeError|FileNotFoundError|OSError)\b|^['"][^'"]+['"]$|name ['"].+['"] is not defined|object has no attribute|File ['"]|Path is outside allowed directory/i.test(errorDetail),errorSummary=technicalError?'任务运行时出现技术错误，请查看任务日志了解详情。':errorDetail.split(/\r?\n/,1)[0];
+      const errorBlock=errorDetail?`<div class="history-error"><b>任务未完成</b><span>${escapeHtml(errorSummary)}</span>${errorDetail!==errorSummary?`<details><summary>查看错误详情</summary><pre>${escapeHtml(errorDetail)}</pre></details>`:''}</div>`:'';
+      return `<article class="history-card"><header><div><b>${escapeHtml(kindLabel(job.kind))}</b><div class="meta">${escapeHtml(job.id)} · ${new Date(job.created_at * 1000).toLocaleString()} · ${escapeHtml(sourceLabel(job.source))}</div></div></header><b class="status-${job.status}">${escapeHtml(job.status === 'running' ? stageLabel(job.stage) : stageLabel(job.status))}</b>${errorBlock}${!result.comparison && audio ? `<audio controls preload="none" src="${audioUrl(job.id, audio)}"></audio>` : ''}<p class="meta">${voiceDescription(result)}</p>${comparison || stemPlayers(job,result)}<div class="toolbar">${exportButton}${retryButton}${logButtons}</div><pre class="job-log hidden"></pre></article>`;
+    }).join('') || `<div class="empty-state"><i class="bi bi-clock-history"></i><b>还没有符合条件的任务</b><p>${historyHasFilters?'清除筛选可查看全部任务记录。':'完成的任务会显示在这里。'}</p>${historyHasFilters?'<button id="clear-history-filters" class="ghost compact" type="button">清除筛选</button>':''}</div>`;
+    const clearHistory=$('#clear-history-filters');if(clearHistory)clearHistory.onclick=()=>{$('#history-status').value='';$('#history-kind').value='';$('#history-project').value='';$('#history-query').value='';historyOffset=0;loadHistory();};
     const page=Math.floor(historyOffset/historyPageSize)+1,pages=Math.max(1,Math.ceil(historyTotal/historyPageSize));$('#history-page-status').textContent=`第 ${page} / ${pages} 页 · ${historyTotal} 项`;$('#history-prev').disabled=historyOffset<=0;$('#history-next').disabled=historyOffset+historyPageSize>=historyTotal;
   } catch (error) { if(revision===historyLoadRevision)$('#history-list').innerHTML = `<p class="status-failed">${escapeHtml(error.message)}</p>`; }
 }
@@ -825,6 +832,7 @@ async function loadRetention() {
 }
 
 async function cleanupStorage() {
+  if (!confirm('将按当前保留策略删除过期任务、临时上传和日志；正在使用的文件与 exports 导出作品会保留。\n\n确定开始清理？')) return;
   try {
     const report = await api('/api/retention/cleanup', {method: 'POST'}); const deleted = Object.values(report.deleted || {}).reduce((sum, items) => sum + items.length, 0);
     alert(`清理完成：删除 ${deleted} 项；重要作品请保存在 exports`); await Promise.all([loadHistory(), loadRetention()]);

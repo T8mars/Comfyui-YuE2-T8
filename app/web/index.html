@@ -35,6 +35,7 @@
     <div>
       <p class="eyebrow">YUЕ2 · LOCAL MUSIC STUDIO</p>
       <h1>把旋律写清楚，再让声音发生。</h1>
+      <button id="header-project-button" class="header-project-context" type="button"><i class="bi bi-folder2-open"></i><span>当前项目</span><b id="header-project-name">未选择项目</b><i class="bi bi-chevron-right"></i></button>
       <p class="lead">音乐生成在本机 GPU 上完成；AI 创作助手可选择 API 或本地模型。</p>
       <div class="project-meta" aria-label="项目与作者链接">
         <a class="creator-credit" href="https://space.bilibili.com/385085361" target="_blank" rel="noreferrer">制作者 By B站UP主：T8star-Aix</a>
@@ -49,23 +50,16 @@
     <div class="status-card">
       <span id="health-dot" class="dot"></span>
       <div><b id="health-title">正在检查运行环境</b><small id="health-detail">请稍候</small></div>
-      <button id="task-center-jump" class="workload hidden" type="button"></button>
-      <div class="doctor-action"><button id="doctor-button" class="ghost" type="button">重新进行完整自检</button><small>环境正常时通常无需运行</small></div>
-      <div class="update-action">
-        <button id="update-button" class="ghost compact" type="button">检查更新</button>
-        <small id="update-status" aria-live="polite">正在读取当前版本…</small>
+      <button id="task-center-jump" class="workload hidden" type="button" aria-label="打开当前任务进度"></button>
+      <div class="header-actions">
+        <div class="doctor-action"><button id="doctor-button" class="ghost" type="button">重新进行完整自检</button><small>环境正常时通常无需运行</small></div>
+        <div class="update-action">
+          <button id="update-button" class="ghost compact" type="button">检查更新</button>
+          <small id="update-status" aria-live="polite">正在读取当前版本…</small>
+        </div>
       </div>
     </div>
   </header>
-
-  <nav class="tool-nav">
-    <button class="tab" data-tab="create">歌曲创作</button>
-    <button class="tab" data-tab="plan">乐谱计划</button>
-    <button class="tab" data-tab="cover">旋律重制 / 参考音色</button>
-    <button class="tab" data-tab="assistant">AI 创作助手</button>
-    <button class="tab" data-tab="voices">我的音色 / 训练</button>
-    <button class="tab" data-tab="history">历史</button>
-  </nav>
 
   <main>
     <section id="latest-task" class="results hidden" aria-live="polite" aria-label="最近任务结果"></section>
@@ -131,7 +125,7 @@
 
     <section id="assets" class="panel">
       <div class="workspace-heading"><div><p class="eyebrow">ASSET LIBRARY</p><h2>资产库</h2><p>统一整理歌曲、干声、伴奏、参考音色、歌词、乐谱、作品和模型。</p></div><label class="primary file-action"><i class="bi bi-upload"></i> 导入文件<input id="asset-upload" type="file" accept="audio/*" multiple></label></div>
-      <div class="asset-controls"><label>类型<select id="asset-kind"><option value="">全部类型</option><option value="song">歌曲</option><option value="work">作品</option><option value="vocal">人声</option><option value="instrumental">伴奏</option><option value="reference_voice">参考音色</option><option value="lyrics">歌词</option><option value="style">曲风</option><option value="score">乐谱</option><option value="model">模型</option></select></label><label class="asset-search"><i class="bi bi-search"></i><input id="asset-query" type="search" placeholder="搜索名称或标签"></label><button id="migrate-assets" class="ghost" type="button"><i class="bi bi-folder-plus"></i> 整理现有文件</button><button id="new-text-asset" class="ghost" type="button"><i class="bi bi-file-earmark-plus"></i> 新建文本</button></div>
+      <div class="asset-controls"><label>类型<select id="asset-kind"><option value="">全部类型</option><option value="song">歌曲</option><option value="work">作品</option><option value="vocal">人声</option><option value="instrumental">伴奏</option><option value="reference_voice">参考音色</option><option value="lyrics">歌词</option><option value="style">曲风</option><option value="score">乐谱</option><option value="model">模型</option></select></label><label class="asset-search"><i class="bi bi-search"></i><input id="asset-query" type="search" placeholder="搜索名称或标签" aria-label="搜索资产名称或标签"></label><button id="migrate-assets" class="ghost" type="button"><i class="bi bi-folder-plus"></i> 整理现有文件</button><button id="new-text-asset" class="ghost" type="button"><i class="bi bi-file-earmark-plus"></i> 新建文本</button></div>
       <div id="asset-import-options" class="inline-editor"><label>导入为<select id="asset-import-kind"><option value="song">歌曲</option><option value="reference_voice">参考音色</option><option value="vocal">人声</option><option value="instrumental">伴奏</option></select></label><span id="asset-import-status" class="meta">先选择类型，再点击“导入文件”；导入后可立即试听。</span></div>
       <form id="text-asset-form" class="inline-editor hidden"><label>类型<select name="kind"><option value="lyrics">歌词</option><option value="style">曲风</option><option value="score">ABC 乐谱</option></select></label><label>名称<input name="title" required maxlength="200"></label><label class="wide">内容<textarea name="text" rows="8" required></textarea></label><div class="toolbar wide"><button type="button" class="ghost" id="cancel-text-asset">取消</button><button class="primary" type="submit">保存到资产库</button></div></form>
       <div id="asset-grid" class="asset-grid"><div class="empty-state"><i class="bi bi-collection-play"></i><b>正在读取资产库</b></div></div>
@@ -207,7 +201,7 @@ This melody still waits for you</textarea></label>
       </form>
       <div id="plan-workbench" class="workbench hidden">
         <div class="workbench-head"><h3>ABC 文本预览</h3><span id="plan-badge" class="badge">未生成</span></div>
-        <textarea id="plan-abc" rows="20" spellcheck="false"></textarea>
+        <textarea id="plan-abc" rows="20" spellcheck="false" aria-label="ABC 乐谱文本"></textarea>
         <div class="toolbar">
           <label class="check"><input id="plan-exact" type="checkbox" checked>精确恢复原计划（忽略文本框修改）</label>
           <button id="download-abc" class="ghost">下载 ABC</button>
@@ -222,7 +216,7 @@ This melody still waits for you</textarea></label>
       <label>制作方式<select id="cover-mode"><option value="generate">提取旋律并重新生成歌曲</option><option value="direct">直接为已有歌曲换音色</option></select></label>
       <p id="cover-mode-hint" class="meta"></p>
       <div class="upload-box" id="drop-zone">
-        <input id="cover-file" type="file" accept="audio/*">
+        <input id="cover-file" type="file" accept="audio/*" aria-label="选择需要处理的原曲音频">
         <b>选择 WAV、FLAC、MP3、M4A、OGG 或 AAC</b>
         <span>上传原曲后可先试听，再按所选制作方式处理；最大 1GB</span>
       </div>
@@ -404,7 +398,7 @@ This melody still waits for you</textarea></label>
       </div>
     </section>
 
-    <dialog id="assistant-send-dialog">
+    <dialog id="assistant-send-dialog" aria-labelledby="assistant-send-title">
       <form method="dialog"><h3 id="assistant-send-title">发送创作内容</h3><p id="assistant-send-warning"></p>
         <div class="toolbar"><label class="check"><input type="checkbox" name="style" checked>曲风</label><label class="check"><input type="checkbox" name="lyrics" checked>歌词</label><label class="check"><input type="checkbox" name="abc">ABC 乐谱</label></div>
         <label id="assistant-send-mode-label">接收的谱面模式<select id="assistant-send-mode"><option value="">请选择</option><option value="full">旋律 + 和弦</option><option value="melody">仅旋律</option></select></label>
@@ -415,8 +409,8 @@ This melody still waits for you</textarea></label>
 
     <section id="history" class="panel">
       <div class="section-title"><div><span>04</span><h2>任务与版本</h2></div><p>失败、取消和截断结果都会保留，便于定位问题与继续编辑。</p></div>
-      <div class="asset-controls"><label>状态<select id="history-status"><option value="">全部状态</option><option value="complete">已完成</option><option value="failed">失败</option><option value="cancelled">已取消</option><option value="paused">已暂停</option><option value="running">运行中</option><option value="queued">排队中</option></select></label><label>类型<select id="history-kind"><option value="">全部类型</option><option value="generate">歌曲生成</option><option value="plan">乐谱计划</option><option value="render_plan">乐谱渲染</option><option value="transcribe">音频转谱</option><option value="reference_cover">参考音色翻唱</option><option value="voice_convert">音色转换</option><option value="assistant">AI 创作助手</option><option value="rvc_train">RVC 训练</option><option value="yue2_train">YuE2 训练</option><option value="yue2_preview">训练试听</option></select></label><label>项目<select id="history-project"><option value="">全部项目</option><option value="__global__">未归档 / 全局</option></select></label><label class="asset-search"><i class="bi bi-search"></i><input id="history-query" type="search" placeholder="搜索任务名称、ID 或错误"></label></div>
-      <div class="toolbar"><button id="refresh-history" class="ghost">刷新</button><button class="ghost" type="button" onclick="openDirectory('logs')">打开日志目录</button><button class="ghost" type="button" onclick="openDirectory('outputs')">打开输出目录</button><button id="cleanup-storage" class="ghost">按策略清理</button><span id="storage-usage" class="meta"></span><button id="cancel-active" class="danger">取消当前任务</button></div>
+      <div class="asset-controls"><label>状态<select id="history-status"><option value="">全部状态</option><option value="complete">已完成</option><option value="failed">失败</option><option value="cancelled">已取消</option><option value="paused">已暂停</option><option value="running">运行中</option><option value="queued">排队中</option></select></label><label>类型<select id="history-kind"><option value="">全部类型</option><option value="generate">歌曲生成</option><option value="plan">乐谱计划</option><option value="render_plan">乐谱渲染</option><option value="transcribe">音频转谱</option><option value="reference_cover">参考音色翻唱</option><option value="voice_convert">音色转换</option><option value="assistant">AI 创作助手</option><option value="rvc_train">RVC 训练</option><option value="yue2_train">YuE2 训练</option><option value="yue2_preview">训练试听</option></select></label><label>项目<select id="history-project"><option value="">全部项目</option><option value="__global__">未归档 / 全局</option></select></label><label class="asset-search"><i class="bi bi-search"></i><input id="history-query" type="search" placeholder="搜索任务名称、ID 或错误" aria-label="搜索任务名称、ID 或错误"></label></div>
+      <div class="toolbar"><button id="refresh-history" class="ghost">刷新</button><button class="ghost" type="button" onclick="openDirectory('logs')">打开日志目录</button><button class="ghost" type="button" onclick="openDirectory('outputs')">打开输出目录</button><button id="cleanup-storage" class="ghost">按策略清理</button><span id="storage-usage" class="meta"></span><button id="cancel-active" class="danger" disabled title="当前没有正在执行的任务">取消当前任务</button></div>
       <div id="history-list" class="history-list"></div>
       <nav class="asset-pagination" aria-label="历史任务分页"><button id="history-prev" class="ghost compact" type="button">上一页</button><span id="history-page-status" class="meta">第 1 页</span><button id="history-next" class="ghost compact" type="button">下一页</button></nav>
     </section>

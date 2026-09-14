@@ -26,13 +26,13 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 body > header { max-width: 1380px; margin: 20px auto 14px; padding: 21px 26px; grid-template-columns: minmax(0,1fr) 430px; border-radius: 12px; }
 body > header h1 { margin: 6px 0 0; font-size: clamp(26px,2.5vw,34px); }
 body > header .lead, body > header .project-meta { display: none; }
+.header-project-context { display: none; }
 body > header .status-card { padding: 14px 16px; grid-template-columns: auto minmax(0,1fr) auto; gap: 8px 11px; border-radius: 10px; box-shadow: none; }
+body > header .status-card .header-actions { display: contents; }
 body > header .status-card .doctor-action { grid-column: 3; grid-row: 1; }
 body > header .status-card .doctor-action small { display: none; }
 body > header .status-card .update-action { grid-column: 2 / 4; padding-top: 8px; }
 body > header .status-card .workload { grid-column: 2 / 4; }
-.tool-nav { top: 0; justify-content: flex-start; padding-left: max(26px, calc((100vw - 218px - 1380px)/2)); overflow-x: auto; }
-.tool-nav .tab { padding: 13px 20px; font-size: 12px; white-space: nowrap; }
 main { max-width: 1380px; padding: 32px 28px 160px; }
 body[data-active-tab="project"] #latest-task, body[data-active-tab="project"] #task-center,
 body[data-active-tab="assets"] #latest-task, body[data-active-tab="assets"] #task-center,
@@ -63,7 +63,7 @@ body[data-active-tab="training"] #latest-task, body[data-active-tab="training"] 
 .project-track small { margin-top: 3px; color: var(--muted); font-size: 10px; }
 .project-track > .toolbar { justify-content: flex-end; }
 .workflow-strip { margin-top: 18px; display: grid; grid-template-columns: repeat(5,1fr); border-top: 1px solid var(--line); }
-.workflow-strip span { padding: 14px 6px 0; color: #98a2b2; font-size: 10px; text-align: center; }
+.workflow-strip span { padding: 14px 6px 0; color: #667085; font-size: 10px; text-align: center; }
 .workflow-strip span.active { color: var(--accent-strong); font-weight: 800; box-shadow: inset 0 2px var(--accent); }
 .workflow-strip span.done { color: #25865d; font-weight: 700; }
 #project-assets { display: grid; gap: 8px; }
@@ -150,7 +150,6 @@ body[data-active-tab="training"] #latest-task, body[data-active-tab="training"] 
   body > header .status-card { grid-template-columns: auto 1fr; }
   body > header .status-card .doctor-action { grid-column: 2; grid-row: auto; }
   body > header .status-card .update-action, body > header .status-card .workload { grid-column: 2; }
-  .tool-nav { display: none; }
   main { padding: 25px 14px 150px; }
   .workspace-heading, .project-toolbar, .asset-controls { align-items: stretch; flex-direction: column; }
   .project-toolbar label, .asset-controls label { min-width: 0; width: 100%; }
@@ -172,4 +171,27 @@ body[data-active-tab="training"] #latest-task, body[data-active-tab="training"] 
   button, a.primary, a.ghost, input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]), select { min-height: 44px; }
   .model-settings-copy a { min-height: 44px; display: inline-flex; align-items: center; }
   .meta, .asset-card small, .project-track small, .inspector-asset small, .metric-row small, .global-player small { font-size: 11px; line-height: 1.45; }
+}
+@media (max-width: 1024px) {
+  body { padding-top: 66px; }
+  .studio-sidebar { height: 62px; padding: 6px 10px; }
+  .studio-sidebar::after { right: -10px; height: 50px; }
+  .studio-brand { padding-right: 10px; }
+  .studio-brand b { font-size: 13px; }
+  .brand-mark { width: 32px; height: 32px; }
+  .studio-sidebar .tab { min-height: 44px; padding: 8px 11px; }
+  body > header { margin: 8px 10px 10px; padding: 14px; gap: 12px; }
+  body > header .eyebrow { display: none; }
+  body > header h1 { margin: 0; font-size: 25px; line-height: 1.1; }
+  .header-project-context { min-width: 0; min-height: 44px; margin-top: 10px; padding: 8px 10px; display: flex; align-items: center; gap: 7px; border: 1px solid var(--blue-line); border-radius: 8px; color: #536078; background: rgba(255,255,255,.66); font: 650 11px var(--sans); cursor: pointer; }
+  .header-project-context b { min-width: 0; overflow: hidden; color: var(--text); text-overflow: ellipsis; white-space: nowrap; }
+  .header-project-context .bi-chevron-right { margin-left: auto; }
+  body > header .status-card { padding: 12px; gap: 7px 10px; }
+  body > header .status-card .header-actions { display: grid; grid-column: 1 / -1; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
+  body > header .status-card .doctor-action, body > header .status-card .update-action { grid-column: auto; grid-row: auto; padding: 0; border: 0; }
+  body > header .status-card .doctor-action button, body > header .status-card .update-action button { width: 100%; min-height: 44px; padding: 9px 8px; font-size: 12px; }
+  body > header .status-card .update-action small { display: none; }
+  main { padding-top: 16px; }
+  .model-settings { margin-bottom: 22px; }
+  .model-settings > summary { padding: 12px 14px; }
 }

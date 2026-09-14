@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.3 - 2026-09-14
+
+- Remove the duplicate desktop navigation and compact the header on phone and tablet layouts so the active workspace appears earlier.
+- Keep the current project visible below 1024 px and provide a direct shortcut back to the project selector.
+- Clarify update and storage-cleanup actions, require confirmation before retention cleanup, disable task cancellation when no task is running, and summarize technical failures with details available on demand.
+- Add recovery actions for empty filtered asset and task lists, accessible names for previously ambiguous controls, and stronger contrast for supporting text.
+
 ## 1.4.2 - 2026-09-14
 
 - Bind uploads, submissions, drafts, results and errors to the project that started them, even when the user switches projects before an asynchronous request finishes.
