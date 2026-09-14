@@ -31,6 +31,29 @@ def add_upstream(root: Path) -> None:
     sys.path.insert(0, str(source))
 
 
+VAE_CORE_FRAME_CHOICES = frozenset({128, 256, 512, 1024})
+
+
+def vae_core_frames_for(request: dict, physical_memory_gib: float | None = None) -> int:
+    """Choose a validated VAE tile from the smaller of device memory and the requested budget."""
+    explicit = request.get("vae_core_frames")
+    if explicit is not None:
+        if type(explicit) is not int or explicit not in VAE_CORE_FRAME_CHOICES:
+            choices = ", ".join(map(str, sorted(VAE_CORE_FRAME_CHOICES)))
+            raise ValueError(f"vae_core_frames 必须是以下整数之一：{choices}")
+        return explicit
+    budget = float(request.get("memory_budget_gib", 23.5))
+    if physical_memory_gib is None:
+        try:
+            import torch
+            device = torch.cuda.current_device()
+            physical_memory_gib = torch.cuda.get_device_properties(device).total_memory / 2**30
+        except Exception:
+            physical_memory_gib = budget
+    effective_memory_gib = min(float(physical_memory_gib), budget)
+    return 1024 if effective_memory_gib >= 20 else 512
+
+
 def create_pipe(root: Path, request: dict):
     from yue2 import YuE2Pipeline
 
@@ -44,6 +67,7 @@ def create_pipe(root: Path, request: dict):
         nar_attention=request.get("nar_attention", "sdpa"),
         nar_query_chunk_size=int(request.get("nar_query_chunk_size", 256)),
         verify_hashes=bool(request.get("verify_hashes", False)), progress=False,
+        vae_core_frames=vae_core_frames_for(request),
     )
 
 

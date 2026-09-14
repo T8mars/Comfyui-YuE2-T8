@@ -140,6 +140,8 @@ class YuE2Pipeline:
             raise ValueError("quantization must be none or fp8")
         if not 0 < memory_budget_gib:
             raise ValueError("memory_budget_gib must be positive")
+        if vae_core_frames is not None and (type(vae_core_frames) is not int or vae_core_frames <= 0):
+            raise ValueError("vae_core_frames must be a positive integer")
         if device == "auto":
             device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
         self.device = torch.device(device)

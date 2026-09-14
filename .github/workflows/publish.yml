@@ -40,3 +40,37 @@ jobs:
         uses: Comfy-Org/publish-node-action@main
         with:
           personal_access_token: ${{ secrets.REGISTRY_ACCESS_TOKEN }}
+      - name: Verify Registry accepted the version
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import time
+          import tomllib
+          import urllib.parse
+          import urllib.request
+
+          with open("pyproject.toml", "rb") as stream:
+              expected = tomllib.load(stream)["project"]["version"]
+          url = "https://api.comfy.org/nodes/yue2-t8/versions?include_status_reason=true"
+          final = None
+          for attempt in range(20):
+              separator = "&" if "?" in url else "?"
+              request = urllib.request.Request(url + separator + urllib.parse.urlencode({"audit": time.time_ns()}),
+                                               headers={"User-Agent": "YuE2-Registry-Gate/1"})
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  versions = json.load(response)
+              version = next((item for item in versions if item.get("version") == expected), None)
+              if version and version.get("status") in {"NodeVersionStatusActive", "NodeVersionStatusBanned",
+                                                        "NodeVersionStatusFlagged"}:
+                  final = version
+                  break
+              if attempt < 19:
+                  time.sleep(15)
+          if not final:
+              raise SystemExit(f"Registry did not return a terminal review status for {expected}")
+          print(json.dumps({key: final.get(key) for key in ("version", "status", "status_reason")},
+                           ensure_ascii=False, indent=2))
+          if final.get("status") != "NodeVersionStatusActive":
+              raise SystemExit(f"Registry rejected {expected}: {final.get('status')}")
+          PY

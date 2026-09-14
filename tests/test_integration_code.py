@@ -186,8 +186,10 @@ class IntegrationCodeTests(unittest.TestCase):
                 legacy.pop("result_panel")
                 atomic_json(status_path, legacy)
                 self.assertEqual(store.get(created["id"])["result_panel"], "cover")
-                resumed = store.resume(created["id"])
+                resumed = store.resume(created["id"], {"memory_budget_gib": 8})
                 self.assertEqual(resumed["result_panel"], "cover")
+                resumed_job = json.loads((outputs / resumed["id"] / "job.json").read_text())
+                self.assertEqual(resumed_job["request"]["memory_budget_gib"], 8)
 
     def test_voice_remix_outputs_finite_48khz_stereo(self):
         import importlib.util
