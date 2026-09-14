@@ -49,6 +49,26 @@ class UpdateTransaction(unittest.TestCase):
                     updater.apply_files(source, target, '9.8.7')
             self.assertEqual((target / 'module.py').read_text(), 'old')
 
+    def test_transient_permission_error_during_replace_is_retried(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary).resolve()
+            source, target = base / 'source', base / 'target'
+            source.mkdir(); target.mkdir()
+            (source / 'module.py').write_text('new')
+            (target / 'module.py').write_text('old')
+            original_replace = updater.os.replace
+            attempts = 0
+            def transient_replace(source_path, destination_path):
+                nonlocal attempts
+                attempts += 1
+                if attempts == 1:
+                    raise PermissionError('temporary scanner lock')
+                return original_replace(source_path, destination_path)
+            with patch.object(updater.os, 'replace', side_effect=transient_replace), patch.object(updater.time, 'sleep'):
+                updater.apply_files(source, target, '9.8.7')
+            self.assertGreaterEqual(attempts, 2)
+            self.assertEqual((target / 'module.py').read_text(), 'new')
+
     def test_user_data_and_private_roadmap_are_never_update_payload(self):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary).resolve()
@@ -63,6 +83,24 @@ class UpdateTransaction(unittest.TestCase):
             self.assertEqual([record['file'] for record in records], ['app.py'])
             updater.rollback(target, backup, records)
             self.assertFalse((target / 'app.py').exists())
+
+    def test_development_metadata_is_never_update_payload(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary).resolve()
+            source, target = base / 'source', base / 'target'
+            source.mkdir(); target.mkdir()
+            for relative in ('.git/objects/blob', '.pytest_cache/state', '.ruff_cache/state',
+                             '.mypy_cache/state', '.tox/state', '.venv/state', 'venv/state',
+                             'node_modules/package/index.js'):
+                file = source / relative
+                file.parent.mkdir(parents=True, exist_ok=True)
+                file.write_text('development only')
+            workflow = source / '.github/workflows/quality.yml'
+            workflow.parent.mkdir(parents=True, exist_ok=True)
+            workflow.write_text('name: Quality')
+            (source / 'app.py').write_text('app')
+            _, records = updater.apply_files(source, target, '9.8.7')
+            self.assertEqual({record['file'] for record in records}, {'.github/workflows/quality.yml', 'app.py'})
 
     def test_runtime_and_model_updates_are_detected_separately(self):
         with tempfile.TemporaryDirectory() as temporary:

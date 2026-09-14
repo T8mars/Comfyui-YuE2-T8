@@ -505,11 +505,18 @@ $$('.tab').forEach(button => button.onclick = () => {
   $('#model-settings').open = false;
   if(button.closest('.studio-sidebar'))button.scrollIntoView({block:'nearest',inline:'center'});
   $$('.tab').forEach(item => { const active=item.dataset.tab===button.dataset.tab;item.classList.toggle('active',active);item.setAttribute('aria-selected',String(active));if(active)item.setAttribute('aria-current','page');else item.removeAttribute('aria-current'); });
+  $$('#workspace-menu-dialog [data-go-tab]').forEach(item => { const active=item.dataset.goTab===button.dataset.tab;item.classList.toggle('active',active);if(active)item.setAttribute('aria-current','page');else item.removeAttribute('aria-current'); });
   $$('.panel').forEach(panel => panel.classList.toggle('active', panel.id === button.dataset.tab));
   if (button.dataset.tab === 'history') loadHistory();
 });
 const restoredTab = savedValue('active-tab');
-if (['project', 'assets', 'training', 'create', 'plan', 'cover', 'history', 'assistant', 'voices'].includes(restoredTab)) $(`.tab[data-tab="${restoredTab}"]`).click();
+const allowedTabs = ['project', 'assets', 'training', 'create', 'plan', 'cover', 'history', 'assistant', 'voices'];
+const initialTab = allowedTabs.includes(restoredTab) ? restoredTab : document.body.dataset.activeTab;
+$(`.tab[data-tab="${initialTab}"]`).click();
+
+const workspaceMenuDialog = $('#workspace-menu-dialog');
+$('#mobile-workspace-menu').onclick = () => workspaceMenuDialog.showModal();
+workspaceMenuDialog.addEventListener('click', event => { if(event.target.closest('[data-go-tab]'))workspaceMenuDialog.close(); });
 
 function openHistory() { $('.tab[data-tab="history"]').click(); $('#history').scrollIntoView({behavior: 'smooth', block: 'start'}); }
 function openTaskCenter() { $('#task-center').scrollIntoView({behavior: 'smooth', block: 'nearest'}); }

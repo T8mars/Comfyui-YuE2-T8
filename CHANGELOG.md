@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.4 - 2026-09-14
+
+- Add an always-visible “All workspaces” menu to phone and tablet layouts, with current-workspace highlighting and full keyboard/dialog semantics.
+- Run a real Chromium UI smoke suite in GitHub Quality at desktop, tablet and phone viewports. Validate navigation, project focus, empty-filter recovery, disabled task actions, accessible control names, unique DOM ids, page overflow and console errors.
+- Upload desktop, tablet, phone and phone-menu screenshots plus the browser/service report as CI artifacts for every Quality run.
+- Exclude source-control, virtual-environment, package-cache and other development-only directories when applying an update from an unpacked source tree; retry short Windows file locks and keep rollback idempotent.
+
 ## 1.4.3 - 2026-09-14
 
 - Remove the duplicate desktop navigation and compact the header on phone and tablet layouts so the active workspace appears earlier.

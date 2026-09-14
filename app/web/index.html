@@ -31,6 +31,23 @@
     </div>
     <button id="sidebar-settings" class="sidebar-settings" type="button"><i class="bi bi-gear"></i>模型与设置</button>
   </aside>
+  <button id="mobile-workspace-menu" class="mobile-workspace-menu" type="button" aria-haspopup="dialog" aria-controls="workspace-menu-dialog"><i class="bi bi-grid-3x3-gap"></i><span>全部</span></button>
+  <dialog id="workspace-menu-dialog" class="workspace-menu-dialog" aria-labelledby="workspace-menu-title">
+    <form method="dialog">
+      <div class="canvas-head"><h3 id="workspace-menu-title">切换工作区</h3><button class="ghost compact" value="cancel" aria-label="关闭全部功能菜单"><i class="bi bi-x-lg"></i></button></div>
+      <div class="workspace-menu-grid">
+        <button class="ghost" type="button" data-go-tab="project"><i class="bi bi-grid-1x2"></i>歌曲项目</button>
+        <button class="ghost" type="button" data-go-tab="assets"><i class="bi bi-collection-play"></i>资产库</button>
+        <button class="ghost" type="button" data-go-tab="create"><i class="bi bi-music-note-beamed"></i>歌曲创作</button>
+        <button class="ghost" type="button" data-go-tab="plan"><i class="bi bi-music-note-list"></i>乐谱计划</button>
+        <button class="ghost" type="button" data-go-tab="cover"><i class="bi bi-mic"></i>旋律与音色</button>
+        <button class="ghost" type="button" data-go-tab="assistant"><i class="bi bi-stars"></i>AI 创作助手</button>
+        <button class="ghost" type="button" data-go-tab="training"><i class="bi bi-gpu-card"></i>训练工作台</button>
+        <button class="ghost" type="button" data-go-tab="voices"><i class="bi bi-person-bounding-box"></i>我的音色</button>
+        <button class="ghost" type="button" data-go-tab="history"><i class="bi bi-clock-history"></i>任务与版本</button>
+      </div>
+    </form>
+  </dialog>
   <header>
     <div>
       <p class="eyebrow">YUЕ2 · LOCAL MUSIC STUDIO</p>

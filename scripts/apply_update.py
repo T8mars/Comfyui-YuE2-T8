@@ -6,6 +6,7 @@ import ctypes
 import hashlib
 import json
 import os
+import stat
 import shutil
 import subprocess
 import sys
@@ -18,6 +19,7 @@ PRESERVE = {
     "models", "runtime", "downloads", "outputs", "uploads", "exports", "logs", "cache", "userdata",
     "settings.json", "retention.json", "server.json", "service.lock", "yue2_home.txt", "roadmap.md",
 }
+DEVELOPMENT_ONLY_DIRS = {".git", ".pytest_cache", ".ruff_cache", ".mypy_cache", ".tox", ".venv", "venv", "node_modules"}
 
 
 def atomic_status(path: Path, value: dict) -> None:
@@ -52,6 +54,23 @@ def digest(path: Path) -> str:
     return value.hexdigest()
 
 
+def replace_with_retry(source: Path, destination: Path, attempts: int = 6) -> None:
+    """Replace a file despite short Windows scanner locks or a read-only target."""
+    for attempt in range(attempts):
+        try:
+            os.replace(source, destination)
+            return
+        except PermissionError:
+            if destination.exists():
+                try:
+                    os.chmod(destination, stat.S_IREAD | stat.S_IWRITE)
+                except OSError:
+                    pass
+            if attempt + 1 >= attempts:
+                raise
+            time.sleep(0.1 * (attempt + 1))
+
+
 def update_requirements(target: Path, source: Path) -> tuple[bool, bool]:
     lock = source / 'requirements-unified.lock.txt'
     if not lock.is_file():
@@ -77,6 +96,8 @@ def source_files(source: Path):
         if not path.is_file() or path.is_symlink():
             continue
         relative = path.relative_to(source)
+        if any(part.lower() in DEVELOPMENT_ONLY_DIRS for part in relative.parts):
+            continue
         if relative.parts[0].lower() in PRESERVE or relative.name.lower() in {".update-manifest.json", "roadmap.md"}:
             continue
         if "__pycache__" in relative.parts or path.suffix == ".pyc":
@@ -114,7 +135,7 @@ def apply_files(source: Path, target: Path, version: str) -> tuple[Path, list[di
             destination.parent.mkdir(parents=True, exist_ok=True)
             temporary = destination.with_name(destination.name + ".update-tmp")
             shutil.copy2(path, temporary)
-            os.replace(temporary, destination)
+            replace_with_retry(temporary, destination)
             if digest(destination) != expected:
                 raise RuntimeError(f"复制校验失败：{relative.as_posix()}")
             invalidate_bytecode(destination)
@@ -122,9 +143,18 @@ def apply_files(source: Path, target: Path, version: str) -> tuple[Path, list[di
         for record in reversed(records):
             destination = target / record["file"]
             if record["existed"]:
-                shutil.copy2(backup / record["file"], destination)
+                saved = backup / record["file"]
+                try:
+                    unchanged = destination.is_file() and digest(destination) == digest(saved)
+                except OSError:
+                    unchanged = False
+                if not unchanged:
+                    temporary = destination.with_name(destination.name + ".rollback-tmp")
+                    shutil.copy2(saved, temporary)
+                    replace_with_retry(temporary, destination)
             else:
                 destination.unlink(missing_ok=True)
+            destination.with_name(destination.name + ".update-tmp").unlink(missing_ok=True)
             invalidate_bytecode(destination)
         raise
     backup.mkdir(parents=True, exist_ok=True)
@@ -141,7 +171,9 @@ def rollback(target: Path, backup: Path, records: list[dict]) -> None:
         if target not in destination.parents or backup not in saved.parents:
             raise ValueError('恢复文件超出备份目录')
         if record["existed"]:
-            shutil.copy2(saved, destination)
+            temporary = destination.with_name(destination.name + ".rollback-tmp")
+            shutil.copy2(saved, temporary)
+            replace_with_retry(temporary, destination)
         else:
             destination.unlink(missing_ok=True)
         invalidate_bytecode(destination)

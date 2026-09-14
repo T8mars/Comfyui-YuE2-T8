@@ -21,6 +21,15 @@
 .studio-sidebar .tab.active { color: var(--accent-strong); background: var(--accent-soft); box-shadow: inset 3px 0 var(--accent); }
 .studio-sidebar .tab.active i { color: var(--accent); }
 .sidebar-settings { margin-top: auto; padding: 10px; display: flex; gap: 10px; align-items: center; border: 0; border-top: 1px solid var(--line); color: #657186; background: transparent; font: 700 12px var(--sans); cursor: pointer; }
+.mobile-workspace-menu { display: none; }
+.workspace-menu-dialog { width: min(560px,calc(100vw - 24px)); padding: 20px; border: 1px solid var(--blue-line); border-radius: 14px; color: var(--text); background: var(--panel); box-shadow: 0 20px 60px rgba(31,41,55,.24); }
+.workspace-menu-dialog::backdrop { background: rgba(17,27,53,.38); backdrop-filter: blur(3px); }
+.workspace-menu-dialog form { display: grid; gap: 16px; }
+.workspace-menu-dialog .canvas-head h3 { margin: 0; }
+.workspace-menu-dialog .canvas-head .ghost { margin: 0; }
+.workspace-menu-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
+.workspace-menu-grid button { display: flex; align-items: center; justify-content: flex-start; gap: 9px; box-shadow: none; }
+.workspace-menu-grid button.active { color: var(--accent-strong); border-color: rgba(199,66,128,.34); background: var(--accent-soft); }
 body { padding-left: 218px; }
 button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px solid rgba(89,125,255,.32); outline-offset: 2px; }
 body > header { max-width: 1380px; margin: 20px auto 14px; padding: 21px 26px; grid-template-columns: minmax(0,1fr) 430px; border-radius: 12px; }
@@ -138,7 +147,7 @@ body[data-active-tab="training"] #latest-task, body[data-active-tab="training"] 
 }
 @media (max-width: 1024px) {
   body { padding: 80px 0 0; }
-  .studio-sidebar { inset: 0 0 auto 0; width: auto; height: 70px; padding: 8px 12px; flex-direction: row; align-items: center; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); scrollbar-width: none; -ms-overflow-style: none; }
+  .studio-sidebar { inset: 0 0 auto 0; width: auto; height: 70px; padding: 8px 76px 8px 12px; flex-direction: row; align-items: center; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); scrollbar-width: none; -ms-overflow-style: none; }
   .studio-sidebar::-webkit-scrollbar { display: none; }
   .studio-sidebar::after { content: ""; position: sticky; right: -12px; width: 28px; height: 52px; flex: 0 0 28px; pointer-events: none; background: linear-gradient(90deg,rgba(249,251,255,0),rgba(249,251,255,.98)); }
   .studio-brand { padding: 0 12px 0 0; border-right: 1px solid var(--line); border-bottom: 0; }
@@ -146,6 +155,8 @@ body[data-active-tab="training"] #latest-task, body[data-active-tab="training"] 
   .sidebar-group { display: flex; flex-direction: row; }
   .studio-sidebar .tab { width: auto; min-width: max-content; min-height: 44px; padding: 10px 12px; }
   .studio-sidebar .tab.active { box-shadow: inset 0 -3px var(--accent); }
+  .mobile-workspace-menu { position: fixed; z-index: 24; top: 7px; right: 8px; min-width: 58px; min-height: 48px; padding: 6px 9px; display: grid; place-items: center; gap: 1px; border: 1px solid var(--blue-line); border-radius: 9px; color: var(--accent-strong); background: rgba(249,251,255,.98); box-shadow: -12px 0 20px rgba(249,251,255,.98); font: 750 10px var(--sans); cursor: pointer; }
+  .mobile-workspace-menu i { font-size: 16px; }
   body > header { margin: 10px 12px; }
   body > header .status-card { grid-template-columns: auto 1fr; }
   body > header .status-card .doctor-action { grid-column: 2; grid-row: auto; }
@@ -175,6 +186,7 @@ body[data-active-tab="training"] #latest-task, body[data-active-tab="training"] 
 @media (max-width: 1024px) {
   body { padding-top: 66px; }
   .studio-sidebar { height: 62px; padding: 6px 10px; }
+  .studio-sidebar { padding-right: 74px; }
   .studio-sidebar::after { right: -10px; height: 50px; }
   .studio-brand { padding-right: 10px; }
   .studio-brand b { font-size: 13px; }
@@ -194,4 +206,7 @@ body[data-active-tab="training"] #latest-task, body[data-active-tab="training"] 
   main { padding-top: 16px; }
   .model-settings { margin-bottom: 22px; }
   .model-settings > summary { padding: 12px 14px; }
+  .workspace-menu-dialog { padding: 16px; }
+  .workspace-menu-dialog .canvas-head { flex-direction: row; align-items: center; }
 }
+@media (max-width: 480px) { .workspace-menu-grid { grid-template-columns: 1fr; } }

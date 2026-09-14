@@ -567,6 +567,9 @@ class IntegrationCodeTests(unittest.TestCase):
         for workflow in (quality, publish):
             self.assertIn("actions/checkout@v7", workflow)
             self.assertIn("actions/setup-python@v7", workflow)
+        self.assertIn("python scripts/ui_browser_smoke.py", quality)
+        self.assertIn("actions/upload-artifact@v7", quality)
+        self.assertTrue((Path(__file__).resolve().parents[1] / "scripts/ui_browser_smoke.py").is_file())
         self.assertIn('python-version: "3.12"', publish)
         self.assertEqual(publish.count('"${{ steps.python.outputs.python-path }}" - <<\'PY\''), 2)
 
