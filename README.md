@@ -62,7 +62,7 @@ RVC 的训练和换声已做实际验证；少数样本不能证明所有音色�
 
 默认先生成歌词和曲风，ABC 交给 YuE2 规划；需要 LLM 作谱时再选自动创作 ABC。未通过校验的谱面不能直接发送，失败保留已完成文本，支持只重试失败步骤。草稿保存在 `userdata/assistant`，升级时需要保留该目录。
 
-API 密钥默认仅在本次服务会话有效，也可选择使用 Windows 当前用户加密保存。本地模型放在模型根目录的 `LLM` 下，或指定其他目录。v1.3.0 的音乐生成、转谱、Seed-VC、RVC 训练/推理和 GGUF 助手全部使用同一个 `runtime/python.exe`（Python 3.12.10），按任务启动子进程释放模型；没有第二套 Python。完整包已包含 GGUF 后端，`安装本地LLM.bat` 仅用于修复这一共享环境中的组件，不下载 GGUF 权重。模型加载成功不代表其乐谱生成质量通过验证。使用步骤见 [用户指南](USER_GUIDE.md#ai-创作助手)。
+API 密钥默认仅在本次服务会话有效，也可选择使用 Windows 当前用户加密保存。本地模型放在模型根目录的 `LLM` 下，或指定其他目录。v1.3.x 的音乐生成、转谱、Seed-VC、RVC 训练/推理和 GGUF 助手全部使用同一个 `runtime/python.exe`（Python 3.12.10），按任务启动子进程释放模型；没有第二套 Python。完整包已包含 GGUF 后端，`安装本地LLM.bat` 仅用于修复这一共享环境中的组件，不下载 GGUF 权重。模型加载成功不代表其乐谱生成质量通过验证。使用步骤见 [用户指南](USER_GUIDE.md#ai-创作助手)。
 
 渠道会自动填入参考节点使用的默认模型：贞贞平价小屋为 `bytedance/doubao-seed-evolving`，贞贞的 AI 工坊为 `gemini-3.5-flash`。模型框支持预置下拉、手动模型 ID，以及从标准 OpenAI `/models` 接口获取账号可用的模型 LIST；接口不支持 LIST 时仍可手填。API Key 获取：[贞贞平价小屋](https://api.seedance.nz/sign-up?aff=5f4w) · [贞贞的 AI 工坊](https://ai.t8star.org/register?aff=dP7j)。
 
@@ -154,7 +154,7 @@ Install it with `comfy node install yue2-t8`, then run `install_runtime.bat` onc
 
 The node pack supports Chinese and English lyrics, editable ABC plans, multi-candidate generation, SheetSage2 transcription, melody remake, Seed-VC reference-voice conversion, staged inference, per-task cancellation, history, and artifact export. The reference-voice workflow accepts a 1–30 second clean voice sample, separates the generated song with Demucs, converts the vocal, and remixes a 48 kHz stereo FLAC. Its page-integrated progress section identifies the current job and every queued job with stage, source, summary, and queue position. Example front-end workflows are in `workflows`.
 
-The standalone v1.3.0 studio uses one CPython 3.12.10 runtime for music, transcription, Seed-VC, RVC training/inference and optional GGUF. The RVC workbench includes material review, training/resume and a voice library. Existing songs can be converted directly or compared through Seed-VC and RVC with shared separation. The updater migrates legacy runtimes and rolls back a failed startup. Short compatibility runs are not a voice-quality benchmark.
+The standalone v1.3.x studio uses one CPython 3.12.10 runtime for music, transcription, Seed-VC, RVC training/inference and optional GGUF. The RVC workbench includes material review, training/resume and a voice library. Existing songs can be converted directly or compared through Seed-VC and RVC with shared separation. The updater migrates legacy runtimes and rolls back a failed startup. Short compatibility runs are not a voice-quality benchmark.
 
 ## Links
 

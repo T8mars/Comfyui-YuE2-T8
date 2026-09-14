@@ -6,7 +6,19 @@ import re
 import subprocess
 import zipfile
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
+
+
+def safe_archive_path(name: str) -> Path:
+    if name == "":
+        return Path(".")
+    path = Path(name)
+    posix_path = PurePosixPath(name)
+    windows_path = PureWindowsPath(name)
+    if (path.is_absolute() or posix_path.is_absolute() or windows_path.is_absolute() or windows_path.drive
+            or ".." in path.parts or ".." in posix_path.parts or ".." in windows_path.parts or "\\" in name):
+        raise ValueError(f"Unsafe release archive path: {name}")
+    return path
 
 
 def build(output):
@@ -31,10 +43,11 @@ def build(output):
         assert archive.testzip() is None
         names = [name.removeprefix(prefix) for name in archive.namelist()]
         for name in names:
-            assert not any(part.lower() == "roadmap.md" for part in Path(name).parts), name
-            assert not name.startswith("/") and ".." not in Path(name).parts
-            assert not any(name == protected or (protected.endswith("/") and name.startswith(protected)) for protected in preserve), name
-            assert not name.endswith((".pyc", ".safetensors", ".pth", ".pt", ".bin", ".gguf")), name
+            path = safe_archive_path(name)
+            lower_name = name.lower()
+            assert not any(part.lower() == "roadmap.md" for part in path.parts), name
+            assert not any(lower_name == protected or (protected.endswith("/") and lower_name.startswith(protected)) for protected in preserve), name
+            assert not lower_name.endswith((".pyc", ".safetensors", ".pth", ".pt", ".bin", ".gguf", ".onnx", ".ckpt")), name
         for required in ("nodes.py", "client.py", "app/yue2_app/workflow_worker.py", "vendor/yue2/nar.py",
                          "vendor/yue2/pipeline.py", "vendor/seed-vc/inference.py", "app/web/app.js",
                          "requirements-unified.lock.txt", "scripts/setup_unified.ps1",

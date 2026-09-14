@@ -9,16 +9,25 @@ spec = importlib.util.spec_from_file_location('bundle_builder',Path(__file__).re
 builder = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(builder)
 archive_relative,plain_files,runtime_files = builder.archive_relative,builder.plain_files,builder.runtime_files
+release_spec = importlib.util.spec_from_file_location('release_builder',Path(__file__).resolve().parents[1]/'scripts/build_release.py')
+release_builder = importlib.util.module_from_spec(release_spec)
+release_spec.loader.exec_module(release_builder)
 
 
 class PortableBundleBoundary(unittest.TestCase):
     def test_archive_rejects_private_paths_roadmap_and_traversal(self):
         prefix = 'Release/'
         for name in ('roadmap.md','docs/ROADMAP.MD','userdata/voice.pth','cache/test','settings.json',
-                     '../escape','C:escape','C:/escape','app\\escape'):
+                     '../escape','/escape','C:escape','C:/escape','app\\escape'):
             with self.subTest(name=name),self.assertRaises(ValueError):
                 archive_relative(prefix+name,prefix)
         self.assertEqual(archive_relative(prefix+'app/web/index.html',prefix),Path('app/web/index.html'))
+
+    def test_release_builder_rejects_windows_and_posix_traversal_on_every_os(self):
+        for name in ('../escape', '/escape', 'C:escape', 'C:/escape', r'app\escape'):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                release_builder.safe_archive_path(name)
+        self.assertEqual(release_builder.safe_archive_path('app/web/index.html'), Path('app/web/index.html'))
 
     def test_runtime_rejects_multiple_python_and_development_paths(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
 import json
 import os
-from pathlib import Path, PureWindowsPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import shutil
 import subprocess
 import time
@@ -52,9 +52,10 @@ def archive_relative(filename,prefix):
         raise ValueError('Code ZIP contains an unexpected root')
     raw = filename[len(prefix):]
     path = Path(raw)
+    posix_path = PurePosixPath(raw)
     windows_path = PureWindowsPath(raw)
-    if (path.is_absolute() or windows_path.is_absolute() or windows_path.drive
-            or '..' in path.parts or '..' in windows_path.parts or '\\' in raw):
+    if (path.is_absolute() or posix_path.is_absolute() or windows_path.is_absolute() or windows_path.drive
+            or '..' in path.parts or '..' in posix_path.parts or '..' in windows_path.parts or '\\' in raw):
         raise ValueError('Code ZIP contains an unsafe path')
     if any(part.lower()=='roadmap.md' for part in path.parts):
         raise ValueError('Local roadmap must never enter a release or bundle')
