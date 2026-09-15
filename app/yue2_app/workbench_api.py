@@ -158,6 +158,21 @@ def training_checkpoints(library: AssetLibrary, run_id: str) -> list[dict]:
     return sorted(values, key=lambda item: item["step"], reverse=True)
 
 
+def training_artifacts(library: AssetLibrary, run_id: str) -> dict:
+    run = library.get_training_run(run_id)
+    training_directory = library.home / "training" / run["id"]
+    result = {"run_id": run["id"], "training_directory": str(training_directory), "model": None}
+    if run.get("model_asset_id"):
+        asset = library.get_asset(run["model_asset_id"])
+        path, _ = library.revision_file(asset["id"], asset["current_revision_id"])
+        result["model"] = {
+            "id": asset["id"], "title": asset["title"], "revision_id": asset["current_revision_id"],
+            "size": asset["size"], "suffix": asset["blob_suffix"], "path": str(path),
+            "directory": str(path.parent), "metadata": asset["metadata"],
+        }
+    return result
+
+
 def _query(parsed) -> dict[str, list[str]]:
     return urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
 
@@ -204,6 +219,9 @@ def get(handler, parsed, library: AssetLibrary, *, head: bool = False) -> bool:
         pieces = path.split("/")
         if len(pieces) == 6 and pieces[4] and pieces[5] == "checkpoints":
             handler._json(200, {"checkpoints": training_checkpoints(library, pieces[4])})
+            return True
+        if len(pieces) == 6 and pieces[4] and pieces[5] == "artifacts":
+            handler._json(200, training_artifacts(library, pieces[4]))
             return True
         if len(pieces) == 5 and pieces[4]:
             handler._json(200, library.get_training_run(pieces[4]))
@@ -326,5 +344,25 @@ def post(handler, parsed, library: AssetLibrary, root: Path) -> bool:
         handler._json(200, library.update_training_run(
             run_id, state=data.get("state"), config=data.get("config"),
             current_job_id=data.get("current_job_id"), model_asset_id=data.get("model_asset_id")))
+        return True
+    if path.startswith("/api/workbench/training-runs/") and path.endswith("/open"):
+        run_id = path.split("/")[4]
+        data = handler._body_json(1024)
+        artifacts = training_artifacts(library, run_id)
+        target_kind = str(data.get("target") or "model")
+        if target_kind == "model" and artifacts["model"]:
+            target = Path(artifacts["model"]["directory"])
+        elif target_kind == "training":
+            target = Path(artifacts["training_directory"])
+        else:
+            raise ValueError("训练产物目录尚不存在")
+        target.mkdir(parents=True, exist_ok=True)
+        if os.name == "nt":
+            os.startfile(str(target))
+        else:
+            import subprocess
+            subprocess.Popen(["xdg-open", str(target)], stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
+        handler._json(200, {"opened": str(target)})
         return True
     return False

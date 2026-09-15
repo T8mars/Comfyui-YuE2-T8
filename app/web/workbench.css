@@ -121,12 +121,12 @@ main { max-width: 1380px; padding: 32px 28px 160px; }
 .training-assets { max-height: 460px; margin-top: 14px; display: grid; gap: 7px; overflow: auto; }
 .training-asset { padding: 10px; display: grid; grid-template-columns: auto minmax(0,1fr) 110px; gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: 8px; }
 .training-asset-options { grid-column: 2 / -1; display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: end; }
-.training-lyrics-text { grid-column: 1 / -1; }
-.training-lyrics-text textarea { min-height: 105px; resize: vertical; }
+.training-lyrics-text, .training-style-text { grid-column: 1 / -1; }
+.training-lyrics-text textarea, .training-style-text textarea { min-height: 105px; resize: vertical; }
 .training-form-status { padding: 10px 11px; border-radius: 8px; background: #f6f8fc; line-height: 1.55; }
 .training-form-status[data-state="error"] { color: #8f2946; background: #fff1f4; }
 .training-form-status[data-state="busy"] { color: #345a91; background: #eef5ff; }
-.training-inspector textarea, .training-lyrics-text textarea { direction: ltr !important; text-align: left !important; }
+.training-inspector textarea, .training-lyrics-text textarea, .training-style-text textarea { direction: ltr !important; text-align: left !important; }
 .training-asset input { width: auto; }
 .training-asset b { display: block; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .training-asset small { color: var(--muted); font-size: 9px; }
@@ -138,6 +138,13 @@ main { max-width: 1380px; padding: 32px 28px 160px; }
 .progress-track { height: 5px; overflow: hidden; border-radius: 5px; background: #edf0f5; }
 .progress-track span { width: 0; height: 100%; display: block; border-radius: inherit; background: var(--accent); transition: width .25s; }
 #training-chart { width: 100%; height: 150px; margin-top: 12px; border-bottom: 1px solid var(--line); }
+.training-model-manager { margin-top: 16px; padding: 15px; border: 1px solid var(--blue-line); border-radius: 9px; background: var(--blue-soft); }
+.training-model-manager h4 { margin: 0 0 5px; font-size: 15px; }
+.training-model-grid { margin: 12px 0; display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 8px; }
+.training-model-grid span { padding: 9px 10px; border-radius: 7px; background: rgba(255,255,255,.75); }
+.training-model-grid small, .training-model-grid b { display: block; }
+.training-model-grid small { color: var(--muted); font-size: 9px; }
+.training-model-path { margin: 8px 0; padding: 9px 10px; overflow-wrap: anywhere; border-radius: 7px; background: rgba(255,255,255,.75); font: 10px/1.5 ui-monospace,Consolas,monospace; }
 .global-player { position: fixed; z-index: 30; right: 22px; bottom: 18px; left: 240px; min-height: 68px; padding: 10px 12px 10px 16px; display: grid; grid-template-columns: minmax(150px,260px) minmax(260px,1fr) auto; gap: 16px; align-items: center; border: 1px solid var(--blue-line); border-radius: 11px; background: rgba(255,255,255,.98); box-shadow: 0 14px 36px rgba(25,35,60,.17); }
 .global-player > div { min-width: 0; }
 .global-player small, .global-player b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -182,6 +189,7 @@ main { max-width: 1380px; padding: 32px 28px 160px; }
   .project-track > .toolbar { grid-column: 1 / -1; justify-content: flex-start; }
   .training-run-controls { grid-template-columns: 1fr; }
   .metric-row { grid-template-columns: 1fr; }
+  .training-model-grid { grid-template-columns: 1fr 1fr; }
   .global-player { right: 10px; bottom: 10px; left: 10px; grid-template-columns: 1fr auto; }
   .global-player audio { grid-column: 1 / -1; grid-row: 2; }
   .workload { right: 10px; bottom: 10px; left: 10px; width: auto; }

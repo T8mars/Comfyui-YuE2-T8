@@ -269,7 +269,8 @@ def prepare_snapshot(root: Path, snapshot_id: str, output: Path, ctx=None) -> di
             raise ValueError("训练片段边界与固定音频版本不一致")
         waveform = load_paper_audio(audio_path, max_seconds=end)
         waveform = waveform[round(start * 24000):round(end * 24000)]
-        style = _read_text_revision(library, item.get("style_revision_id"), default_style)
+        style = _read_text_revision(library, item.get("style_revision_id"),
+                                    str(item.get("style") or default_style))
         lyrics = _read_text_revision(library, item.get("lyrics_revision_id"), str(item.get("lyrics") or default_lyrics))
         if not style:
             raise ValueError("每条 YuE2 训练素材都需要曲风描述，或设置公共曲风")

@@ -535,7 +535,7 @@ class AssetLibrary:
             for raw in items:
                 asset_id = _ident(raw.get("asset_id"), "素材 ID")
                 revision_id = _ident(raw.get("revision_id"), "版本 ID")
-                row = db.execute("SELECT a.kind,r.metadata_json,r.blob_sha256 FROM assets a JOIN revisions r ON r.asset_id=a.id "
+                row = db.execute("SELECT a.kind,a.title,r.metadata_json,r.blob_sha256 FROM assets a JOIN revisions r ON r.asset_id=a.id "
                                  "WHERE a.id=? AND r.id=? AND a.status='active'", (asset_id, revision_id)).fetchone()
                 if row is None:
                     raise ValueError("训练素材或固定版本不存在")
@@ -550,13 +550,18 @@ class AssetLibrary:
                 lyrics = raw.get("lyrics", "")
                 if not isinstance(lyrics, str) or len(lyrics) > 200000:
                     raise ValueError("逐首歌词格式不正确或内容过长")
+                style = raw.get("style", "")
+                if not isinstance(style, str) or len(style) > 20000:
+                    raise ValueError("逐首曲风格式不正确或内容过长")
                 normalized.append({
                     "asset_id": asset_id, "revision_id": revision_id, "blob_sha256": row["blob_sha256"],
+                    "asset_title": row["title"],
                     "start": start, "end": end, "track_group_id": str(raw.get("track_group_id") or asset_id),
                     "split": "validation" if raw.get("split") == "validation" else "train",
                     "lyrics_revision_id": raw.get("lyrics_revision_id") or None,
                     "lyrics": lyrics.strip(),
                     "style_revision_id": raw.get("style_revision_id") or None,
+                    "style": style.strip(),
                     "instrumental": raw.get("instrumental") is True,
                 })
                 for key, kind in (("lyrics_revision_id", "lyrics"), ("style_revision_id", "style")):
@@ -572,17 +577,23 @@ class AssetLibrary:
                         normalized[-1][key] = linked
         groups, blobs = {}, {}
         for item in normalized:
+            previous_blob = blobs.setdefault(item["blob_sha256"], item)
+            if (previous_blob["split"] != item["split"]
+                    and previous_blob["asset_id"] != item["asset_id"]):
+                raise ValueError(
+                    f'“{previous_blob["asset_title"]}”与“{item["asset_title"]}”的音频内容完全相同，'
+                    "不能分别作为训练集和验证集；请换一首真正不同的歌曲"
+                )
             previous = groups.setdefault(item["track_group_id"], item["split"])
             if previous != item["split"]:
                 raise ValueError("同一首歌的衍生素材不能跨训练集与验证集")
-            previous_blob = blobs.setdefault(item["blob_sha256"], item["split"])
-            if previous_blob != item["split"]:
-                raise ValueError("内容相同的音频不能跨训练集与验证集")
         if training_kind == "yue2_style":
             default_lyrics = str(options.get("default_lyrics", "")).strip()
             for item in normalized:
                 if not item["instrumental"] and not item["lyrics_revision_id"] and not item["lyrics"] and not default_lyrics:
                     raise ValueError("含人声训练素材必须选择歌词版本、粘贴本曲歌词，或明确标记为纯器乐")
+        for item in normalized:
+            item.pop("asset_title", None)
         manifest = {"schema": 1, "training_kind": training_kind, "items": normalized,
                     "options": options}
         import hashlib

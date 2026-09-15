@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.19 - 2026-09-15
+
+- Let every YuE2 training song use a manually entered style, a saved style asset, or the shared fallback style.
+- Add a persistent completed-model panel with completed and selected steps, losses, rank, size, local path, model download, folder access and one-click use in song creation.
+- Identify byte-identical duplicate imports by both visible filenames before rejecting a train/validation split.
+
 ## 1.4.18 - 2026-09-15
 
 - Persist each paid AI Assistant checkpoint as soon as it reaches the browser, so later ABC work cannot hide already generated lyrics or style text.

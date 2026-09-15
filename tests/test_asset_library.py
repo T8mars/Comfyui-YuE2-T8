@@ -12,7 +12,7 @@ import soundfile as sf
 from app.yue2_app.asset_library import AssetLibrary
 from app.yue2_app import service
 from app.yue2_app.io import atomic_json
-from app.yue2_app.workbench_api import export_project, parse_byte_range, training_checkpoints, waveform
+from app.yue2_app.workbench_api import export_project, parse_byte_range, training_artifacts, training_checkpoints, waveform
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -118,7 +118,7 @@ class AssetLibraryTest(unittest.TestCase):
             return {"asset_id": asset["id"], "revision_id": asset["current_revision_id"],
                     "start": 0, "end": 1, "track_group_id": asset["id"], "split": split,
                     "instrumental": True}
-        with self.assertRaisesRegex(ValueError, "内容相同"):
+        with self.assertRaisesRegex(ValueError, "歌曲 A.*歌曲 A 的重复导入.*音频内容完全相同"):
             self.library.create_snapshot(title="重复内容", training_kind="yue2_style",
                                          items=[item(first, "train"), item(second, "validation")],
                                          options={"rights_confirmed": True})
@@ -141,6 +141,11 @@ class AssetLibraryTest(unittest.TestCase):
             items=[{**item, "lyrics": "[Verse]\n这首歌自己的歌词"}],
             options={"default_style": "pop", "rights_confirmed": True})
         self.assertEqual(pasted["items"][0]["lyrics"], "[Verse]\n这首歌自己的歌词")
+        styled = self.library.create_snapshot(
+            title="逐首曲风", training_kind="yue2_style",
+            items=[{**item, "instrumental": True, "style": "solo piano, slow waltz"}],
+            options={"rights_confirmed": True})
+        self.assertEqual(styled["items"][0]["style"], "solo piano, slow waltz")
 
     def test_asset_paging_and_project_management(self):
         project = self.library.create_project("初版")
@@ -193,6 +198,15 @@ class AssetLibraryTest(unittest.TestCase):
                                                              "training_identity": "fixed"})
         self.assertEqual(training_checkpoints(self.library, run["id"]),
                          [{"step": 100, "name": "step-00000100", "current": True}])
+
+        model_source = self.root / "adapter.safetensors"
+        model_source.write_bytes(b"model")
+        model = self.library.import_file(model_source, kind="model", title="测试模型",
+                                         metadata={"model_type": "yue2_ar_lora", "completed_training_steps": 100})
+        self.library.update_training_run(run["id"], state="complete", model_asset_id=model["id"])
+        artifacts = training_artifacts(self.library, run["id"])
+        self.assertEqual(artifacts["model"]["title"], "测试模型")
+        self.assertTrue(Path(artifacts["model"]["path"]).is_file())
 
     def test_completed_job_is_promoted_once_and_malformed_nested_request_is_safe(self):
         outputs = self.root / "outputs"
