@@ -44,6 +44,10 @@ v1.2.0 / v1.2.1 没有这个页面入口。请把新版完整版解压到新目�
   Demucs\
   RVC\
   YuE2-training\
+  MuLaCover\
+  HeartCodec-oss\
+  Qwen3-Embedding-0.6B\
+  SymbolicTranscriptor\
 ```
 
 不要把权重放到 ComfyUI 的 `models/checkpoints`。如果模型尚未下载，可先设置路径，再运行 `安装运行环境.bat`；安装脚本会从上面的 Hugging Face 仓库下载到当前路径。模型路径只能在没有运行或排队任务时更改。
@@ -57,6 +61,14 @@ v1.2.0 / v1.2.1 没有这个页面入口。请把新版完整版解压到新目�
 项目页可为最终音频点击“设为主版本”，再点“导出主版本”；系统会把音频和带 SHA-256 的 `project.json` 一起写入 `exports`。AI 助手、歌曲创作、乐谱和旋律重制草稿按当前项目分别保存，切换项目会先保存旧草稿再读取新草稿。
 
 “整理现有文件”会把历史上传和已完成任务结果复制到资产库并记录迁移清单；重复执行会复用已导入项目。需要长期保存的作品仍建议导出到 `exports`。
+
+## MuLaCover 重新编曲
+
+左侧“重新编曲”把已有歌曲的旋律结构与新的歌词、曲风结合成完整歌曲。选择“参考歌曲”时先上传并试听，系统会提取旋律、和弦和鼓组；选择“MIDI”时直接提供旋律 MIDI、和弦 MIDI 和可选鼓组 MIDI。填写歌词，并用主题、流派、乐器和情绪组成曲风标签后开始任务。
+
+半音和八度在生成前修改旋律条件；男声演唱过高时可先降 12 半音。固定生成种子与解码种子可用于可复现对比。任务会显示载入模型、提取旋律、编码曲风、重新编曲和解码阶段。完成后当前页可试听、下载音频与三类 MIDI，也可把音频发送到“旋律与音色”继续使用 Seed-VC 或 RVC。
+
+四组权重位于模型根目录的 `MuLaCover`、`HeartCodec-oss`、`Qwen3-Embedding-0.6B` 和 `SymbolicTranscriptor`。运行 `scripts/download_mulacover_models.py --root <整合包目录>` 可下载固定版本并生成校验清单。独立原生节点 [Comfyui-Mulacover-T8](https://github.com/T8mars/Comfyui-Mulacover-T8) 可直接填写同一模型根目录，不必复制权重。
 
 ## YuE2 歌曲风格训练
 

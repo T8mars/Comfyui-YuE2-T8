@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.0 - 2026-09-15
+
+- Add a project-scoped MuLaCover remix workspace for audio or MIDI conditioning, editable lyrics and structured style tags, transposition, deterministic seeds, live stages, playback, MIDI export and one-click handoff to voice conversion.
+- Run MuLaCover in the existing unified Python 3.12 runtime with lazy, sequential component loading, cooperative cancellation and GPU cleanup.
+- Add pinned model download and integrity checks for MuLaCover, HeartCodec, Qwen3 Embedding and the symbolic transcriptor.
+- Publish the separate `Comfyui-Mulacover-T8` native node package for in-process ComfyUI workflows without an HTTP bridge.
+
 ## 1.4.21 - 2026-09-15
 
 - Restore the previously hidden creator and project links in the compact studio header.

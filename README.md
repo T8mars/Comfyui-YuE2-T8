@@ -39,6 +39,14 @@ YuE2 Music T8 把 YuE2-3B 完整歌曲生成接入 ComfyUI，并提供一个可�
 - Seed-VC 与 RVC 翻唱区直接提供低八度、原调和高八度：女声原曲换男声音色通常先选 −12，男声原曲换女声音色通常先选 +12；也可输入 −12 到 +12 的整数半音。
 - 共享单 GPU 队列、任务中心、逐项取消、任务历史与导出；任务中心会区分当前任务和完整等待列表，并显示来源、阶段、风格摘要与排队顺序。
 - 自动清理过期或超出容量的任务、上传和日志；`exports` 中的重要成品永久保留，服务重启时会把中断任务明确标为失败。
+- MuLaCover 重新编曲可从完整歌曲自动提取旋律、和弦与鼓组，或直接读取 MIDI；支持新歌词、结构化曲风、移调、固定种子、试听、MIDI 导出，并把成品继续发送到 Seed-VC/RVC 音色转换。
+
+### v1.5.0：MuLaCover 原生重新编曲
+
+- 独立工作台新增“重新编曲”：参考歌曲或 MIDI、歌词和曲风都保存在当前项目草稿中，页面切换或刷新后可恢复。
+- 任务按“提取旋律 → 编码曲风 → 生成 → 解码”显示真实后台阶段，可取消、重试、在当前页试听并导出旋律/和弦/鼓组 MIDI。
+- MuLaCover、HeartCodec、Qwen3 Embedding 与转谱组件使用同一个 Python 3.12 运行时，按需顺序载入并在任务结束后释放显存。
+- 独立的原生 ComfyUI 节点仓库为 [Comfyui-Mulacover-T8](https://github.com/T8mars/Comfyui-Mulacover-T8)，不依赖本工作台 HTTP 服务；两者可共用同一份模型目录。
 
 ### v1.4.9：翻唱音域快捷控制
 
@@ -178,12 +186,16 @@ ComfyUI/custom_nodes/yue2-t8/models/Seed-VC/DiT_seed_v2_uvit_whisper_base_f0_44k
 ComfyUI/custom_nodes/yue2-t8/models/Demucs/955717e8.safetensors
 ComfyUI/custom_nodes/yue2-t8/models/RVC/
 ComfyUI/custom_nodes/yue2-t8/models/YuE2-training/
+ComfyUI/custom_nodes/yue2-t8/models/MuLaCover/
+ComfyUI/custom_nodes/yue2-t8/models/HeartCodec-oss/
+ComfyUI/custom_nodes/yue2-t8/models/Qwen3-Embedding-0.6B/
+ComfyUI/custom_nodes/yue2-t8/models/SymbolicTranscriptor/
 ComfyUI/custom_nodes/yue2-t8/models/VOICE_MODEL_MANIFEST.json
 ```
 
-手动 Git clone 时，把上面的 `yue2-t8` 换成实际仓库目录名 `Comfyui-YuE2-T8`。不要把权重直接放入 ComfyUI 的 `checkpoints` 目录；代码需要保留八个模型子目录、配置文件及两个清单。`YuE2-training` 约 414 MB，包含固定 v4 tokenizer head、NAR companion 和 regularizer；完整版附带，缺失时也可在训练页校验后续传下载。
+手动 Git clone 时，把上面的 `yue2-t8` 换成实际仓库目录名 `Comfyui-YuE2-T8`。不要把权重直接放入 ComfyUI 的 `checkpoints` 目录；代码需要保留十二个模型子目录及其配置和清单。`YuE2-training` 约 414 MB；MuLaCover 相关四个目录可运行 `scripts/download_mulacover_models.py --root <整合包目录>` 下载并按固定版本校验。原生 [Comfyui-Mulacover-T8](https://github.com/T8mars/Comfyui-Mulacover-T8) 的模型加载器也可直接填写这里的 `models` 绝对路径，避免重复保存大模型。
 
-如果使用自定义目录，该目录本身就是上面路径中的 `models`：八个子目录和 `MODEL_MANIFEST.json`、`VOICE_MODEL_MANIFEST.json` 必须直接位于其中。命令行安装也可使用：
+如果使用自定义目录，该目录本身就是上面路径中的 `models`：十二个子目录和相应清单必须直接位于其中。命令行安装也可使用：
 
 ```powershell
 .\install_runtime.bat -ModelsDirectory "D:\AI\YuE2-models"
@@ -236,9 +248,9 @@ GitHub 的 `*-code.zip` 是自动更新用代码包，不含模型和 Python；�
 
 YuE2 Music T8 integrates YuE2-3B full-song generation with ComfyUI and includes a standalone local WebUI. Its local scheduler runs models in isolated Python workers, so installing the node does not replace ComfyUI's Torch packages. Version 1.1.4 adds a configurable model directory and code-only GitHub Release update metadata.
 
-Install it with `comfy node install yue2-t8`, then run `install_runtime.bat` once from the node directory and restart ComfyUI. Models are downloaded from [t8star/YuE2-Comfy](https://huggingface.co/t8star/YuE2-Comfy) into `<node-directory>/models`; use the WebUI model settings or `configure_models.bat` to place them on another drive. Keep all eight model subdirectories (including RVC and YuE2-training) and their configuration files. Windows and an NVIDIA GPU are required, with 24GB VRAM and at least 60GB free disk space recommended for installation and migration, plus storage for training data and outputs.
+Install it with `comfy node install yue2-t8`, then run `install_runtime.bat` once from the node directory and restart ComfyUI. Models are downloaded from [t8star/YuE2-Comfy](https://huggingface.co/t8star/YuE2-Comfy) into `<node-directory>/models`; use the WebUI model settings or `configure_models.bat` to place them on another drive. Keep all twelve model subdirectories, including RVC, YuE2-training and the four MuLaCover components, with their configuration files. Windows and an NVIDIA GPU are required, with 24GB VRAM and at least 60GB free disk space recommended for installation and migration, plus storage for training data and outputs.
 
-The node pack supports Chinese and English lyrics, editable ABC plans, multi-candidate generation, SheetSage2 transcription, melody remake, Seed-VC reference-voice conversion, staged inference, per-task cancellation, history, and artifact export. The reference-voice workflow accepts a 1–30 second clean voice sample, separates the generated song with Demucs, converts the vocal, and remixes a 48 kHz stereo FLAC. Its page-integrated progress section identifies the current job and every queued job with stage, source, summary, and queue position. Example front-end workflows are in `workflows`.
+The node pack supports Chinese and English lyrics, editable ABC plans, multi-candidate generation, SheetSage2 transcription, melody remake, MuLaCover audio/MIDI remixing, Seed-VC reference-voice conversion, staged inference, per-task cancellation, history, and artifact export. MuLaCover results include playable audio and extracted melody, chord and drum MIDI, and can be sent directly to voice conversion. A separate native, in-process node package is available at [Comfyui-Mulacover-T8](https://github.com/T8mars/Comfyui-Mulacover-T8).
 
 The standalone v1.4 studio uses one CPython 3.12.10 runtime for music, transcription, Seed-VC, RVC, YuE2 style training and optional GGUF. Its project workspace and content-addressed asset library connect source songs, stems, lyrics, scores, generated versions, voices and trained models. YuE2 AR LoRA training uses immutable train/validation snapshots, pinned Mothersuperior v4 companion resources, loss tracking, resumable checkpoints and an in-page audio preview. Version 1.4.11 samples reproducible 768-token semantic windows (about 30 seconds) from complete songs, while validation checks fixed start, middle and end windows with song-disjoint groups. Trained adapters are currently enabled only for the validated direct-generation mode. The updater migrates legacy runtimes and rolls back a failed startup.
 

@@ -52,9 +52,9 @@ function renderPanelResults(jobs) {
   const projectId = String(window.workbenchProjectId?.() || '');
   const scope = projectId || '__global__';
   const scopedProject = job => String(job.project_id || job.request?.project_id || job.request?.generate?.project_id || '');
-  for (const panel of ['create', 'plan', 'cover']) {
+  for (const panel of ['create', 'plan', 'remix', 'cover']) {
     const target = $(`#${panel}-result`);
-    const job = jobs.find(item => ['generate', 'reference_cover', 'voice_convert', 'render_plan', 'decode'].includes(item.kind) && resultPanel(item) === panel && scopedProject(item) === projectId);
+    const job = jobs.find(item => ['generate', 'reference_cover', 'voice_convert', 'render_plan', 'decode', 'mulacover_remix'].includes(item.kind) && resultPanel(item) === panel && scopedProject(item) === projectId);
     if (!job) {
       if (target.dataset.projectScope !== scope) {
         target.replaceChildren();
@@ -118,7 +118,8 @@ function kindLabel(kind) {
     rvc_storage_move: '迁移音色数据目录',
     generate: '歌曲生成', plan: '乐谱创作', render_plan: '从乐谱生成歌曲',
     transcribe: '音频转谱', semantic: '生成音乐结构', synthesize: '合成人声与伴奏',
-    decode: '输出音频', doctor: '环境自检', voice_convert: '参考音色转换', reference_cover: '参考音色翻唱'
+    decode: '输出音频', doctor: '环境自检', voice_convert: '参考音色转换', reference_cover: '参考音色翻唱',
+    mulacover_remix: 'MuLaCover 重新编曲'
     ,yue2_training_assets: '安装 YuE2 训练资源', yue2_prepare: '准备 YuE2 训练素材',
     yue2_train: '训练 YuE2 歌曲风格', yue2_preview: '试听 YuE2 风格模型'
   })[kind] || kind;
@@ -142,6 +143,9 @@ function stageLabel(stage) {
     encoding: '正在读取音频', notation: '正在整理 ABC 与 MIDI 乐谱',
     separating_vocals: '正在分离人声与伴奏', loading_voice_model: '正在加载参考音色模型',
     converting_voice: '正在转换演唱音色', remixing: '正在重新混音',
+    mulacover_loading: '正在加载重新编曲模型', mulacover_transcribing: '正在提取旋律与和弦',
+    mulacover_style: '正在编码歌词与曲风', mulacover_generating: '正在生成重新编曲版本',
+    mulacover_decoding: '正在解码完整歌曲',
     cancelling: '正在安全停止', complete: '已完成', failed: '任务失败',
     cancelled: '已取消', doctor: '正在验证运行环境', running: '正在执行'
   })[stage] || window.assistantStageLabel?.(stage) || stage;
@@ -160,6 +164,11 @@ function stageHint(job) {
     notation: '正在生成可编辑的 ABC、MIDI 和乐谱预览。', doctor: '正在检查 GPU、运行库和全部模型文件。',
     separating_vocals: '正在把歌曲拆分为人声和伴奏；已有校验通过的分离结果会直接复用。', loading_voice_model: '正在加载所选音色转换模型。',
     converting_voice: '保留歌曲旋律与演唱节奏，把人声转换成所选音色。', remixing: '正在将转换后的人声与原伴奏合成为 48 kHz 双声道成品。',
+    mulacover_loading: '正在按需载入 MuLaCover；各组件会依次使用显存。',
+    mulacover_transcribing: '正在把参考歌曲转换成旋律、和弦与鼓组条件，并保存可复用 MIDI。',
+    mulacover_style: '正在编码新歌词、流派、乐器、主题和情绪。',
+    mulacover_generating: '正在沿用提取的旋律创作新的完整演唱与伴奏。',
+    mulacover_decoding: '正在把音乐 token 解码为可试听的完整歌曲。',
     cancelling: '正在保存可用结果并安全释放 GPU。'
   };
   let hint = hints[job.stage] || '任务正在本机 GPU 上运行。';
@@ -191,7 +200,7 @@ function failureMarkup(error) {
   const generatedRel = generatedAudio && id ? relativeAudio(job, generatedAudio) : null;
   const intermediate = generatedRel ? `<p>歌曲已生成，可先试听：</p><audio controls preload="metadata" aria-label="已生成歌曲试听" src="${audioUrl(id, generatedRel)}"></audio>` : '';
   const phase = job.failed_stage ? `<p>失败阶段：${escapeHtml(stageLabel(job.failed_stage))}</p>` : '';
-  const retry = id && ['generate', 'reference_cover', 'voice_convert', 'render_plan'].includes(job.kind) ? `<button class="primary compact" data-kind="${job.kind}" onclick="resumeJob('${id}', this)">${job.resumable ? '从已保存阶段继续' : '重新运行'}</button>` : '';
+  const retry = id && ['generate', 'reference_cover', 'voice_convert', 'render_plan', 'mulacover_remix'].includes(job.kind) ? `<button class="primary compact" data-kind="${job.kind}" onclick="resumeJob('${id}', this)">${job.resumable ? '从已保存阶段继续' : '重新运行'}</button>` : '';
   const actions = id ? `<div class="toolbar failure-actions">${retry}<button class="ghost compact" onclick="toggleJobLog('${id}', this)">查看任务日志</button></div><pre class="job-log hidden"></pre>` : '';
   const retained = document.createElement('div');
   if (job.result?.comparison && job.result?.candidates?.length) renderJob(job, retained);
@@ -209,7 +218,7 @@ async function resumeJob(id, button) {
     }
     const job = await api(`/api/jobs/${id}/resume`, options);
     const panel = savedValue(`job-panel:${id}`) || button.closest('.panel')?.id;
-    if (['create', 'plan', 'cover'].includes(panel)) savedValue(`job-panel:${job.id}`, panel);
+    if (['create', 'plan', 'remix', 'cover'].includes(panel)) savedValue(`job-panel:${job.id}`, panel);
     bindButton(button, job);
     await refreshWorkspace();
     $('#task-center').scrollIntoView({behavior: 'smooth', block: 'start'});
@@ -281,7 +290,8 @@ function taskSteps(job) {
     synthesize: [['starting', '加载模型'], ['synthesis', '合成声音']], decode: [['starting', '加载模型'], ['decoding', '输出音频']],
     doctor: [['starting', '启动检查'], ['doctor', '验证环境']],
     reference_cover: [['starting', '加载模型'], ['planning', '检查乐谱'], ['semantic', '生成结构'], ['synthesis', '合成歌曲'], ['decoding', '输出歌曲'], ['separating_vocals', '分离人声'], ['loading_voice_model', '加载音色'], ['converting_voice', '转换音色'], ['remixing', '混音']],
-    voice_convert: [['starting', '准备音频'], ['separating_vocals', '分离人声'], ['loading_voice_model', '加载音色模型'], ['converting_voice', '转换音色'], ['remixing', '重新混音']]
+    voice_convert: [['starting', '准备音频'], ['separating_vocals', '分离人声'], ['loading_voice_model', '加载音色模型'], ['converting_voice', '转换音色'], ['remixing', '重新混音']],
+    mulacover_remix: [['starting', '启动任务'], ['mulacover_loading', '加载模型'], ['mulacover_transcribing', '提取旋律'], ['mulacover_style', '编码曲风'], ['mulacover_generating', '重新编曲'], ['mulacover_decoding', '解码歌曲']]
   }[job.kind] || [['starting', '准备'], [job.stage, stageLabel(job.stage)]];
 }
 
@@ -429,7 +439,7 @@ async function submit(kind, request, resultTarget, button = null, projectScope =
     if (['generate', 'plan', 'render_plan'].includes(kind)) request.memory_budget_gib = generationMemoryBudget();
     if (kind === 'reference_cover') request.generate.memory_budget_gib = generationMemoryBudget();
     const activeProject = projectScope;
-    if (activeProject && ['generate','plan','render_plan','reference_cover','voice_convert','transcribe'].includes(kind)) {
+    if (activeProject && ['generate','plan','render_plan','reference_cover','voice_convert','transcribe','mulacover_remix'].includes(kind)) {
       if (kind === 'reference_cover') request.generate.project_id = activeProject;
       else request.project_id = activeProject;
     }
@@ -505,7 +515,9 @@ function renderJob(job, target) {
     const duration = Number(candidate.audio_seconds || candidate.audio_info?.duration_seconds);
     const details = [voiceDescription({...result,...candidate}), candidates.length > 1 ? `版本 ${index + 1}` : '', Number.isFinite(duration) && duration > 0 ? `${duration.toFixed(1)} 秒` : '', candidate.seed != null ? `Seed ${escapeHtml(candidate.seed)}` : '', `任务 ${escapeHtml(shortId(job.id))}`].filter(Boolean).join(' · ');
     const download = url ? `<a class="ghost audio-download" href="${url}" download="YuE2-${job.id}-${index + 1}.flac">下载音频</a>` : '';
-    return `<article class="result-card"><header><div><b>${escapeHtml(kindLabel(job.kind))}已完成 · 可试听</b><div class="meta">${details}</div></div><span class="badge">${truncated ? '已截断' : '完整'}</span></header>${player}<div class="toolbar">${download}${TERMINAL.has(job.status) ? `<button class="ghost" onclick="exportJob('${job.id}')">导出全部文件</button>` : ''}</div>${stemPlayers(job,{...result,...candidate})}</article>`;
+    const remixFiles = job.kind === 'mulacover_remix' ? [['melody_midi','旋律 MIDI'],['chord_midi','和弦 MIDI'],['drum_midi','鼓组 MIDI']].map(([key,label]) => { const file = relativeAudio(job,result[key]); return file ? `<a class="ghost compact" href="${audioUrl(job.id,file)}" download>${label}</a>` : ''; }).join('') : '';
+    const remixVoice = job.kind === 'mulacover_remix' && rel ? `<button class="primary" type="button" onclick="sendJobAudioToCover('${job.id}','${rel}')">发送到音色转换</button>` : '';
+    return `<article class="result-card"><header><div><b>${escapeHtml(kindLabel(job.kind))}已完成 · 可试听</b><div class="meta">${details}</div></div><span class="badge">${truncated ? '已截断' : '完整'}</span></header>${player}<div class="toolbar">${download}${remixFiles}${remixVoice}${TERMINAL.has(job.status) ? `<button class="ghost" onclick="exportJob('${job.id}')">导出全部文件</button>` : ''}</div>${stemPlayers(job,{...result,...candidate})}</article>`;
   }).join('');
 }
 
@@ -514,6 +526,20 @@ async function exportJob(id) {
   catch (error) { alert(error.message); }
 }
 window.exportJob = exportJob;
+
+async function sendJobAudioToCover(jobId, relative) {
+  try {
+    const response = await fetch(audioUrl(jobId, relative));
+    if (!response.ok) throw new Error(`读取音频失败：HTTP ${response.status}`);
+    const blob = await response.blob(), input = $('#cover-file'), transfer = new DataTransfer();
+    transfer.items.add(new File([blob], `MuLaCover-${jobId}.flac`, {type: blob.type || 'audio/flac'}));
+    input.files = transfer.files;
+    window.setCoverMode?.('direct');
+    input.dispatchEvent(new Event('change', {bubbles: true}));
+    $('.tab[data-tab="cover"]').click();
+  } catch (error) { alert(error.message); }
+}
+window.sendJobAudioToCover = sendJobAudioToCover;
 
 $$('.tab').forEach(button => button.onclick = () => {
   savedValue('active-tab', button.dataset.tab);
@@ -528,7 +554,7 @@ $$('.tab').forEach(button => button.onclick = () => {
   if (button.dataset.tab === 'assistant') window.assistantRestoreCurrentScope?.();
 });
 const restoredTab = savedValue('active-tab');
-const allowedTabs = ['project', 'assets', 'training', 'create', 'plan', 'cover', 'history', 'assistant', 'voices'];
+const allowedTabs = ['project', 'assets', 'training', 'create', 'plan', 'remix', 'cover', 'history', 'assistant', 'voices'];
 const initialTab = allowedTabs.includes(restoredTab) ? restoredTab : document.body.dataset.activeTab;
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 $(`.tab[data-tab="${initialTab}"]`).click();
@@ -870,7 +896,7 @@ async function loadHistory() {
       const internalKinds=new Set(['assistant','doctor','yue2_training_assets','yue2_prepare','workbench_migrate']);
       const canExport=(job.status === 'complete' || (TERMINAL.has(job.status) && result.comparison && result.candidates?.length)) && job.result && !internalKinds.has(job.kind);
       const exportButton = canExport ? `<button class="ghost" onclick="exportJob('${job.id}')">${job.kind==='yue2_train'?'导出模型包':'导出'}</button>` : '';
-      const retryButton = ['failed', 'cancelled'].includes(job.status) && ['generate', 'reference_cover', 'voice_convert', 'render_plan', 'rvc_train', 'rvc_import', 'rvc_separate', 'rvc_storage_move'].includes(job.kind) ? `<button class="ghost compact" data-kind="${job.kind}" onclick="resumeJob('${job.id}', this)">${job.resumable || ['rvc_train','rvc_storage_move'].includes(job.kind) ? '从已保存阶段继续' : '重新运行'}</button>` : '';
+      const retryButton = ['failed', 'cancelled'].includes(job.status) && ['generate', 'reference_cover', 'voice_convert', 'render_plan', 'mulacover_remix', 'rvc_train', 'rvc_import', 'rvc_separate', 'rvc_storage_move'].includes(job.kind) ? `<button class="ghost compact" data-kind="${job.kind}" onclick="resumeJob('${job.id}', this)">${job.resumable || ['rvc_train','rvc_storage_move'].includes(job.kind) ? '从已保存阶段继续' : '重新运行'}</button>` : '';
       const logButtons = (job.kind === 'assistant' ? `<button class="ghost compact" onclick="openAssistantJob('${job.id}')">查看 / 继续创作</button>` : '') + (job.status === 'failed' ? `<button class="ghost compact" onclick="toggleJobLog('${job.id}', this)">查看任务日志</button><button class="ghost compact" onclick="openDirectory('logs')">打开日志目录</button>` : '');
       const comparison = result.comparison ? (result.candidates || []).map((candidate,index) => {
         const rel = relativeAudio(job, candidate.audio);

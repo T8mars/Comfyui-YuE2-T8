@@ -174,6 +174,13 @@ def runtime_ready(root: Path | None = None) -> dict[str, object]:
                                     "download_bytes": sum(int(entry["bytes"]) for entry in training_spec["files"].values())}
     result["capabilities"]["yue2_training"] = bool(
         result["capabilities"]["generation"] and models["mert"] and training_resources)
+    from .mulacover_models import readiness as mulacover_readiness
+    mulacover_models = mulacover_readiness(base)
+    result["mulacover_models"] = mulacover_models
+    result["capabilities"]["mulacover"] = bool(
+        not configured["error"] and result["core_python"] and result["ffmpeg"]
+        and mulacover_models["ready"]
+    )
     return result
 
 

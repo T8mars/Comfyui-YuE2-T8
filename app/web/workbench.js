@@ -167,6 +167,7 @@
   async function useAsset(asset, action) {
     const projectId=currentProjectId;
     if(action==='cover-source') return putAssetInInput(asset,'#cover-file','cover',()=>window.setCoverMode?.('direct'),projectId);
+    if(action==='remix-source') return putAssetInInput(asset,'#remix-file','remix',()=>{$('#remix-source-mode').value='audio';$('#remix-source-mode').dispatchEvent(new Event('change',{bubbles:true}));},projectId);
     if(action==='reference') return putAssetInInput(asset,'#reference-file','cover',()=>{},projectId);
     if(action==='rvc') return putAssetInInput(asset,'#rvc-files','voices',()=>{},projectId);
     if(action==='model') return useStyleModel(asset.id);
@@ -178,7 +179,7 @@
   }
   function openUseDialog(asset) {
     const actions=[];
-    if(audioKinds.has(asset.kind)){actions.push(['cover-source','作为原曲去翻唱'],['reference','作为参考音色'],['rvc','加入 RVC 训练素材']);}
+    if(audioKinds.has(asset.kind)){actions.push(['remix-source','保留旋律重新编曲'],['cover-source','作为原曲去翻唱'],['reference','作为参考音色'],['rvc','加入 RVC 训练素材']);}
     if(asset.kind==='lyrics')actions.push(['create_lyrics','填入歌曲创作歌词'],['plan_lyrics','填入乐谱计划歌词']);
     if(asset.kind==='style')actions.push(['create_style','填入歌曲创作曲风'],['plan_style','填入乐谱计划曲风']);
     if(asset.kind==='score')actions.push(['plan_score','填入乐谱计划']);

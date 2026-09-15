@@ -148,6 +148,7 @@ textarea { resize: vertical; }
 .upload-preview-head button { padding: 6px 12px; font-size: 12px; }
 .upload-preview audio { display: block; width: 100%; min-width: 0; margin-top: 10px; }
 .upload-preview p { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+.remix-midi-source { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; padding: 18px; border: 1px solid var(--blue-line); border-radius: 12px; background: var(--blue-soft); }
 .upload-box b, .mini-upload b { overflow-wrap: anywhere; }
 .voice-settings { margin-top: 12px; }
 .voice-settings .advanced-grid { grid-template-columns: repeat(2, 1fr); }
@@ -238,6 +239,7 @@ footer { padding: 30px; border-top: 1px solid #e0e5ed; color: #8a94a5; text-alig
   .advanced-grid { grid-template-columns: 1fr; }
   .creation-options { grid-template-columns: 1fr; }
   .voice-settings .advanced-grid { grid-template-columns: 1fr; }
+  .remix-midi-source { grid-template-columns: 1fr; }
   .tab { padding: 15px 16px; }
   .toolbar { flex-wrap: wrap; }
   .history-card { grid-template-columns: 1fr; }

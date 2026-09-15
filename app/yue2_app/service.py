@@ -47,6 +47,7 @@ TRANSCRIBE_KINDS = {"transcribe"}
 VOICE_KINDS = {"voice_convert"}
 RVC_KINDS = {"rvc_import", "rvc_separate", "rvc_train", "rvc_model_import", "rvc_model_export", "rvc_storage_move"}
 TRAINING_KINDS = {"yue2_training_assets", "yue2_prepare", "yue2_train", "yue2_preview", "workbench_migrate"}
+MULACOVER_KINDS = {"mulacover_remix"}
 PREVIEW_KINDS = {"yue2_preview"}
 WORKFLOW_KINDS = {"reference_cover"}
 GENERATION_KINDS = CORE_KINDS - {"doctor"}
@@ -186,7 +187,7 @@ def terminate_recorded_worker(status: dict, job_id: str) -> None:
         return
     script = (
         f"$p=Get-CimInstance Win32_Process -Filter 'ProcessId={pid}' -ErrorAction SilentlyContinue;"
-        f"if($p -and $p.CommandLine -match 'app\\.yue2_app\\.(core_worker|transcribe_worker|voice_worker|workflow_worker|rvc_worker|training_worker)' "
+        f"if($p -and $p.CommandLine -match 'app\\.yue2_app\\.(core_worker|transcribe_worker|voice_worker|workflow_worker|rvc_worker|training_worker|mulacover_worker)' "
         f"-and $p.CommandLine -like '*{job_id}*'){{taskkill.exe /PID {pid} /T /F | Out-Null}}"
     )
     subprocess.run(["powershell.exe", "-NoProfile", "-Command", script], check=False,
@@ -247,6 +248,10 @@ class JobStore:
             return "从已确认的 ABC 乐谱生成歌曲"
         if kind == "yue2_training_assets":
             return "安装并校验 YuE2 训练资源"
+        if kind == "mulacover_remix":
+            source = request.get("source") if isinstance(request.get("source"), dict) else {}
+            name = Path(str(request.get("source_path") or source.get("ref_audio") or source.get("melody_midi") or "")).name
+            return f"重新编曲 · {name}" if name else "MuLaCover 重新编曲"
         if kind in {"yue2_prepare", "yue2_train", "yue2_preview"}:
             labels = {"yue2_prepare": "准备 YuE2 训练素材", "yue2_train": "训练 YuE2 歌曲风格",
                       "yue2_preview": "试听 YuE2 风格检查点"}
@@ -296,7 +301,7 @@ class JobStore:
             active = [job for job in self.jobs.values() if job.get('status') not in TERMINAL]
             if any(job.get('kind') == 'rvc_storage_move' for job in active) or (kind == 'rvc_storage_move' and active):
                 raise ValueError('目录迁移需要独占任务队列，请等待当前任务结束')
-        if kind not in CORE_KINDS | TRANSCRIBE_KINDS | VOICE_KINDS | WORKFLOW_KINDS | ASSISTANT_KINDS | RVC_KINDS | TRAINING_KINDS:
+        if kind not in CORE_KINDS | TRANSCRIBE_KINDS | VOICE_KINDS | WORKFLOW_KINDS | ASSISTANT_KINDS | RVC_KINDS | TRAINING_KINDS | MULACOVER_KINDS:
             raise ValueError(f"不支持的任务类型：{kind}")
         if not isinstance(request, dict):
             raise ValueError("request 必须是对象")
@@ -324,6 +329,12 @@ class JobStore:
                 training_config(run.get("config"))
             if kind in {"yue2_prepare", "yue2_train"} and not capabilities.get("yue2_training"):
                 raise ValueError("YuE2 训练资源或 MERT 模型尚未安装完整")
+        if kind in MULACOVER_KINDS:
+            if not capabilities.get("mulacover"):
+                raise ValueError("MuLaCover 重新编曲模型尚未安装完整，请在模型与设置中检查")
+            from .mulacover_core import normalize_request
+            request = normalize_request(ROOT, request)
+            result_panel = "remix"
         if kind in GENERATION_KINDS | WORKFLOW_KINDS | PREVIEW_KINDS and not capabilities.get("generation"):
             raise ValueError("歌曲生成组件不完整：缺少 YuE2 推理源码或核心模型，请重新解压完整整合包")
         if kind in TRANSCRIBE_KINDS and not capabilities.get("transcription"):
@@ -415,7 +426,7 @@ class JobStore:
                     raise ValueError("歌曲风格强度必须在 0–2 之间")
                 generation["style_model_scale"] = strength
         source = source if source in {"webui", "comfyui", "api"} else "api"
-        if result_panel not in {"create", "plan", "cover", "assistant", "voices", "training"}:
+        if result_panel not in {"create", "plan", "cover", "remix", "assistant", "voices", "training"}:
             result_panel = ("cover" if kind in {"reference_cover", "voice_convert"} or
                             (kind == "generate" and request.get("abc")) else
                             "plan" if kind == "render_plan" else "create")
@@ -497,7 +508,7 @@ class JobStore:
                 raise ValueError("只能恢复失败、取消或暂停的任务")
             directory = job_directory(job_id)
             job = json.loads((directory / "job.json").read_text(encoding="utf-8"))
-            if job["kind"] not in {"generate", "reference_cover", "voice_convert", "render_plan", "rvc_train", "rvc_import", "rvc_separate", "rvc_storage_move", "yue2_train"}:
+            if job["kind"] not in {"generate", "reference_cover", "voice_convert", "render_plan", "rvc_train", "rvc_import", "rvc_separate", "rvc_storage_move", "yue2_train", "mulacover_remix"}:
                 raise ValueError("这个任务类型暂不支持阶段恢复")
             request = dict(job["request"])
             overrides = dict(data or {})
@@ -684,6 +695,8 @@ class JobStore:
         if project_id and isinstance(generation, dict):
             for kind, key in (("style", "style"), ("lyrics", "lyrics"), ("score", "abc")):
                 content = generation.get(key)
+                if kind == "style" and not content and job.get("kind") == "mulacover_remix":
+                    content = generation.get("tags")
                 if isinstance(content, str) and content.strip():
                     text_asset = library.create_text(
                         kind=kind, title=(status.get("summary") or "作品") + f" · {kind}", text=content,
@@ -868,6 +881,8 @@ class JobStore:
                     python, module = CORE_PYTHON, "app.yue2_app.rvc_worker"
                 elif kind in TRAINING_KINDS:
                     python, module = CORE_PYTHON, "app.yue2_app.training_worker"
+                elif kind in MULACOVER_KINDS:
+                    python, module = CORE_PYTHON, "app.yue2_app.mulacover_worker"
                 else:
                     python, module = CORE_PYTHON, "app.yue2_app.core_worker"
                 if not python.is_file():
@@ -1247,7 +1262,7 @@ class Handler(BaseHTTPRequestHandler):
                 params = urllib.parse.parse_qs(parsed.query)
                 original = params.get("filename", ["upload.wav"])[0]
                 suffix = Path(original).suffix.lower()
-                allowed = {".zip", ".pth", ".index"} if path == "/api/rvc-upload" else {".wav", ".flac", ".mp3", ".m4a", ".ogg", ".aac"}
+                allowed = {".zip", ".pth", ".index"} if path == "/api/rvc-upload" else {".wav", ".flac", ".mp3", ".m4a", ".ogg", ".aac", ".mid", ".midi"}
                 if suffix not in allowed:
                     raise ValueError("请选择支持的文件格式：" + "、".join(sorted(allowed)))
                 length = int(self.headers.get("Content-Length", "0"))

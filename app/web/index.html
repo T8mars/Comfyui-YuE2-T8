@@ -21,6 +21,7 @@
     <div class="sidebar-group"><small>创作</small>
       <button class="tab" data-tab="create"><i class="bi bi-music-note-beamed"></i>歌曲创作</button>
       <button class="tab" data-tab="plan"><i class="bi bi-music-note-list"></i>乐谱计划</button>
+      <button class="tab" data-tab="remix"><i class="bi bi-sliders"></i>重新编曲</button>
       <button class="tab" data-tab="cover"><i class="bi bi-mic"></i>旋律与音色</button>
       <button class="tab" data-tab="assistant"><i class="bi bi-stars"></i>AI 创作助手</button>
     </div>
@@ -40,6 +41,7 @@
         <button class="ghost" type="button" data-go-tab="assets"><i class="bi bi-collection-play"></i>资产库</button>
         <button class="ghost" type="button" data-go-tab="create"><i class="bi bi-music-note-beamed"></i>歌曲创作</button>
         <button class="ghost" type="button" data-go-tab="plan"><i class="bi bi-music-note-list"></i>乐谱计划</button>
+        <button class="ghost" type="button" data-go-tab="remix"><i class="bi bi-sliders"></i>重新编曲</button>
         <button class="ghost" type="button" data-go-tab="cover"><i class="bi bi-mic"></i>旋律与音色</button>
         <button class="ghost" type="button" data-go-tab="assistant"><i class="bi bi-stars"></i>AI 创作助手</button>
         <button class="ghost" type="button" data-go-tab="training"><i class="bi bi-gpu-card"></i>训练工作台</button>
@@ -108,7 +110,7 @@
         <div class="model-settings-copy">
           <h3>模型文件夹</h3>
           <p>默认使用整合包内的 <code>models</code>。需要节省当前磁盘空间时，可以填写其他硬盘上的绝对路径；更改前请先等待所有任务结束。</p>
-          <p>所选文件夹需要直接包含 <code>YuE2-3B</code>、<code>YuE2-Vae</code>、<code>SheetSage2</code>、<code>MERT-v2-FullSong</code>、<code>Seed-VC</code>、<code>Demucs</code>、<code>RVC</code>、<code>YuE2-training</code> 以及两个模型清单。</p>
+          <p>所选文件夹需要直接包含 <code>YuE2-3B</code>、<code>YuE2-Vae</code>、<code>SheetSage2</code>、<code>MERT-v2-FullSong</code>、<code>Seed-VC</code>、<code>Demucs</code>、<code>RVC</code>、<code>YuE2-training</code>、<code>MuLaCover</code>、<code>HeartCodec-oss</code>、<code>Qwen3-Embedding-0.6B</code> 与 <code>SymbolicTranscriptor</code>。</p>
           <a href="https://huggingface.co/t8star/YuE2-Comfy" target="_blank" rel="noreferrer">打开 Hugging Face 模型仓库</a>
         </div>
         <form id="model-settings-form" class="model-settings-form">
@@ -230,6 +232,44 @@ This melody still waits for you</textarea></label>
           <button id="render-plan" class="primary" data-idle-label="渲染完整歌曲">渲染完整歌曲</button>
         </div>
       </div>
+    </section>
+
+    <section id="remix" class="panel">
+      <div class="section-title"><div><span>MX</span><h2>保留旋律，重新编曲</h2></div><p>从参考歌曲提取旋律与和弦，换歌词、流派、乐器和情绪，生成带演唱与伴奏的新版本。</p></div>
+      <div id="remix-result" class="results" aria-live="polite"></div>
+      <form id="remix-form" class="grid-form">
+        <label>旋律来源<select id="remix-source-mode" name="source_mode"><option value="audio">参考歌曲（推荐）</option><option value="midi">旋律与和弦 MIDI</option></select></label>
+        <label>生成时长<select name="duration_seconds"><option value="30" selected>30 秒试听</option><option value="60">60 秒</option><option value="120">2 分钟</option><option value="180">3 分钟</option><option value="300">5 分钟</option></select></label>
+        <div id="remix-audio-source" class="wide">
+          <div class="upload-box" id="remix-drop-zone">
+            <input id="remix-file" type="file" accept="audio/*,.m4a,.flac,.wav,.mp3,.ogg,.aac" aria-label="选择重新编曲的参考歌曲">
+            <b>选择参考歌曲</b><span>支持 WAV、FLAC、MP3、M4A、OGG、AAC；会提取旋律、和弦与鼓点，不会逐帧复制原录音。</span>
+          </div>
+          <div id="remix-preview" class="upload-preview hidden"><div class="upload-preview-head"><b>参考歌曲试听</b><button id="remix-replace" type="button" class="ghost">更换文件</button></div><audio controls preload="metadata" aria-label="重新编曲参考歌曲试听"></audio><p>先试听确认歌曲，再开始重新编曲。</p></div>
+        </div>
+        <div id="remix-midi-source" class="wide remix-midi-source hidden">
+          <label>旋律 MIDI<input id="remix-melody-midi" type="file" accept=".mid,.midi,audio/midi"></label>
+          <label>和弦 MIDI<input id="remix-chord-midi" type="file" accept=".mid,.midi,audio/midi"></label>
+          <label>鼓组 MIDI（可选）<input id="remix-drum-midi" type="file" accept=".mid,.midi,audio/midi"></label>
+        </div>
+        <label class="wide">新歌词<textarea name="lyrics" rows="12" required placeholder="按 [Verse] / [Chorus] / [Bridge] 分段，每行一句歌词"></textarea></label>
+        <label>主题<input name="topic" dir="ltr" placeholder="例如 Longing / 成长"></label>
+        <label>流派<input name="genre" dir="ltr" required value="Mandarin pop" placeholder="例如 country, soul, rock"></label>
+        <label>乐器<input name="instrument" dir="ltr" value="piano, strings, drums" placeholder="例如 acoustic guitar, strings"></label>
+        <label>情绪<input name="mood" dir="ltr" value="warm, hopeful" placeholder="例如 hopeful, melancholic"></label>
+        <label>旋律移调（半音）<input name="semitone_shift" type="number" min="-12" max="12" step="1" value="0"></label>
+        <label>额外八度<select name="octave_shift"><option value="-2">降低 2 个八度</option><option value="-1">降低 1 个八度</option><option value="0" selected>保持原八度</option><option value="1">升高 1 个八度</option><option value="2">升高 2 个八度</option></select></label>
+        <p class="meta wide">跨性别音域可先尝试降低或升高 1 个八度；这里调整的是用于重新演唱的旋律条件。</p>
+        <details class="wide advanced"><summary>高级生成设置</summary><div class="advanced-grid">
+          <label>随机种子<input name="seed" type="number" min="0" max="9007199254740991" step="1" value="831001"></label>
+          <label>解码种子<input name="decode_seed" type="number" min="0" max="9007199254740991" step="1" value="831002"></label>
+          <label>曲风引导强度<input name="cfg_scale" type="number" min="0.1" max="5" step="0.05" value="1.5"></label>
+          <label>采样温度<input name="temperature" type="number" min="0.1" max="2" step="0.05" value="1"></label>
+          <label>Top-K<input name="topk" type="number" min="1" max="8191" step="1" value="250"></label>
+        </div></details>
+        <p id="remix-model-status" class="meta wide" role="status">正在检查 MuLaCover 模型…</p>
+        <button id="remix-button" class="primary wide" type="submit" data-idle-label="开始重新编曲">开始重新编曲</button>
+      </form>
     </section>
 
     <section id="cover" class="panel">
@@ -445,7 +485,7 @@ This melody still waits for you</textarea></label>
 
     <section id="history" class="panel">
       <div class="section-title"><div><span>04</span><h2>任务与版本</h2></div><p>失败、取消和截断结果都会保留，便于定位问题与继续编辑。</p></div>
-      <div class="asset-controls"><label>状态<select id="history-status"><option value="">全部状态</option><option value="complete">已完成</option><option value="failed">失败</option><option value="cancelled">已取消</option><option value="paused">已暂停</option><option value="running">运行中</option><option value="queued">排队中</option></select></label><label>类型<select id="history-kind"><option value="">全部类型</option><option value="generate">歌曲生成</option><option value="plan">乐谱计划</option><option value="render_plan">乐谱渲染</option><option value="transcribe">音频转谱</option><option value="reference_cover">参考音色翻唱</option><option value="voice_convert">音色转换</option><option value="assistant">AI 创作助手</option><option value="rvc_train">RVC 训练</option><option value="yue2_train">YuE2 训练</option><option value="yue2_preview">训练试听</option></select></label><label>项目<select id="history-project"><option value="">全部项目</option><option value="__global__">未归档 / 全局</option></select></label><label class="asset-search"><i class="bi bi-search"></i><input id="history-query" type="search" placeholder="搜索任务名称、ID 或错误" aria-label="搜索任务名称、ID 或错误"></label></div>
+      <div class="asset-controls"><label>状态<select id="history-status"><option value="">全部状态</option><option value="complete">已完成</option><option value="failed">失败</option><option value="cancelled">已取消</option><option value="paused">已暂停</option><option value="running">运行中</option><option value="queued">排队中</option></select></label><label>类型<select id="history-kind"><option value="">全部类型</option><option value="generate">歌曲生成</option><option value="plan">乐谱计划</option><option value="render_plan">乐谱渲染</option><option value="mulacover_remix">MuLaCover 重新编曲</option><option value="transcribe">音频转谱</option><option value="reference_cover">参考音色翻唱</option><option value="voice_convert">音色转换</option><option value="assistant">AI 创作助手</option><option value="rvc_train">RVC 训练</option><option value="yue2_train">YuE2 训练</option><option value="yue2_preview">训练试听</option></select></label><label>项目<select id="history-project"><option value="">全部项目</option><option value="__global__">未归档 / 全局</option></select></label><label class="asset-search"><i class="bi bi-search"></i><input id="history-query" type="search" placeholder="搜索任务名称、ID 或错误" aria-label="搜索任务名称、ID 或错误"></label></div>
       <div class="toolbar"><button id="refresh-history" class="ghost">刷新</button><button class="ghost" type="button" onclick="openDirectory('logs')">打开日志目录</button><button class="ghost" type="button" onclick="openDirectory('outputs')">打开输出目录</button><button id="cleanup-storage" class="ghost">按策略清理</button><span id="storage-usage" class="meta"></span><button id="cancel-active" class="danger" disabled title="当前没有正在执行的任务">取消当前任务</button></div>
       <div id="history-list" class="history-list"></div>
       <nav class="asset-pagination" aria-label="历史任务分页"><button id="history-prev" class="ghost compact" type="button">上一页</button><span id="history-page-status" class="meta">第 1 页</span><button id="history-next" class="ghost compact" type="button">下一页</button></nav>
@@ -456,6 +496,7 @@ This melody still waits for you</textarea></label>
 
   <footer>YuE2 本地整合包 · 制作者 By B站UP主：T8star-Aix · 仅绑定 127.0.0.1 · 权重与输出保存在本机</footer>
   <script src="/static/app.js"></script>
+  <script src="/static/mulacover.js"></script>
   <script src="/static/rvc.js"></script>
   <script src="/static/assistant.js"></script>
   <script src="/static/workbench.js"></script>
