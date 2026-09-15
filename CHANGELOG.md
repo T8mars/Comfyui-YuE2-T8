@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.5.1 - 2026-09-16
+
+- Accept `127.0.0.1`, `localhost` and IPv6 loopback aliases for browser POST requests when the port matches, preventing valid local pages from being rejected as cross-site requests.
+- Continue rejecting non-loopback origins, browser-extension origins and loopback pages on another port.
+
 ## 1.5.0 - 2026-09-15
 
 - Add a project-scoped MuLaCover remix workspace for audio or MIDI conditioning, editable lyrics and structured style tags, transposition, deterministic seeds, live stages, playback, MIDI export and one-click handoff to voice conversion.

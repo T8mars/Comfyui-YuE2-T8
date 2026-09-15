@@ -124,6 +124,22 @@ def is_loopback_host(authority: str) -> bool:
             and (parsed.hostname or "").lower() in {"127.0.0.1", "localhost", "::1"})
 
 
+def is_matching_loopback_origin(origin: str, host: str) -> bool:
+    """Accept loopback aliases on the same port while rejecting other origins."""
+    try:
+        parsed_origin = urllib.parse.urlsplit(origin)
+        parsed_host = urllib.parse.urlsplit("//" + host)
+        if parsed_origin.scheme.lower() != "http":
+            return False
+        origin_port = parsed_origin.port or 80
+        host_port = parsed_host.port or 80
+    except ValueError:
+        return False
+    return (is_loopback_host(parsed_origin.netloc)
+            and is_loopback_host(host)
+            and origin_port == host_port)
+
+
 def _request_strings(value):
     if isinstance(value, str):
         yield value
@@ -1142,8 +1158,7 @@ class Handler(BaseHTTPRequestHandler):
             if not is_loopback_host(host):
                 return self._error(403, "Host 必须是本机回环地址")
             origin = self.headers.get("Origin")
-            if origin and (not is_loopback_host(urllib.parse.urlparse(origin).netloc)
-                           or urllib.parse.urlparse(origin).netloc.lower() != host.lower()):
+            if origin and not is_matching_loopback_origin(origin, host):
                 return self._error(403, "拒绝跨站请求")
             if STORE.updating or updater.update_status(ROOT, __version__).get('state') in updater.ACTIVE_STATES:
                 return self._error(409, '整合包正在更新，请等待升级完成后再提交操作')

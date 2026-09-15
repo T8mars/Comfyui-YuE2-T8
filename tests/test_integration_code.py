@@ -25,6 +25,7 @@ from app.yue2_app.service import (
     JobStore,
     acquire_instance_lock,
     is_loopback_host,
+    is_matching_loopback_origin,
     job_directory,
     retention_references,
     worker_failure_message,
@@ -514,6 +515,15 @@ class IntegrationCodeTests(unittest.TestCase):
             self.assertTrue(is_loopback_host(value), value)
         for value in ("attacker.example:8189", "localhost@attacker.example", "127.0.0.1:bad", ""):
             self.assertFalse(is_loopback_host(value), value)
+
+    def test_loopback_origin_accepts_aliases_only_on_same_port(self):
+        self.assertTrue(is_matching_loopback_origin("http://localhost:8189", "127.0.0.1:8189"))
+        self.assertTrue(is_matching_loopback_origin("http://[::1]:8189", "localhost:8189"))
+        self.assertTrue(is_matching_loopback_origin("http://127.0.0.1", "localhost"))
+        self.assertFalse(is_matching_loopback_origin("http://localhost:8190", "127.0.0.1:8189"))
+        self.assertFalse(is_matching_loopback_origin("https://localhost:8189", "127.0.0.1:8189"))
+        self.assertFalse(is_matching_loopback_origin("https://attacker.example", "127.0.0.1:8189"))
+        self.assertFalse(is_matching_loopback_origin("chrome-extension://example", "127.0.0.1:8189"))
 
     def test_instance_lock_rejects_duplicate_service(self):
         with tempfile.TemporaryDirectory(dir=ROOT) as directory:

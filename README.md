@@ -6,9 +6,9 @@
 
 ## 完整版整合包
 
-完整版整合包：[夸克网盘下载](https://pan.quark.cn/s/67ebf18a2d51)
+完整版整合包：[夸克网盘下载](https://pan.quark.cn/s/67ebf18a2d51) · [Hugging Face 下载 v1.5.0](https://huggingface.co/t8star/YuE2-Comfy/resolve/main/bundles/Yue2-T8-Onekey-v1.5.0-Windows-NVIDIA.rar?download=true) · [SHA-256](https://huggingface.co/t8star/YuE2-Comfy/resolve/main/bundles/Yue2-T8-Onekey-v1.5.0-Windows-NVIDIA.rar.sha256?download=true)
 
-Windows / NVIDIA 完整包，包含运行环境与模型。完整解压后，双击 `YuE2-T8.exe` 即可启动。
+Windows / NVIDIA 完整包，包含运行环境与模型。完整解压后，双击 `YuE2-T8.exe` 即可启动；首次启动可通过页面“检查更新”安装最新的小型代码补丁。
 
 [GitHub Release](https://github.com/T8mars/Comfyui-YuE2-T8/releases) 仅提供代码与自动更新附件，不包含 Python 或模型。完整整合包从上方夸克网盘获取；模型和可选 GGUF 权重也可通过下方网盘单独下载。旧版升级涉及统一运行环境迁移时，更新器会按需另外下载依赖。
 
