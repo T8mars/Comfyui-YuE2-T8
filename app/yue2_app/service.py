@@ -751,7 +751,20 @@ class JobStore:
             if status.get("status") != "complete" and not partial_comparison:
                 raise ValueError("只能导出已完成任务的工件")
             source = within(OUTPUTS, job_directory(job_id) / "artifacts")
-            if not source.is_dir():
+            model_export = None
+            if status.get("kind") == "yue2_train":
+                result = status.get("result") if isinstance(status.get("result"), dict) else {}
+                nested_model = result.get("model_asset") if isinstance(result.get("model_asset"), dict) else {}
+                asset_id = str(result.get("model_asset_id") or nested_model.get("id") or "")
+                if not asset_id:
+                    raise FileNotFoundError("训练任务没有记录已保存的模型")
+                library = AssetLibrary(ROOT)
+                asset = library.get_asset(asset_id)
+                if asset.get("kind") != "model" or asset.get("metadata", {}).get("model_type") != "yue2_ar_lora":
+                    raise ValueError("训练任务关联的不是有效 YuE2 歌曲风格模型")
+                model_source, revision = library.revision_file(asset_id, asset.get("current_revision_id", ""))
+                model_export = (asset, revision, model_source)
+            elif not source.is_dir():
                 raise FileNotFoundError("任务没有可导出的工件")
             export_root = (ROOT / "exports").resolve()
             requested = Path(requested_destination)
@@ -762,7 +775,29 @@ class JobStore:
                 destination = within(export_root, base / f"{status['id']}-{uuid.uuid4().hex[:8]}")
             temporary = within(export_root, base / f".{destination.name}.{uuid.uuid4().hex}.tmp")
             try:
-                shutil.copytree(source, temporary)
+                if model_export:
+                    asset, revision, model_source = model_export
+                    temporary.mkdir(parents=True)
+                    title = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "_", str(asset.get("title") or "YuE2-style-model"))
+                    title = title.strip(" .")[:120] or "YuE2-style-model"
+                    model_name = title + ".safetensors"
+                    shutil.copy2(model_source, temporary / model_name)
+                    atomic_json(temporary / "model.json", {
+                        "schema": 1,
+                        "job_id": status["id"],
+                        "kind": status.get("kind"),
+                        "asset_id": asset["id"],
+                        "revision_id": asset["current_revision_id"],
+                        "title": asset["title"],
+                        "model_file": model_name,
+                        "sha256": revision["blob_sha256"],
+                        "size": revision["size"],
+                        "metadata": asset.get("metadata", {}),
+                        "provenance": asset.get("provenance", {}),
+                        "exported_at": time.time(),
+                    })
+                else:
+                    shutil.copytree(source, temporary)
                 temporary.replace(destination)
             except BaseException:
                 if temporary.exists():

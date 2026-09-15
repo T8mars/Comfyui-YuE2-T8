@@ -7,7 +7,7 @@ let currentJobId = null;
 let workspaceRefreshing = false;
 let modelSettingsInitialized = false;
 let projectAssetSignature = '';
-let historyOffset = 0, historyTotal = 0, historyLoadRevision = 0; const historyPageSize = 20;
+let historyOffset = 0, historyTotal = 0, historyLoadRevision = 0; const historyPageSize = 10;
 let availableUpdate = null;
 let updateInstalling = false;
 const panelStates = new Map();
@@ -867,7 +867,9 @@ async function loadHistory() {
     const historyHasFilters=Boolean($('#history-status').value||$('#history-kind').value||$('#history-project').value||$('#history-query').value.trim());
     $('#history-list').innerHTML = jobs.map(job => {
       const result = job.result || {}; const audio = relativeAudio(job, result.audio || result.candidates?.[0]?.audio);
-      const exportButton = (job.status === 'complete' || (TERMINAL.has(job.status) && result.comparison && result.candidates?.length)) && job.result ? `<button class="ghost" onclick="exportJob('${job.id}')">导出</button>` : '';
+      const internalKinds=new Set(['assistant','doctor','yue2_training_assets','yue2_prepare','workbench_migrate']);
+      const canExport=(job.status === 'complete' || (TERMINAL.has(job.status) && result.comparison && result.candidates?.length)) && job.result && !internalKinds.has(job.kind);
+      const exportButton = canExport ? `<button class="ghost" onclick="exportJob('${job.id}')">${job.kind==='yue2_train'?'导出模型包':'导出'}</button>` : '';
       const retryButton = ['failed', 'cancelled'].includes(job.status) && ['generate', 'reference_cover', 'voice_convert', 'render_plan', 'rvc_train', 'rvc_import', 'rvc_separate', 'rvc_storage_move'].includes(job.kind) ? `<button class="ghost compact" data-kind="${job.kind}" onclick="resumeJob('${job.id}', this)">${job.resumable || ['rvc_train','rvc_storage_move'].includes(job.kind) ? '从已保存阶段继续' : '重新运行'}</button>` : '';
       const logButtons = (job.kind === 'assistant' ? `<button class="ghost compact" onclick="openAssistantJob('${job.id}')">查看 / 继续创作</button>` : '') + (job.status === 'failed' ? `<button class="ghost compact" onclick="toggleJobLog('${job.id}', this)">查看任务日志</button><button class="ghost compact" onclick="openDirectory('logs')">打开日志目录</button>` : '');
       const comparison = result.comparison ? (result.candidates || []).map((candidate,index) => {

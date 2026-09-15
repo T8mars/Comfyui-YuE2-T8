@@ -153,6 +153,7 @@ def seed_browser_state(root: Path) -> None:
         asset = library.create_text(kind=kind, title=f"回归素材 {index}", text=f"浏览器回归内容 {index}")
         if index <= 2:
             library.add_to_project(project["id"], asset["id"])
+    training_songs = []
     for index in range(2):
         source = root / f"training-song-{index + 1}.wav"
         with wave.open(str(source), "wb") as stream:
@@ -160,7 +161,33 @@ def seed_browser_state(root: Path) -> None:
             stream.writeframes((b"\0\0" if index == 0 else b"\1\0") * 8000)
         asset = library.import_file(source, kind="song", title=f"训练歌曲 {index + 1}")
         library.add_to_project(project["id"], asset["id"], role="song")
+        training_songs.append(asset)
         source.unlink()
+
+    snapshot = library.create_snapshot(
+        title="浏览器模型分页快照", training_kind="yue2_style",
+        items=[{"asset_id": asset["id"], "revision_id": asset["current_revision_id"],
+                "start": 0, "end": 1, "split": "train" if index == 0 else "validation",
+                "instrumental": True, "track_group_id": asset["id"]}
+               for index, asset in enumerate(training_songs)],
+        options={"rights_confirmed": True, "default_style": "browser folk"},
+    )
+    for index in range(4):
+        model_source = root / f"browser-model-{index + 1}.safetensors"
+        model_source.write_bytes(f"browser-model-{index + 1}".encode())
+        model = library.import_file(
+            model_source, kind="model", title=f"浏览器歌曲风格 {index + 1}",
+            metadata={"model_type": "yue2_ar_lora", "completed_training_steps": 200,
+                      "selected_validation_step": 200, "selected_validation_loss": 4.2,
+                      "rank": 8},
+        )
+        run = library.create_training_run(
+            title=model["title"], training_kind="yue2_style", snapshot_id=snapshot["id"],
+            config={"steps": 200, "selected_step": 200,
+                    "history": [{"step": 200, "train_loss": 4.0, "validation_loss": 4.2}]},
+        )
+        library.update_training_run(run["id"], state="complete", model_asset_id=model["id"])
+        model_source.unlink()
 
     job_id = "20990101-000000-00000001"
     directory = root / "outputs" / "jobs" / job_id
@@ -320,6 +347,21 @@ def run_browser(url: str, output: Path) -> dict:
         page.screenshot(path=output / "desktop-assistant-api-key.png", full_page=False)
 
         page.locator('.studio-sidebar [data-tab="training"]').click()
+        page.locator(".training-model-card").first.wait_for(state="visible")
+        assert page.locator(".training-model-card").count() == 3
+        assert "第 1 / 2 页 · 4 个" in page.locator("#training-model-page-status").inner_text()
+        action_widths = page.locator(".training-model-card").first.locator(".training-model-actions > *").evaluate_all(
+            "items => items.map(item => Math.round(item.getBoundingClientRect().width))")
+        assert len(set(action_widths)) == 1, action_widths
+        assert page.locator('[data-copy-trained-model-path]').first.evaluate(
+            "item => !item.classList.contains('compact')")
+        page.locator("#training-model-next").click()
+        page.locator(".training-model-card").first.wait_for(state="visible")
+        assert page.locator(".training-model-card").count() == 1
+        assert "第 2 / 2 页 · 4 个" in page.locator("#training-model-page-status").inner_text()
+        page.locator("#training-model-prev").click()
+        page.locator("#training-model-library").scroll_into_view_if_needed()
+        page.screenshot(path=output / "desktop-training-model-manager.png", full_page=False)
         assert "当前项目“浏览器回归项目”" in page.locator("#training-assets-scope").inner_text()
         assert page.locator("#training-preset").input_value() == "quick"
         assert page.locator("#training-form [name=steps]").input_value() == "200"
@@ -363,8 +405,8 @@ def run_browser(url: str, output: Path) -> dict:
 
         page.locator('.studio-sidebar [data-tab="assets"]').click()
         page.locator(".asset-card").first.wait_for(state="visible")
-        assert page.locator(".asset-card").count() == 6
-        assert page.locator(".asset-card [data-add-asset]").count() == 2
+        assert page.locator(".asset-card").count() == 10
+        assert page.locator(".asset-card [data-add-asset]").count() == 6
         assert page.locator(".asset-card [data-project-asset-state]").count() == 4
         assert page.locator(".asset-card [data-project-asset-state]:disabled").count() == 4
         for card in page.locator(".asset-card").all():
@@ -497,14 +539,14 @@ def run_browser(url: str, output: Path) -> dict:
     return {
         "viewports": ["1366x900", "820x900", "390x844"],
         "scenarios": [
-            "seeded project and six asset cards stay within the desktop viewport",
+            "seeded project and ten asset cards stay within the desktop viewport",
             "asset use, edit and read dialogs expose accessible names",
             "completed generation stays playable with an accessible audio name on its originating page",
             "full and partial technical failures use a public summary and required fields use Chinese validation",
             "ordinary workspace buttons use current-page semantics without unsupported selected state",
             "API credentials, Seedance 2.1 Turbo, explicit Custom model input and one-click ABC completion are visible and reachable",
             "assistant lyrics, style and ABC recover from the latest project job after tab switches and a browser reload",
-            "YuE2 training exposes per-song lyrics, inline validation and a guided asset-library round trip",
+            "YuE2 training exposes per-song lyrics, inline validation, guided asset selection and three-model pagination",
             "backend-reported progress stays fixed across workspaces and opens the full task details",
             "Seed-VC and RVC expose independent remembered octave presets in the main cover flow",
             "mobile workspace switching resets a long-page scroll position",

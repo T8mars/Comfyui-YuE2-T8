@@ -594,6 +594,51 @@ class IntegrationCodeTests(unittest.TestCase):
                 store.export(job_id)
             self.assertEqual(list((root / "exports").glob(".*.tmp")), [])
 
+    def test_completed_yue2_training_exports_model_package(self):
+        from app.yue2_app.asset_library import AssetLibrary
+
+        with tempfile.TemporaryDirectory(dir=ROOT) as directory:
+            root = Path(directory)
+            outputs = root / "outputs" / "jobs"
+            job_id = "20260915-173543-00000002"
+            model_source = root / "adapter.safetensors"
+            model_source.write_bytes(b"trained-yue2-adapter")
+            asset = AssetLibrary(root).import_file(
+                model_source, kind="model", title='我的歌曲风格: 200 步',
+                metadata={"model_type": "yue2_ar_lora", "completed_training_steps": 200,
+                          "selected_validation_step": 200, "rank": 8},
+                provenance={"training_run_id": "run-1"},
+            )
+            atomic_json(outputs / job_id / "status.json", {
+                "id": job_id, "kind": "yue2_train", "status": "complete",
+                "result": {"model_asset": {"id": asset["id"]}},
+            })
+            store = object.__new__(JobStore)
+            store.updating = False
+            store.storage_lock = threading.RLock()
+            store.lock = threading.RLock()
+            store.jobs = {}
+            with mock.patch.object(service, "ROOT", root), mock.patch.object(service, "OUTPUTS", outputs):
+                destination = store.export(job_id)
+            exported_model = destination / "我的歌曲风格_ 200 步.safetensors"
+            self.assertEqual(exported_model.read_bytes(), b"trained-yue2-adapter")
+            manifest = json.loads((destination / "model.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["asset_id"], asset["id"])
+            self.assertEqual(manifest["model_file"], exported_model.name)
+            self.assertEqual(manifest["metadata"]["completed_training_steps"], 200)
+            self.assertEqual(manifest["sha256"], hashlib.sha256(b"trained-yue2-adapter").hexdigest())
+
+    def test_training_model_and_history_pagination_are_bounded(self):
+        web = Path(__file__).resolve().parents[1] / "app" / "web"
+        javascript = (web / "workbench.js").read_text(encoding="utf-8")
+        app_javascript = (web / "app.js").read_text(encoding="utf-8")
+        html = (web / "index.html").read_text(encoding="utf-8")
+        self.assertIn("const trainingModelPageSize = 3", javascript)
+        self.assertIn("const historyPageSize = 10", app_javascript)
+        self.assertIn('id="training-model-prev"', html)
+        self.assertIn('id="training-model-next"', html)
+        self.assertNotIn('class="ghost compact" type="button" data-copy-trained-model-path', javascript)
+
     def test_workflows_are_well_formed(self):
         workflows = list((Path(__file__).resolve().parents[1] / "workflows").glob("*.json"))
         self.assertEqual({path.name[:2] for path in workflows}, {"01", "02", "03", "04"})

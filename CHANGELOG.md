@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.20 - 2026-09-15
+
+- Add a completed YuE2 model manager with three models per page, model details, equal-size actions and direct use, download, folder and path controls.
+- Export completed YuE2 training tasks as a usable `.safetensors` model package with a provenance manifest.
+- Hide export actions for internal tasks that do not produce files and label YuE2 training exports clearly.
+- Limit task history to ten records per page while preserving filters and navigation.
+
 ## 1.4.19 - 2026-09-15
 
 - Let every YuE2 training song use a manually entered style, a saved style asset, or the shared fallback style.

@@ -138,13 +138,17 @@ main { max-width: 1380px; padding: 32px 28px 160px; }
 .progress-track { height: 5px; overflow: hidden; border-radius: 5px; background: #edf0f5; }
 .progress-track span { width: 0; height: 100%; display: block; border-radius: inherit; background: var(--accent); transition: width .25s; }
 #training-chart { width: 100%; height: 150px; margin-top: 12px; border-bottom: 1px solid var(--line); }
-.training-model-manager { margin-top: 16px; padding: 15px; border: 1px solid var(--blue-line); border-radius: 9px; background: var(--blue-soft); }
-.training-model-manager h4 { margin: 0 0 5px; font-size: 15px; }
+.training-model-library > .meta { margin-bottom: 12px; }
+.training-model-manager { min-height: 150px; display: grid; gap: 12px; }
+.training-model-card { padding: 15px; border: 1px solid var(--blue-line); border-radius: 9px; background: var(--blue-soft); }
+.training-model-card h4 { margin: 0 0 5px; font-size: 15px; }
 .training-model-grid { margin: 12px 0; display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 8px; }
 .training-model-grid span { padding: 9px 10px; border-radius: 7px; background: rgba(255,255,255,.75); }
 .training-model-grid small, .training-model-grid b { display: block; }
 .training-model-grid small { color: var(--muted); font-size: 9px; }
 .training-model-path { margin: 8px 0; padding: 9px 10px; overflow-wrap: anywhere; border-radius: 7px; background: rgba(255,255,255,.75); font: 10px/1.5 ui-monospace,Consolas,monospace; }
+.training-model-actions { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); }
+.training-model-actions > * { min-width: 0; width: 100%; display: inline-flex; align-items: center; justify-content: center; text-align: center; }
 .global-player { position: fixed; z-index: 30; right: 22px; bottom: 18px; left: 240px; min-height: 68px; padding: 10px 12px 10px 16px; display: grid; grid-template-columns: minmax(150px,260px) minmax(260px,1fr) auto; gap: 16px; align-items: center; border: 1px solid var(--blue-line); border-radius: 11px; background: rgba(255,255,255,.98); box-shadow: 0 14px 36px rgba(25,35,60,.17); }
 .global-player > div { min-width: 0; }
 .global-player small, .global-player b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -156,6 +160,9 @@ main { max-width: 1380px; padding: 32px 28px 160px; }
   .project-inspector { border-top: 1px solid var(--line); border-left: 0; }
   .training-inspector { position: static; }
   body > header { grid-template-columns: 1fr; }
+}
+@media (max-width: 720px) {
+  .training-model-grid, .training-model-actions { grid-template-columns: repeat(2,minmax(0,1fr)); }
 }
 @media (max-width: 1024px) {
   body { padding: 80px 0 0; }
