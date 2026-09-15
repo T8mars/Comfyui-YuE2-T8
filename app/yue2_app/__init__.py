@@ -1,3 +1,3 @@
 """Shared local scheduler used by the web UI and ComfyUI nodes."""
 
-__version__ = "1.4.13"
+__version__ = "1.4.14"

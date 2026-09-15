@@ -193,7 +193,21 @@ def local_model_identity(root: Path, config: dict) -> list:
     return identity
 
 
-def config_info(root: Path) -> dict:
+def credential_state(config: dict, credentials=None) -> dict:
+    if config["provider"] == "local":
+        return {"required": False, "available": True, "reason": "local"}
+    if credentials is None:
+        available = bool(config.get("credential_id"))
+    else:
+        try:
+            credentials.get(config.get("credential_id", ""), endpoint(config))
+            available = True
+        except ValueError:
+            available = False
+    return {"required": True, "available": available, "reason": "ready" if available else "missing"}
+
+
+def config_info(root: Path, credentials=None) -> dict:
     config = normalize_config(read(root / "userdata/assistant/config.json", {}))
     try:
         runtime_probe = read(root / "runtime/installed.json", {}).get("llm", {}).get("probe", {})
@@ -221,7 +235,7 @@ def config_info(root: Path) -> dict:
                                "has_chat_template": info.has_chat_template, "shards": len(shards), "error": error})
             except (OSError, ValueError) as exc:
                 models.append({"id": identifier, "bytes": 0, "error": str(exc)})
-    return {"config": config, "providers": PROVIDERS, "defaults": engine.DEFAULTS,
+    return {"config": config, "credential": credential_state(config, credentials), "providers": PROVIDERS, "defaults": engine.DEFAULTS,
             "options": {"lyrics_modes": engine.LYRIC_MODES, "quality_modes": [engine.STANDARD, engine.REVIEW],
                         "abc_sources": [engine.ABC_DOWNSTREAM, engine.ABC_GENERATE]},
             "llm_directory": str(directory), "models": models,
@@ -230,10 +244,10 @@ def config_info(root: Path) -> dict:
             "official_source": engine.official_snapshot()}
 
 
-def save_config(root: Path, value: dict) -> dict:
+def save_config(root: Path, value: dict, credentials=None) -> dict:
     config = normalize_config(value)
     atomic_json(root / "userdata/assistant/config.json", config)
-    return config_info(root)
+    return config_info(root, credentials)
 
 
 def normalize_request(root: Path, value: dict) -> dict:

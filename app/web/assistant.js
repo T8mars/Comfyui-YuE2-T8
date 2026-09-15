@@ -1,6 +1,6 @@
 /* Standalone WebUI only. Drafts are revisioned; credentials never enter them. */
 const assistant = {config: null, defaults: {}, result: null, job: null, polling: false, pollToken: 0, pollingJobId: '', pollingProjectId: '', originalLyrics: '', resultEdited: false, resultJobId: null,
-  drafts: {}, providers: {}, localModels: [], remoteModels: {}, providerSelections: {}, providerBaseUrls: {}, providerCredentials: {}, activeProvider: null,
+  drafts: {}, providers: {}, localModels: [], remoteModels: {}, providerSelections: {}, providerBaseUrls: {}, providerCredentials: {}, activeProvider: null, credential: null,
   ticks: {assistant: 0, create: 0, plan: 0, cover: 0}, queues: {}, timers: {}, undo: null, sending: null,
   projectId: '', baselines: {}, switchQueue: Promise.resolve()};
 const assistantPost = (path, value) => api(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(value)});
@@ -177,6 +177,51 @@ function configFromForm() {
   values.extra_parameters = JSON.parse($('#assistant-extra').value || '{}');
   return values;
 }
+function assistantCredentialError(message) {
+  return /API\s*Key|API\s*凭据|凭据不存在|凭据待补|重新填写/.test(String(message || ''));
+}
+function openAssistantSettings(focus = true) {
+  const settings = $('#assistant-settings');
+  settings.open = true;
+  settings.scrollIntoView({behavior: 'smooth', block: 'start'});
+  if (focus) requestAnimationFrame(() => ($('#assistant-provider').value === 'local' ? $('#assistant-model') : $('#assistant-key')).focus());
+}
+function renderAssistantChannelStatus() {
+  const provider = $('#assistant-provider').value || assistant.config?.provider || 'seedance';
+  const details = assistant.providers[provider] || {};
+  const savedProvider = assistant.config?.provider === provider;
+  const isLocal = provider === 'local';
+  const ready = isLocal ? Boolean($('#assistant-model').value.trim()) : Boolean(savedProvider && assistant.credential?.available);
+  const card = $('#assistant-channel-status'), signup = $('#assistant-status-signup');
+  card.dataset.state = ready ? 'ready' : 'missing';
+  if (isLocal) {
+    assistantText('#assistant-channel-title', ready ? '本地 LLM 已选择' : '请先选择本地 GGUF 模型');
+    assistantText('#assistant-channel-detail', ready ? `${$('#assistant-model').value}；保存后可测试模型连接。` : '本地模式无需 API Key，请选择 GGUF 文件并保存设置。');
+    $('#assistant-open-settings').textContent = ready ? '更改本地模型' : '设置本地 GGUF';
+  } else {
+    assistantText('#assistant-channel-title', ready ? 'AI 创作渠道已配置' : '开始创作前，请先设置 API Key');
+    assistantText('#assistant-channel-detail', ready ? `${details.label || '当前渠道'} · ${$('#assistant-model').value || details.default_model || '模型待选择'}；凭据已就绪。` : `当前渠道：${details.label || 'API'}。填写 API Key 后才能生成歌词、曲风或 ABC。`);
+    $('#assistant-open-settings').textContent = ready ? '更改渠道 / API Key' : '设置 API Key';
+  }
+  signup.classList.toggle('hidden', isLocal || !details.signup_url);
+  signup.href = details.signup_url || '#';
+  signup.textContent = details.signup_url ? `获取${details.label || ''} API Key` : '';
+  assistantText('#assistant-capability', ready ? (isLocal ? '本地模型待连接测试' : 'API 凭据已就绪') : (isLocal ? '尚未选择 GGUF' : '尚未配置 API Key'));
+  if (!ready && !isLocal && savedProvider) $('#assistant-settings').open = true;
+}
+function appendAssistantError(target, message) {
+  const box = document.createElement('div'); box.className = assistantCredentialError(message) ? 'assistant-credential-error' : 'assistant-inline-note';
+  const error = document.createElement('p'); error.textContent = message; box.append(error);
+  if (assistantCredentialError(message)) {
+    assistant.credential = {...(assistant.credential || {}), required: true, available: false, reason: 'missing'};
+    renderAssistantChannelStatus();
+    const action = document.createElement('button'); action.type = 'button'; action.className = 'primary compact'; action.textContent = '设置 API Key'; action.onclick = () => openAssistantSettings(true); box.append(action);
+  }
+  target.append(box);
+}
+function showAssistantError(message) {
+  const target = $('#assistant-progress'); target.replaceChildren(); appendAssistantError(target, message);
+}
 function renderAssistantModels() {
   const provider = $('#assistant-provider').value;
   const details = assistant.providers[provider] || {};
@@ -222,6 +267,7 @@ function providerChanged() {
   if (previous && previous !== provider && assistant.config?.provider !== provider) {
     assistantText('#assistant-config-status', provider === 'local' ? '已切换为本地模式，请保存设置' : '已切换渠道，请填写该渠道对应的 API Key');
   }
+  renderAssistantChannelStatus();
 }
 async function saveAssistantConfig() {
   let config = configFromForm();
@@ -234,7 +280,9 @@ async function saveAssistantConfig() {
   }
   const info = await assistantPost('/api/assistant/config', config);
   assistant.config = info.config;
+  assistant.credential = info.credential;
   updateModelInfo(info);
+  renderAssistantChannelStatus();
   assistantText('#assistant-config-status', '设置已保存' + (config.credential_id ? ' · 已关联凭据' : ''));
   return config;
 }
@@ -301,7 +349,7 @@ async function pollAssistant(id, startingRevision, projectId = assistant.project
         showAssistantResult(job.result); lastResult = signature;
       }
       if (TERMINAL.has(job.status)) {
-        if (job.error) { const error = document.createElement('p'); error.textContent = job.error; progress.append(error); }
+        if (job.error) appendAssistantError(progress, job.error);
         if (job.result?.connection) line.textContent = '模型连接测试通过；这是文本请求测试，不代表作谱或音乐生成已验收。';
         if (assistant.ticks.assistant !== startingRevision && job.result && !job.result.connection) {
           const restore = document.createElement('button'); restore.className = 'ghost'; restore.textContent = '查看已完成结果（保留当前草稿前请先下载）';
@@ -323,12 +371,16 @@ async function restoreAssistantJobForCurrentScope() {
   if(!TERMINAL.has(current.status)){pollAssistant(current.id,assistant.ticks.assistant,projectId);return;}
   assistant.job=current;
   if(current.result&&!current.result.connection&&!assistant.resultEdited){showAssistantResult(current.result);await savePanel('assistant');}
-  if(current.error){const error=document.createElement('p');error.textContent=current.error;$('#assistant-progress').append(error);}
+  if(current.error)appendAssistantError($('#assistant-progress'),current.error);
 }
 async function startAssistant(test = false, retry = false) {
   if (assistant.polling) return;
   try {
     const config = await saveAssistantConfig(), values = assistantValues();
+    if (config.provider !== 'local' && !assistant.credential?.available) {
+      openAssistantSettings(true);
+      throw new Error('请先填写并保存 API Key，再开始创作。');
+    }
     await savePanel('assistant');
     const body = {values, config, client_request_id: crypto.randomUUID()};
     let job;
@@ -349,7 +401,7 @@ async function startAssistant(test = false, retry = false) {
     await savePanel('assistant');
     refreshWorkspace();
     pollAssistant(job.id, assistant.ticks.assistant);
-  } catch (error) { assistantText('#assistant-progress', error.message); }
+  } catch (error) { showAssistantError(error.message); }
 }
 async function validateAssistantAbc(strip = false, cot) {
   const result = readAssistantResult();
@@ -449,7 +501,7 @@ async function initAssistant() {
   try {
     assistant.projectId = window.workbenchProjectId?.() || '';
     const [info, drafts] = await Promise.all([api('/api/assistant/config'), api(draftEndpoint())]);
-    assistant.config = info.config; assistant.defaults = info.defaults; assistant.drafts = drafts; assistant.providers = info.providers;
+    assistant.config = info.config; assistant.credential = info.credential; assistant.defaults = info.defaults; assistant.drafts = drafts; assistant.providers = info.providers;
     assistant.providerSelections[info.config.provider] = info.config.model;
     assistant.providerBaseUrls[info.config.provider] = info.config.base_url;
     assistant.providerCredentials[info.config.provider] = info.config.credential_id || '';
@@ -504,14 +556,15 @@ async function initAssistant() {
             button.onclick = () => { if (confirm('替换当前编辑区？需要保留的内容请先下载。')) { showAssistantResult(current.result); changedDraft('assistant'); } }; notice.append(button);
           }
         }
-        if (current.error) { const error = document.createElement('p'); error.textContent = current.error; $('#assistant-progress').append(error); }
+        if (current.error) appendAssistantError($('#assistant-progress'), current.error);
       }
     }
   } catch (error) { assistantText('#assistant-progress', `助手初始化失败：${error.message}`); }
 }
 $('#assistant-config-form').onsubmit = event => { event.preventDefault(); saveAssistantConfig().catch(error => assistantText('#assistant-config-status', error.message)); };
 $('#assistant-provider').onchange = providerChanged;
-$('#assistant-model').oninput = () => { assistant.providerSelections[$('#assistant-provider').value] = $('#assistant-model').value; };
+$('#assistant-model').oninput = () => { assistant.providerSelections[$('#assistant-provider').value] = $('#assistant-model').value; renderAssistantChannelStatus(); };
+$('#assistant-open-settings').onclick = () => openAssistantSettings(true);
 $('#assistant-refresh-models').onclick = refreshAssistantModels;
 $('#assistant-delete-key').onclick = async () => { try { const provider = $('#assistant-provider').value, credential = assistant.providerCredentials[provider] || ''; await assistantPost('/api/assistant/credentials', {delete: true, credential_id: credential}); assistant.providerCredentials[provider] = ''; if (assistant.config?.provider === provider) assistant.config.credential_id = ''; await saveAssistantConfig(); } catch (error) { assistantText('#assistant-config-status', error.message); } };
 $('#assistant-form').onsubmit = event => { event.preventDefault(); startAssistant(); };

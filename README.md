@@ -139,6 +139,8 @@ API 密钥默认仅在本次服务会话有效，也可选择使用 Windows 当�
 
 渠道会自动填入参考节点使用的默认模型：贞贞平价小屋为 `bytedance/doubao-seed-evolving`，贞贞的 AI 工坊为 `gemini-3.5-flash`。模型框支持预置下拉、手动模型 ID，以及从标准 OpenAI `/models` 接口获取账号可用的模型 LIST；接口不支持 LIST 时仍可手填。API Key 获取：[贞贞平价小屋](https://api.seedance.nz/sign-up?aff=5f4w) · [贞贞的 AI 工坊](https://ai.t8star.org/register?aff=dP7j)。
 
+页面顶部会直接显示当前渠道是否可用。若 API Key 未配置或会话密钥已随服务重启失效，“AI 渠道与 API Key”会自动展开；也可以从顶部状态条或失败结果中的“设置 API Key”直接定位输入框。
+
 ### 安装
 
 Registry 版本审核通过后，可通过 ComfyUI Registry/Manager 安装：

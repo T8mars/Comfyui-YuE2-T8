@@ -418,6 +418,18 @@ class AssistantTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             second.get(ident, "https://example.com/v1")
 
+    def test_credential_state_distinguishes_ready_stale_local_and_loopback(self):
+        store = data.Credentials(self.root)
+        remote = data.normalize_config({"provider": "compatible", "base_url": "https://example.com/v1", "model": "fixture"})
+        self.assertFalse(data.credential_state(remote, store)["available"])
+        remote["credential_id"] = store.put("session-only", data.endpoint(remote))
+        self.assertTrue(data.credential_state(remote, store)["available"])
+        self.assertFalse(data.credential_state(remote, data.Credentials(self.root))["available"])
+        loopback = data.normalize_config({"provider": "compatible", "base_url": "http://127.0.0.1:9999/v1", "model": "fixture"})
+        self.assertTrue(data.credential_state(loopback, store)["available"])
+        local = data.normalize_config({"provider": "local", "model": "fixture.gguf"})
+        self.assertEqual(data.credential_state(local, store), {"required": False, "available": True, "reason": "local"})
+
     def test_edit_only_second_repeated_chorus(self):
         original = "[Verse]\nOpening line\n\n[Chorus]\nFirst hook\n\n[Chorus]\nSecond hook\n\n[Outro]\nGoodbye"
         request = self.request(lyrics_mode=engine.EDIT, lyrics=original, edit_section="Chorus", edit_occurrence=2, edit_request="Give it hope")

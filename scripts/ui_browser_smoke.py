@@ -224,6 +224,26 @@ def run_browser(url: str, output: Path) -> dict:
             page.locator(f'.studio-sidebar [data-tab="{panel_id}"]').click()
             assert_text_contrast(page, panel_id)
 
+        page.locator('.studio-sidebar [data-tab="assistant"]').click()
+        channel_status = page.locator("#assistant-channel-status")
+        assert channel_status.get_attribute("data-state") == "missing"
+        assert "设置 API Key" in page.locator("#assistant-channel-title").inner_text()
+        assert page.locator("#assistant-settings").get_attribute("open") is not None
+        assert page.locator("#assistant-status-signup").is_visible()
+        channel_status.scroll_into_view_if_needed()
+        page.screenshot(path=output / "desktop-assistant-api-key-entry.png", full_page=False)
+        page.locator("#assistant-open-settings").click()
+        page.wait_for_function("document.activeElement.id === 'assistant-key'")
+        assert page.evaluate("document.activeElement.id") == "assistant-key"
+        page.evaluate("showAssistantError('API 凭据待补，请配置后重试')")
+        recovery = page.locator(".assistant-credential-error button")
+        assert recovery.is_visible() and recovery.inner_text() == "设置 API Key"
+        recovery.click()
+        page.wait_for_function("document.activeElement.id === 'assistant-key'")
+        assert page.evaluate("document.activeElement.id") == "assistant-key"
+        assert_no_page_overflow(page, "desktop assistant credential recovery")
+        page.screenshot(path=output / "desktop-assistant-api-key.png", full_page=False)
+
         page.locator('.studio-sidebar [data-tab="assets"]').click()
         page.locator(".asset-card").first.wait_for(state="visible")
         assert page.locator(".asset-card").count() == 4
@@ -363,6 +383,7 @@ def run_browser(url: str, output: Path) -> dict:
             "completed generation stays playable with an accessible audio name on its originating page",
             "full and partial technical failures use a public summary and required fields use Chinese validation",
             "ordinary workspace buttons use current-page semantics without unsupported selected state",
+            "missing or stale API credentials expose a prominent status, auto-open settings and recover from the error in one click",
             "backend-reported progress stays fixed across workspaces and opens the full task details",
             "Seed-VC and RVC expose independent remembered octave presets in the main cover flow",
             "mobile workspace switching resets a long-page scroll position",

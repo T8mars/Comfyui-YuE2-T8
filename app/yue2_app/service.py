@@ -1018,7 +1018,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, {"jobs": jobs, "total": total,
                                         "limit": max(1, min(limit, 500)), "offset": max(0, offset)})
             if path == "/api/assistant/config":
-                return self._json(200, assistant_data.config_info(ROOT))
+                return self._json(200, assistant_data.config_info(ROOT, CREDENTIALS))
             if path == "/api/assistant/drafts":
                 query = urllib.parse.parse_qs(parsed.query)
                 return self._json(200, assistant_data.drafts(ROOT, query.get("project_id", [""])[0]))
@@ -1135,7 +1135,7 @@ class Handler(BaseHTTPRequestHandler):
                 threading.Thread(target=stop_for_update, name="yue2-update-shutdown", daemon=True).start()
                 return None
             if path == "/api/assistant/config":
-                return self._json(200, assistant_data.save_config(ROOT, self._body_json(32 * 1024)))
+                return self._json(200, assistant_data.save_config(ROOT, self._body_json(32 * 1024), CREDENTIALS))
             if path == "/api/assistant/credentials":
                 data = self._body_json(16 * 1024)
                 if data.get("delete"):

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.14 - 2026-09-15
+
+- Make AI provider readiness visible before creation, with a direct API Key setup button and the selected provider's registration link.
+- Detect expired session-only credentials after restart, automatically expand channel settings, and prevent credential-less assistant jobs from entering the queue.
+- Add one-click API Key recovery to credential failure results, preserving keyboard focus and responsive layout across desktop, tablet and phone widths.
+
 ## 1.4.13 - 2026-09-15
 
 - Gate RVC output from the separated source-vocal envelope so instrumental leakage cannot become sustained synthetic tones.

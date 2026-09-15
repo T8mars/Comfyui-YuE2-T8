@@ -369,8 +369,16 @@ This melody still waits for you</textarea></label>
 
     <section id="assistant" class="panel">
       <div class="section-title"><div><span>AI</span><h2>从一个想法开始写歌</h2></div><p>先创作歌词与曲风，也可以让 LLM 作谱。编辑满意后，发送到对应页面制作音乐。</p></div>
+      <div id="assistant-channel-status" class="assistant-channel-status" data-state="loading" role="status" aria-live="polite">
+        <span class="assistant-channel-dot" aria-hidden="true"></span>
+        <div class="assistant-channel-copy"><strong id="assistant-channel-title">正在检查 AI 创作渠道</strong><p id="assistant-channel-detail">请稍候，正在读取当前模型与凭据状态。</p></div>
+        <div class="assistant-channel-actions">
+          <button id="assistant-open-settings" class="primary compact" type="button">设置 API Key</button>
+          <a id="assistant-status-signup" class="ghost compact hidden" target="_blank" rel="noopener noreferrer">获取 API Key</a>
+        </div>
+      </div>
       <details id="assistant-settings" class="workbench">
-        <summary>创作渠道与模型 <span id="assistant-capability" class="meta"></span></summary>
+        <summary>AI 渠道与 API Key <span id="assistant-capability" class="meta"></span></summary>
         <form id="assistant-config-form" class="grid-form assistant-settings-grid">
           <label>渠道<select name="provider" id="assistant-provider"></select></label>
           <label>API 模型名 / GGUF 文件<input name="model" id="assistant-model" list="assistant-models" autocomplete="off" placeholder="填写渠道模型名，或选择已有 GGUF"></label>
