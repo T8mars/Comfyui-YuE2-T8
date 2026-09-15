@@ -1,7 +1,7 @@
 (() => {
   const kindNames = {song:'歌曲',work:'作品',vocal:'人声',instrumental:'伴奏',reference_voice:'参考音色',lyrics:'歌词',style:'曲风',score:'乐谱',model:'模型',other:'其他'};
   const kindIcons = {song:'bi-disc',work:'bi-music-note-beamed',vocal:'bi-mic',instrumental:'bi-soundwave',reference_voice:'bi-person-bounding-box',lyrics:'bi-file-text',style:'bi-tags',score:'bi-music-note-list',model:'bi-gpu-card',other:'bi-file-earmark'};
-  let projects = [], assets = [], trainingAssets = [], lyricsAssets = [], styleAssets = [];
+  let projects = [], assets = [], trainingAssets = [], lyricsAssets = [], styleAssets = [], trainingAssetGuidance = false;
   let currentProjectAssetRefs = new Set();
   let assetOffset = 0, assetTotal = 0, assetLoadRevision = 0; const assetPageSize = 24;
   let currentProjectId = savedValue('workbench-project') || '';
@@ -199,7 +199,8 @@
     grid.innerHTML = assets.map(asset => {
       const primary=audioKinds.has(asset.kind)?`<button class="ghost compact" data-play-asset="${asset.id}"><i class="bi bi-play-fill"></i> 试听</button>`:asset.kind==='model'&&asset.metadata?.model_type==='yue2_ar_lora'?`<button class="primary compact" data-use-style-model="${asset.id}"><i class="bi bi-music-note-beamed"></i> 用于创作</button>`:`<button class="ghost compact" data-read-asset="${asset.id}"><i class="bi bi-eye"></i> 查看</button>`;
       const linked=currentProjectId&&currentProjectAssetRefs.has(`${asset.id}:${asset.current_revision_id}`);
-      const projectAction=currentProjectId?(linked?'<button class="ghost compact" type="button" data-project-asset-state disabled title="当前版本已在项目中"><i class="bi bi-check-circle"></i> 已在项目</button>':`<button class="ghost compact" type="button" data-add-asset="${asset.id}"><i class="bi bi-plus-circle"></i> 加入项目</button>`):'';
+      const trainingAudio=trainingAssetGuidance&&['song','work','vocal'].includes(asset.kind);
+      const projectAction=currentProjectId?(linked?`<button class="ghost compact" type="button" data-project-asset-state disabled title="当前版本已在项目中"><i class="bi bi-check-circle"></i> ${trainingAudio?'已加入项目 · 训练可用':'已在项目'}</button>`:`<button class="ghost compact" type="button" data-add-asset="${asset.id}"><i class="bi bi-plus-circle"></i> ${trainingAudio?'加入当前项目供训练':'加入项目'}</button>`):'';
       return `<article class="asset-card"><div class="asset-card-head"><i class="bi ${kindIcons[asset.kind] || kindIcons.other}"></i><div><b title="${escapeHtml(asset.title)}">${escapeHtml(asset.title)}</b><small>${escapeHtml(kindNames[asset.kind] || asset.kind)} · ${asset.size ? (asset.size/1048576).toFixed(1)+' MB' : '文本版本'}</small></div></div>${audioKinds.has(asset.kind) ? `<div class="wave-mini" data-wave="${asset.id}"></div>` : '<div class="wave-mini"><span style="height:2px;width:100%"></span></div>'}<div class="toolbar">${primary}<button class="ghost compact" data-use-asset="${asset.id}">发送到…</button><button class="ghost compact" data-edit-asset="${asset.id}">编辑</button>${projectAction}</div></article>`;
     }).join('');
     grid.querySelectorAll('[data-play-asset]').forEach(button => button.onclick = () => playAsset(assets.find(item => item.id === button.dataset.playAsset)));
@@ -208,7 +209,7 @@
     grid.querySelectorAll('[data-edit-asset]').forEach(button=>button.onclick=()=>editAsset(assets.find(item=>item.id===button.dataset.editAsset)).catch(error=>alert(error.message)));
     grid.querySelectorAll('[data-add-asset]').forEach(button => button.onclick = async () => {
       const projectId=currentProjectId;
-      try { if(!projectId)throw new Error('请先选择项目');await api(`/api/workbench/projects/${projectId}/assets`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({asset_id:button.dataset.addAsset,role:'asset'})}); button.textContent='已加入'; button.disabled=true; await loadProjects(); }
+      try { if(!projectId)throw new Error('请先选择项目');await api(`/api/workbench/projects/${projectId}/assets`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({asset_id:button.dataset.addAsset,role:'asset'})}); button.textContent=trainingAssetGuidance?'已加入项目 · 训练可用':'已加入'; button.disabled=true; await loadProjects(); }
       catch (error) { alert(error.message); }
     });
     grid.querySelectorAll('[data-use-style-model]').forEach(button => button.onclick = () => useStyleModel(button.dataset.useStyleModel));
@@ -265,10 +266,23 @@
   function renderTrainingAssets() {
     const list = $('#training-assets'); if (!list) return;
     const retained=new Map($$('#training-assets [data-training-asset]').map(box=>{const id=box.dataset.trainingAsset;return[id,{checked:box.checked,split:$(`[data-training-split="${id}"]`)?.value||'train',lyrics:$(`[data-training-lyrics="${id}"]`)?.value||'',style:$(`[data-training-style="${id}"]`)?.value||'',instrumental:$(`[data-training-instrumental="${id}"]`)?.checked||false}];}));
-    list.innerHTML = trainingAssets.length ? trainingAssets.map(asset => `<div class="training-asset"><input type="checkbox" data-training-asset="${asset.id}" aria-label="选择 ${escapeHtml(asset.title)}"><span><b>${escapeHtml(asset.title)}</b><small>${kindNames[asset.kind]} · ${Number(asset.metadata.duration).toFixed(1)} 秒</small></span><select data-training-split="${asset.id}" aria-label="${escapeHtml(asset.title)} 的数据集"><option value="train">训练集</option><option value="validation">验证集</option></select><div class="training-asset-options"><label>这首歌的歌词<select data-training-lyrics="${asset.id}">${textOptions(lyricsAssets,'使用公共歌词')}</select></label><label>这首歌的曲风<select data-training-style="${asset.id}">${textOptions(styleAssets,'使用公共曲风')}</select></label><label class="check"><input type="checkbox" data-training-instrumental="${asset.id}">纯器乐</label></div></div>`).join('') : '<div class="empty-state"><b>资产库里还没有可训练的歌曲</b><p>先导入至少两首不同歌曲；一首用于训练，一首用于验证。</p></div>';
+    const project=projects.find(item=>item.id===currentProjectId);
+    $('#training-assets-scope').textContent=currentProjectId?`当前项目“${project?.title||'未命名项目'}”：这里只显示已加入该项目的歌曲。至少选择两首不同歌曲，一首用于训练，一首用于验证；同一首歌的衍生片段不会跨集合。`:'训练素材按歌曲项目管理。请先选择或新建项目，再加入至少两首不同歌曲。';
+    list.innerHTML = trainingAssets.length ? trainingAssets.map(asset => `<div class="training-asset"><input type="checkbox" data-training-asset="${asset.id}" aria-label="选择 ${escapeHtml(asset.title)}"><span><b>${escapeHtml(asset.title)}</b><small>${kindNames[asset.kind]} · ${Number(asset.metadata.duration).toFixed(1)} 秒</small></span><select data-training-split="${asset.id}" aria-label="${escapeHtml(asset.title)} 的数据集"><option value="train">训练集</option><option value="validation">验证集</option></select><div class="training-asset-options"><label>这首歌的歌词<select data-training-lyrics="${asset.id}">${textOptions(lyricsAssets,'使用公共歌词')}</select></label><label>这首歌的曲风<select data-training-style="${asset.id}">${textOptions(styleAssets,'使用公共曲风')}</select></label><label class="check"><input type="checkbox" data-training-instrumental="${asset.id}">纯器乐</label></div></div>`).join('') : `<div class="empty-state"><i class="bi bi-music-note-list"></i><b>${currentProjectId?'当前项目还没有可训练的歌曲':'尚未选择歌曲项目'}</b><p>${currentProjectId?'资产库中的音频不会自动进入训练；请把至少两首歌曲加入当前项目。':'先到歌曲项目选择或新建项目，再添加训练歌曲。'}</p><div class="toolbar"><button class="primary compact" type="button" data-open-training-assets>${currentProjectId?'去资产库选择歌曲':'去选择歌曲项目'}</button>${currentProjectId?'<button class="ghost compact" type="button" data-import-training-song>直接导入歌曲</button>':''}</div></div>`;
     for(const [id,state] of retained){const box=$(`[data-training-asset="${id}"]`);if(!box)continue;box.checked=state.checked;$(`[data-training-split="${id}"]`).value=state.split;if([...$(`[data-training-lyrics="${id}"]`).options].some(option=>option.value===state.lyrics))$(`[data-training-lyrics="${id}"]`).value=state.lyrics;if([...$(`[data-training-style="${id}"]`).options].some(option=>option.value===state.style))$(`[data-training-style="${id}"]`).value=state.style;$(`[data-training-instrumental="${id}"]`).checked=state.instrumental;}
+    list.querySelector('[data-open-training-assets]')?.addEventListener('click',()=>currentProjectId?openTrainingAssetLibrary(false):($('.tab[data-tab="project"]').click(),$('#workbench-project-select').focus()));
+    list.querySelector('[data-import-training-song]')?.addEventListener('click',()=>openTrainingAssetLibrary(true));
   }
-  async function loadTrainingInputs(){try{const [songs,works,vocals,lyrics,styles]=await Promise.all(['song','work','vocal','lyrics','style'].map(kind=>api(`/api/workbench/assets?kind=${kind}&limit=500`)));trainingAssets=[...songs.assets,...works.assets,...vocals.assets].filter(asset=>Number(asset.metadata?.duration)>=1);lyricsAssets=lyrics.assets;styleAssets=styles.assets;renderTrainingAssets();}catch(error){showError($('#training-assets'),error);}}
+  async function loadTrainingInputs(){try{if(!currentProjectId){trainingAssets=[];lyricsAssets=[];styleAssets=[];renderTrainingAssets();return;}const query=kind=>`/api/workbench/assets?kind=${kind}&project_id=${encodeURIComponent(currentProjectId)}&limit=500`,[songs,works,vocals,lyrics,styles]=await Promise.all(['song','work','vocal','lyrics','style'].map(kind=>api(query(kind))));trainingAssets=[...songs.assets,...works.assets,...vocals.assets].filter(asset=>Number(asset.metadata?.duration)>=1);lyricsAssets=lyrics.assets;styleAssets=styles.assets;renderTrainingAssets();}catch(error){showError($('#training-assets'),error);}}
+  function openTrainingAssetLibrary(importNow=false){
+    if(!currentProjectId){$('.tab[data-tab="project"]').click();$('#workbench-project-select').focus();return;}
+    trainingAssetGuidance=true;$('#asset-training-guidance').classList.remove('hidden');
+    const project=projects.find(item=>item.id===currentProjectId);$('#asset-training-guidance-copy').textContent=`当前项目：${project?.title||'未命名项目'}。点击歌曲卡片的“加入当前项目供训练”；已加入的歌曲会标为“训练可用”。`;
+    $('#asset-kind').value='';$('#asset-query').value='';assetOffset=0;$('.tab[data-tab="assets"]').click();loadAssets();
+    if(importNow){$('#asset-import-kind').value='song';$('#asset-upload').click();}
+  }
+  $('#training-add-songs').onclick=()=>openTrainingAssetLibrary(false);
+  $('#asset-training-back').onclick=async()=>{trainingAssetGuidance=false;$('#asset-training-guidance').classList.add('hidden');await loadTrainingInputs();$('.tab[data-tab="training"]').click();};
   $('#training-select-all').onclick = () => { const boxes=$$('#training-assets [data-training-asset]'); boxes.forEach(box=>box.checked=true); if(boxes.length>1) $(`[data-training-split="${boxes.at(-1).dataset.trainingAsset}"]`).value='validation'; };
   $('#training-style-scale').oninput = event => $('#training-style-scale-value').textContent=Number(event.target.value).toFixed(2);
   function drawChart(history=[]) {
@@ -345,7 +359,7 @@
   $('#training-pause').onclick=async()=>{if(!trainingJobId||!currentRun)return;const runId=currentRun.id,jobId=trainingJobId;try{const job=await api(`/api/jobs/${jobId}/pause`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});updateTrainingJob(job,runId,'training');}catch(error){alert(error.message);}};
   $('#training-resume').onclick=async()=>{if(!trainingJobId||!currentRun)return;const runId=currentRun.id,jobId=trainingJobId;try{const job=await api(`/api/jobs/${jobId}/resume`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});trainingJobsByRun.set(runId,job.id);if(currentRun?.id===runId){trainingJobId=job.id;savedValue('training-job',job.id);}updateTrainingJob(job,runId,'training');}catch(error){alert(error.message);}};
   async function pollAllTrainingJobs(){await Promise.all([pollTrainingJob(trainingJobId,currentRun?.id||'','training'),pollTrainingJob(trainingPreviewJobId,trainingPreviewRunId,'preview'),pollTrainingJob(auxiliaryTrainingJobId,'','auxiliary')]);}
-  $('#training-refresh').onclick=async()=>{await Promise.all([loadRuns(),loadAssets(),checkTrainingResources()]);await pollAllTrainingJobs();};
+  $('#training-refresh').onclick=async()=>{await Promise.all([loadRuns(),loadTrainingInputs(),checkTrainingResources()]);await pollAllTrainingJobs();};
 
   async function previewTrainingRun(){
     try {
@@ -365,8 +379,8 @@
   }
   document.addEventListener('click',event=>{if(event.target.closest('[data-preview-training]'))previewTrainingRun();const trained=event.target.closest('[data-use-trained-model]');if(trained){const assetId=trained.dataset.useTrainedModel||'';loadAssets().then(()=>useStyleModel(assetId));}});
 
-  document.addEventListener('click',event=>{const tab=event.target.closest('.tab[data-tab]');if(tab&&tab.dataset.tab==='assets')loadAssets();if(tab&&tab.dataset.tab==='project')renderProject();if(tab&&tab.dataset.tab==='training'){loadRuns();checkTrainingResources();pollAllTrainingJobs();}});
+  document.addEventListener('click',event=>{const tab=event.target.closest('.tab[data-tab]');if(tab&&tab.dataset.tab==='assets')loadAssets();if(tab&&tab.dataset.tab==='project')renderProject();if(tab&&tab.dataset.tab==='training'){loadTrainingInputs();loadRuns();checkTrainingResources();pollAllTrainingJobs();}});
   setInterval(pollAllTrainingJobs,1500);
-  async function initWorkbench(){await(window.assistantReady||Promise.resolve());await Promise.all([loadProjects(),loadAssets(),loadTrainingInputs(),loadRuns(),checkTrainingResources()]);await pollAllTrainingJobs();}
+  async function initWorkbench(){await(window.assistantReady||Promise.resolve());await loadProjects();await Promise.all([loadAssets(),loadTrainingInputs(),loadRuns(),checkTrainingResources()]);await pollAllTrainingJobs();}
   initWorkbench();
 })();

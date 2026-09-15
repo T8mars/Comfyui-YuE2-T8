@@ -147,6 +147,7 @@ def wait_for_ui(page: Page) -> None:
 
 def seed_browser_state(root: Path) -> None:
     library = AssetLibrary(root)
+    library.create_project("空项目")
     project = library.create_project("浏览器回归项目")
     for index, kind in enumerate(("lyrics", "style", "score", "lyrics"), start=1):
         asset = library.create_text(kind=kind, title=f"回归素材 {index}", text=f"浏览器回归内容 {index}")
@@ -244,6 +245,34 @@ def run_browser(url: str, output: Path) -> dict:
         assert_no_page_overflow(page, "desktop assistant credential recovery")
         page.screenshot(path=output / "desktop-assistant-api-key.png", full_page=False)
 
+        page.locator('.studio-sidebar [data-tab="training"]').click()
+        assert "当前项目“浏览器回归项目”" in page.locator("#training-assets-scope").inner_text()
+        page.locator("#training-assets-scope").scroll_into_view_if_needed()
+        page.screenshot(path=output / "desktop-training-assets.png", full_page=False)
+        page.locator("#training-add-songs").click()
+        assert page.locator("body").get_attribute("data-active-tab") == "assets"
+        assert page.locator("#asset-training-guidance").is_visible()
+        assert "加入当前项目" in page.locator("#asset-training-guidance-copy").inner_text()
+        page.screenshot(path=output / "desktop-training-asset-guidance.png", full_page=False)
+        page.locator("#asset-training-back").click()
+        page.wait_for_function("document.body.dataset.activeTab === 'training'")
+        assert page.locator("body").get_attribute("data-active-tab") == "training"
+        assert_no_page_overflow(page, "desktop training asset guidance")
+        empty_value = page.locator("#workbench-project-select option").filter(has_text="空项目").get_attribute("value")
+        page.locator('.studio-sidebar [data-tab="project"]').click()
+        page.locator("#workbench-project-select").select_option(empty_value)
+        page.wait_for_function("document.querySelector('#header-project-name').textContent === '空项目'")
+        page.locator('.studio-sidebar [data-tab="training"]').click()
+        page.locator("[data-open-training-assets]").wait_for(state="visible")
+        assert "当前项目还没有可训练的歌曲" in page.locator("#training-assets").inner_text()
+        assert page.locator("[data-import-training-song]").is_visible()
+        page.locator("#training-assets").scroll_into_view_if_needed()
+        page.screenshot(path=output / "desktop-training-empty.png", full_page=False)
+        active_value = page.locator("#workbench-project-select option").filter(has_text="浏览器回归项目").get_attribute("value")
+        page.locator('.studio-sidebar [data-tab="project"]').click()
+        page.locator("#workbench-project-select").select_option(active_value)
+        page.wait_for_function("document.querySelector('#header-project-name').textContent === '浏览器回归项目'")
+
         page.locator('.studio-sidebar [data-tab="assets"]').click()
         page.locator(".asset-card").first.wait_for(state="visible")
         assert page.locator(".asset-card").count() == 4
@@ -327,9 +356,11 @@ def run_browser(url: str, output: Path) -> dict:
         page.evaluate("window.scrollTo(0, 0)")
         menu = page.locator("#mobile-workspace-menu")
         menu.wait_for(state="visible")
-        page.locator("#voice-backend").select_option("seed-vc")
-        page.locator("#seed-pitch-settings").scroll_into_view_if_needed()
-        assert_no_page_overflow(page, "phone cover pitch controls")
+        menu.click()
+        page.locator('#workspace-menu-dialog [data-go-tab="cover"]').click()
+        page.wait_for_function("document.body.dataset.activeTab === 'cover'")
+        page.locator("#cover-mode").wait_for(state="visible")
+        assert_no_page_overflow(page, "phone cover workspace")
         page.screenshot(path=output / "phone-cover-pitch.png", full_page=False)
         page.evaluate("window.scrollTo(0, 0)")
         page.evaluate("""() => renderTaskCenter({current_job: 'ui-smoke-running'}, [{
@@ -384,6 +415,7 @@ def run_browser(url: str, output: Path) -> dict:
             "full and partial technical failures use a public summary and required fields use Chinese validation",
             "ordinary workspace buttons use current-page semantics without unsupported selected state",
             "missing or stale API credentials expose a prominent status, auto-open settings and recover from the error in one click",
+            "YuE2 training names the current project and provides a guided round trip to add training songs from the asset library",
             "backend-reported progress stays fixed across workspaces and opens the full task details",
             "Seed-VC and RVC expose independent remembered octave presets in the main cover flow",
             "mobile workspace switching resets a long-page scroll position",

@@ -125,11 +125,15 @@ def apply_files(source: Path, target: Path, version: str) -> tuple[Path, list[di
             if target not in destination.parents:
                 raise ValueError("更新文件超出了安装目录")
             existed = destination.is_file()
+            expected = digest(path)
+            # Windows keeps a running native launcher locked. Stable launcher and
+            # vendor files often do not change, so never replace identical bytes.
+            if existed and digest(destination) == expected:
+                continue
             if existed:
                 saved = backup / relative
                 saved.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(destination, saved)
-            expected = digest(path)
             # Record before replacement so a failure during copy/hash verification rolls this file back too.
             records.append({"file": relative.as_posix(), "sha256": expected, "existed": existed})
             destination.parent.mkdir(parents=True, exist_ok=True)

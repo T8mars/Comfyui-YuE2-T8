@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.15 - 2026-09-15
+
+- Scope YuE2 training songs to the current project and refresh them whenever the training workspace opens, removing the stale empty list seen after adding assets.
+- Add “添加歌曲”, guided asset-library and direct-import paths; explain that an audio asset becomes trainable after it is added to the current project.
+- Skip byte-identical files during automatic updates, avoiding Windows launcher replacement failures when the unchanged native launcher is temporarily locked.
+
 ## 1.4.14 - 2026-09-15
 
 - Make AI provider readiness visible before creation, with a direct API Key setup button and the selected provider's registration link.

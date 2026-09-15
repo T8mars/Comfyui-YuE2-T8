@@ -34,6 +34,21 @@ class UpdateInstallTests(unittest.TestCase):
             self.assertEqual((backup / "app/yue2_app/service.py").read_bytes(), b"old service")
             self.assertTrue(any(item["file"] == "scripts/apply_update.py" for item in records))
 
+    def test_staged_updater_skips_identical_files_including_native_launcher(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "install"
+            source = target / "cache/updates/1.4.15-test"
+            launcher = target / "YuE2-T8.exe"
+            staged = source / "YuE2-T8.exe"
+            launcher.parent.mkdir(parents=True)
+            staged.parent.mkdir(parents=True)
+            launcher.write_bytes(b"unchanged launcher")
+            staged.write_bytes(b"unchanged launcher")
+            backup, records = apply_files(source, target, "1.4.15")
+            self.assertEqual(records, [])
+            self.assertEqual(launcher.read_bytes(), b"unchanged launcher")
+            self.assertTrue((backup / "update_manifest.json").is_file())
+
     def test_retired_installer_leaves_legacy_installation_and_data_unchanged(self):
         source = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as directory:
