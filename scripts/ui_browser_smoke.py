@@ -528,7 +528,11 @@ def run_browser(url: str, output: Path) -> dict:
         menu.click()
         dialog = page.locator("#workspace-menu-dialog")
         dialog.wait_for(state="visible")
-        assert dialog.locator("[data-go-tab]").count() == 9
+        menu_tabs = dialog.locator("[data-go-tab]")
+        assert menu_tabs.count() == len(expected_tabs)
+        assert menu_tabs.evaluate_all(
+            "elements => elements.map(element => element.dataset.goTab)"
+        ) == list(expected_tabs)
         page.screenshot(path=output / "phone-menu.png", full_page=False)
         dialog.locator('[data-go-tab="training"]').click()
         assert page.locator("body").get_attribute("data-active-tab") == "training"
@@ -572,7 +576,7 @@ def run_browser(url: str, output: Path) -> dict:
             "backend-reported progress stays fixed across workspaces and opens the full task details",
             "Seed-VC and RVC expose independent remembered octave presets in the main cover flow",
             "mobile workspace switching resets a long-page scroll position",
-            "all nine workspaces meet WCAG AA contrast for visible normal-size text",
+            "all ten workspaces meet WCAG AA contrast for visible normal-size text",
         ],
         "console_errors": console_errors,
     }
