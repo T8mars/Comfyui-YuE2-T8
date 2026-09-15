@@ -43,21 +43,23 @@ class GenerationBudget(unittest.TestCase):
         self.assertTrue(self.store.pending.empty())
 
     def test_comfyui_budget_widget_matches_service_range(self):
-        package_name = 'yue2_comfy_test_package'
-        package = types.ModuleType(package_name)
-        package.__path__ = [str(Path(__file__).resolve().parents[1])]
-        with patch.dict(sys.modules, {package_name: package}):
-            spec = importlib.util.spec_from_file_location(
-                package_name + '.nodes', Path(__file__).resolve().parents[1] / 'nodes.py')
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[spec.name] = module
-            try:
-                spec.loader.exec_module(module)
-                config = module.YuE2ModelLoader.INPUT_TYPES()['required']['memory_budget_gib'][1]
-            finally:
-                sys.modules.pop(spec.name, None)
-        self.assertLessEqual(config['min'], 2.5)
-        self.assertGreaterEqual(config['max'], 32)
+        root = Path(__file__).resolve().parents[1]
+        for relative in ('nodes.py', 'comfyui_nodes/nodes.py'):
+            with self.subTest(relative=relative):
+                package_name = 'yue2_comfy_test_package_' + relative.replace('/', '_').replace('.', '_')
+                package = types.ModuleType(package_name)
+                package.__path__ = [str((root / relative).parent)]
+                with patch.dict(sys.modules, {package_name: package}):
+                    spec = importlib.util.spec_from_file_location(package_name + '.nodes', root / relative)
+                    module = importlib.util.module_from_spec(spec)
+                    sys.modules[spec.name] = module
+                    try:
+                        spec.loader.exec_module(module)
+                        config = module.YuE2ModelLoader.INPUT_TYPES()['required']['memory_budget_gib'][1]
+                    finally:
+                        sys.modules.pop(spec.name, None)
+                self.assertLessEqual(config['min'], 2.5)
+                self.assertGreaterEqual(config['max'], 32)
 
     def test_vae_tile_uses_smaller_of_device_and_budget(self):
         cases = [

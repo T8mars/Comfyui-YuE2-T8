@@ -24,7 +24,7 @@ IDENTIFIER = re.compile(r"[a-f0-9]{32}")
 AUDIO_SUFFIXES = {".wav", ".flac", ".mp3", ".m4a", ".ogg", ".aac"}
 ASSET_KINDS = {
     "song", "reference_voice", "vocal", "instrumental", "lyrics", "style",
-    "score", "work", "model", "other",
+    "score", "midi", "work", "model", "other",
 }
 TEXT_KINDS = {"lyrics", "style", "score"}
 
@@ -246,8 +246,11 @@ class AssetLibrary:
         if kind not in ASSET_KINDS or kind in TEXT_KINDS:
             raise ValueError("素材类型不支持这个文件")
         source = source.resolve()
-        if source.suffix.lower() not in AUDIO_SUFFIXES | {".safetensors", ".json", ".zip"}:
+        suffix = source.suffix.lower()
+        if suffix not in AUDIO_SUFFIXES | {".mid", ".midi", ".safetensors", ".json", ".zip"}:
             raise ValueError("素材文件格式不受支持")
+        if (suffix in {".mid", ".midi"}) != (kind == "midi"):
+            raise ValueError("MIDI 文件必须导入为 MIDI，MIDI 类型也只能使用 .mid 或 .midi 文件")
         digest, suffix, destination = self._promote_blob(source)
         now, asset_id, revision_id = _now(), uuid.uuid4().hex, uuid.uuid4().hex
         title = str(title or source.name).strip()[:200]
@@ -450,12 +453,14 @@ class AssetLibrary:
                     raise KeyError(project_id)
         return self.get_project(project_id)
 
-    def list_projects(self, limit: int = 100) -> list[dict]:
+    def list_projects(self, limit: int = 100, status: str = "active") -> list[dict]:
+        if status not in {"active", "archived"}:
+            raise ValueError("项目状态无效")
         with self.reading() as db:
             rows = db.execute("SELECT p.*,COUNT(pa.asset_id) AS asset_count FROM projects p "
-                              "LEFT JOIN project_assets pa ON pa.project_id=p.id WHERE p.status='active' "
+                              "LEFT JOIN project_assets pa ON pa.project_id=p.id WHERE p.status=? "
                               "GROUP BY p.id ORDER BY p.updated_at DESC LIMIT ?",
-                              (min(500, max(1, int(limit))),)).fetchall()
+                              (status, min(500, max(1, int(limit))))).fetchall()
         values = []
         for row in rows:
             item = dict(row)
@@ -539,14 +544,17 @@ class AssetLibrary:
                                  "WHERE a.id=? AND r.id=? AND a.status='active'", (asset_id, revision_id)).fetchone()
                 if row is None:
                     raise ValueError("训练素材或固定版本不存在")
-                allowed = {"song", "vocal", "work"} if training_kind == "yue2_style" else {"song", "vocal", "reference_voice"}
+                allowed = {"song", "work"} if training_kind == "yue2_style" else {"song", "vocal", "reference_voice"}
                 if row["kind"] not in allowed:
                     raise ValueError("这个素材类型不能用于所选训练")
                 start, end = float(raw.get("start", 0)), raw.get("end")
-                duration = float(_decoded(row["metadata_json"], {}).get("duration", 0))
+                revision_metadata = _decoded(row["metadata_json"], {})
+                duration = float(revision_metadata.get("duration", 0))
                 end = float(end) if end is not None else duration
                 if start < 0 or not end > start or (duration and end > duration + .05):
                     raise ValueError("训练片段边界无效")
+                if training_kind == "yue2_style" and end - start < 5:
+                    raise ValueError("YuE2 歌曲风格训练的每段素材至少需要 5 秒")
                 lyrics = raw.get("lyrics", "")
                 if not isinstance(lyrics, str) or len(lyrics) > 200000:
                     raise ValueError("逐首歌词格式不正确或内容过长")
@@ -556,7 +564,12 @@ class AssetLibrary:
                 normalized.append({
                     "asset_id": asset_id, "revision_id": revision_id, "blob_sha256": row["blob_sha256"],
                     "asset_title": row["title"],
-                    "start": start, "end": end, "track_group_id": str(raw.get("track_group_id") or asset_id),
+                    # Dataset lineage is derived from immutable server metadata.
+                    # A client cannot claim that related stems are independent
+                    # songs merely by supplying different group identifiers.
+                    "start": start, "end": end,
+                    "track_group_id": str(revision_metadata.get("track_group_id")
+                                          or revision_metadata.get("source_job_id") or asset_id),
                     "split": "validation" if raw.get("split") == "validation" else "train",
                     "lyrics_revision_id": raw.get("lyrics_revision_id") or None,
                     "lyrics": lyrics.strip(),
@@ -627,6 +640,11 @@ class AssetLibrary:
             raise ValueError("训练类型无效")
         snapshot_id = _ident(snapshot_id, "素材快照 ID")
         config = dict(config or {})
+        if training_kind == "yue2_style":
+            # Reject bad step counts/ranks/rates before an expensive tokenizer
+            # preparation job is ever queued.
+            from .yue2_trainer import training_config
+            config = training_config(config)
         ident, now = uuid.uuid4().hex, _now()
         with self.transaction() as db:
             snapshot = db.execute("SELECT training_kind FROM dataset_snapshots WHERE id=?", (snapshot_id,)).fetchone()

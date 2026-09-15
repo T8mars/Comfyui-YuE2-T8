@@ -3,6 +3,7 @@ import io
 import json
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -27,6 +28,26 @@ def manifest(version="1.2.2", digest="a" * 64):
 
 
 class UpdaterTests(unittest.TestCase):
+    def test_stale_dead_update_is_recoverable_and_does_not_lock_writes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            status = root / "logs" / "update-status.json"
+            status.parent.mkdir()
+            status.write_text(json.dumps({"state": "waiting_for_service", "updater_pid": 99999999,
+                                          "updated_at": time.time() - 3600}), encoding="utf-8")
+            result = updater.update_status(root, "1.5.1")
+            self.assertEqual(result["state"], "error")
+            self.assertTrue(result["recoverable"])
+
+    def test_recent_launch_without_pid_remains_active_during_startup_grace(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            status = root / "logs" / "update-status.json"
+            status.parent.mkdir()
+            status.write_text(json.dumps({"state": "waiting_for_service",
+                                          "updated_at": time.time()}), encoding="utf-8")
+            self.assertEqual(updater.update_status(root, "1.5.1")["state"], "waiting_for_service")
+
     def test_completed_status_from_an_older_release_is_reported_as_idle(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

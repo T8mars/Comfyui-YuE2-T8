@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.5.2 - 2026-09-16
+
+- Require verified, separated vocals for RVC training and reject unreviewed or mixed material before GPU work starts.
+- Restrict YuE2 style training to complete songs or works of at least five seconds and derive train/validation lineage from immutable server metadata.
+- Persist project-scoped YuE2 training and MuLaCover drafts, restore archived projects, preview training sources and keep completed model controls stable while refreshing.
+- Restore the latest result for every project panel from the complete job store while returning compact task summaries without large stage-history arrays.
+- Archive generated ABC and MuLaCover MIDI files into the asset library and stream large job files with HTTP range support.
+- Recover stale updater transactions after a crashed process and include RVC and MuLaCover model setup in the unified installer.
+- Add a four-step first-run guide, correct mobile training layout and validate desktop, tablet and phone workflows in the browser smoke suite.
+
 ## 1.5.1 - 2026-09-16
 
 - Accept `127.0.0.1`, `localhost` and IPv6 loopback aliases for browser POST requests when the port matches, preventing valid local pages from being rejected as cross-site requests.

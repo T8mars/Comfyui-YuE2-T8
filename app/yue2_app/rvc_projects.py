@@ -135,23 +135,32 @@ def add_material(root: Path, project: dict, source: Path, *, speaker_id: int = 0
     value = {**stats, 'id': ident, 'name': name, 'path': str(destination),
              'sha256': digest, 'speaker_id': speaker_id, 'source_type': source_type,
              'enabled': stats['peak'] >= .0001 and stats['duration'] >= 1,
-             'reviewed': False, 'accompaniment': 'present' if source_type == 'mix' else 'unchecked'}
+             'reviewed': False,
+             'accompaniment': {'mix': 'present', 'dry': 'absent', 'unknown': 'unchecked'}[source_type]}
     project['materials'].append(value)
     save_project(root, project)
     return value
 
 
-def selected_materials(project: dict) -> list[dict]:
+def validate_material_selection(project: dict, *, verify_files: bool) -> list[dict]:
     selected = [item for item in project['materials'] if item.get('enabled')]
     if not selected:
         raise ValueError('请至少选中一段训练素材')
     for item in selected:
         if not item.get('reviewed'):
             raise ValueError('请先试听并确认选中的训练素材')
+        if item.get('accompaniment') in (None, 'unchecked'):
+            raise ValueError('请先为每段素材确认“纯人声”或“含伴奏”；含伴奏素材需要先分离人声')
         if item.get('accompaniment') == 'present' and not item.get('separated_path'):
             raise ValueError('含伴奏的素材请先分离人声，试听后再用于训练')
+        if not verify_files:
+            continue
         path = Path(item.get('separated_path') or item['path'])
         expected = item.get('separated_sha256') if item.get('separated_path') else item['sha256']
         if not path.is_file() or sha256(path) != expected:
             raise ValueError(f'素材缺失或已改变：{item["name"]}')
     return selected
+
+
+def selected_materials(project: dict) -> list[dict]:
+    return validate_material_selection(project, verify_files=True)

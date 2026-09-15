@@ -18,6 +18,12 @@
     try { values = JSON.parse(savedValue(draftKey()) || '{}'); } catch {}
     for (const field of form.elements) if (field.name && field.type !== 'file' && values[field.name] !== undefined) field.value = values[field.name];
   }
+  function switchProjectDraft() {
+    form.reset();
+    restoreDraft();
+    updateSourceMode();
+    updatePreview();
+  }
   function sourceReady() {
     return mode.value === 'audio' ? Boolean(audioInput.files[0]) : Boolean(melodyInput.files[0] && chordInput.files[0]);
   }
@@ -62,6 +68,8 @@
   }
 
   restoreDraft(); updateSourceMode(); updatePreview(); refreshModelState();
+  window.mulacoverSaveDraft = saveDraft;
+  window.mulacoverRestoreDraft = switchProjectDraft;
   mode.onchange = updateSourceMode;
   audioInput.onchange = updatePreview;
   for (const input of [melodyInput, chordInput, drumInput]) input.onchange = updateButtonState;
@@ -94,4 +102,3 @@
   };
   setInterval(refreshModelState, 15000);
 })();
-

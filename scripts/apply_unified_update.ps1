@@ -31,6 +31,14 @@ $OriginalMarker = Join-Path $Target 'app\yue2_app\__init__.py'
 $OriginalVersion = if (Test-Path -LiteralPath $OriginalMarker) { [regex]::Match((Get-Content -LiteralPath $OriginalMarker -Raw -Encoding utf8),'__version__\s*=\s*"([^"]+)"').Groups[1].Value } else { '' }
 function Write-Status([string]$State, [string]$Message, [hashtable]$Extra = @{}) {
     $Value = @{state=$State;target_version=$Version;message=$Message;updated_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()}
+    if (Test-Path -LiteralPath $StatusPath) {
+        try {
+            $Prior = Get-Content -LiteralPath $StatusPath -Raw -Encoding utf8 | ConvertFrom-Json
+            foreach ($Key in @('transaction_id','updater_pid','started_at')) {
+                if ($null -ne $Prior.$Key) { $Value[$Key] = $Prior.$Key }
+            }
+        } catch { }
+    }
     foreach ($Key in $Extra.Keys) { $Value[$Key] = $Extra[$Key] }
     $Json = $Value | ConvertTo-Json -Depth 10
     $Temporary = "$StatusPath.$([guid]::NewGuid().ToString('N')).tmp"
@@ -105,10 +113,10 @@ try {
     }
     $StagePython = Join-Path $Stage 'python.exe'
     if (-not $SkipModels) {
-        Write-Status 'preparing_models' '正在下载并校验新增的 RVC 基础模型；已有模型与作品保持原位'
+        Write-Status 'preparing_models' '正在下载并校验 RVC 与 MuLaCover 模型；已有模型与作品保持原位'
         $env:HF_HUB_OFFLINE = '0'
         & $StagePython -X utf8 (Join-Path $Source 'scripts\install_staged_models.py') --source $Source --root $Target
-        Check-Exit 'RVC 模型安装'
+        Check-Exit 'RVC 与 MuLaCover 模型安装'
     }
     Write-Status 'installing' '正在备份并安装新版代码'
     & $StagePython -X utf8 (Join-Path $Source 'scripts\apply_update.py') --target $Target --source $Source --manifest $Manifest --pid 0 --files-only

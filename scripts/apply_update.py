@@ -24,6 +24,15 @@ DEVELOPMENT_ONLY_DIRS = {".git", ".pytest_cache", ".ruff_cache", ".mypy_cache", 
 
 def atomic_status(path: Path, value: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        previous = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        previous = {}
+    if isinstance(previous, dict):
+        for key in ("transaction_id", "updater_pid", "started_at"):
+            if key in previous and key not in value:
+                value[key] = previous[key]
+    value["updated_at"] = time.time()
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(temporary, path)

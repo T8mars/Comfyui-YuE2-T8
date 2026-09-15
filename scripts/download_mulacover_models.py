@@ -36,9 +36,11 @@ def fetch(url: str, destination: Path, expected: int | None = None) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
+    parser.add_argument("--source", type=Path)
     args = parser.parse_args()
     root = args.root.expanduser().resolve()
-    sys.path.insert(0, str(root))
+    source = (args.source or root).expanduser().resolve()
+    sys.path.insert(0, str(source))
     from app.yue2_app.mulacover_models import (
         CHORD_COMMIT, CHORD_NAMES, CHORD_SIZES, MODEL_REPOSITORIES, YOURMT3,
         paths, readiness, write_manifest,

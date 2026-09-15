@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import tomllib
 import urllib.parse
 import urllib.request
@@ -168,9 +169,11 @@ def launch_update(root: Path, prepared: dict, pid: int, host: str, port: int) ->
         python = Path(sys.executable)
     status_path = root.resolve() / "logs" / "update-status.json"
     status_path.parent.mkdir(parents=True, exist_ok=True)
+    transaction_id = os.urandom(12).hex()
     status_path.write_text(json.dumps({
         "state": "waiting_for_service", "current_version": prepared["current_version"],
         "target_version": prepared["latest_version"], "message": "更新包已校验，正在重启并安装",
+        "transaction_id": transaction_id, "started_at": time.time(), "updated_at": time.time(),
     }, ensure_ascii=False, indent=2), encoding="utf-8")
     command = [str(python), "-X", "utf8", str(helper), "--target", str(root.resolve()),
                "--source", str(source), "--manifest", str(prepared["manifest"]),
@@ -183,6 +186,18 @@ def launch_update(root: Path, prepared: dict, pid: int, host: str, port: int) ->
     with (root / "logs/update.stdout.log").open("ab") as stdout, (root / "logs/update.stderr.log").open("ab") as stderr:
         process = subprocess.Popen(command, cwd=root, stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr,
                                    creationflags=creationflags, close_fds=True)
+    # Merge the helper pid into whichever active state the helper may already
+    # have written, avoiding a launch race that could move the state backwards.
+    try:
+        current = json.loads(status_path.read_text(encoding="utf-8"))
+        if isinstance(current, dict) and current.get("state") in ACTIVE_STATES:
+            current.update(updater_pid=process.pid, transaction_id=transaction_id,
+                           started_at=current.get("started_at") or time.time(), updated_at=time.time())
+            temporary = status_path.with_suffix(".tmp")
+            temporary.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8")
+            os.replace(temporary, status_path)
+    except (OSError, ValueError, json.JSONDecodeError):
+        pass
     return {"accepted": True, "updater_pid": process.pid, "target_version": prepared["latest_version"]}
 
 
@@ -190,6 +205,41 @@ ACTIVE_STATES = frozenset({
     'preparing_update', 'waiting_for_service', 'preparing_runtime', 'preparing_models',
     'installing', 'files_staged', 'switching_runtime', 'verifying_service', 'cleaning_runtime',
 })
+
+
+def _pid_running(pid: object) -> bool:
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+        process = ctypes.windll.kernel32.OpenProcess(0x00100000, False, pid)
+        if not process:
+            return False
+        try:
+            code = ctypes.c_ulong()
+            return bool(ctypes.windll.kernel32.GetExitCodeProcess(process, ctypes.byref(code))) and code.value == 259
+        finally:
+            ctypes.windll.kernel32.CloseHandle(process)
+    try:
+        os.kill(pid, 0)
+        return True
+    except (OSError, ProcessLookupError):
+        return False
+
+
+def _transaction_lock_active(root: Path) -> bool:
+    lock = root.resolve() / "cache" / "unified-install" / "update.lock"
+    if not lock.exists():
+        return False
+    try:
+        with lock.open("a+b"):
+            return False
+    except (OSError, PermissionError):
+        return True
 
 
 def update_status(root: Path, current_version: str = "") -> dict:
@@ -205,4 +255,13 @@ def update_status(root: Path, current_version: str = "") -> dict:
     installed = str(value.get("version") or value.get("target_version") or "")
     if value.get("state") == "complete" and current_version and installed and installed != current_version:
         return {"state": "idle", "current_version": current_version}
+    if value.get("state") in ACTIVE_STATES:
+        heartbeat = float(value.get("updated_at") or value.get("started_at") or path.stat().st_mtime)
+        if not _pid_running(value.get("updater_pid")) and not _transaction_lock_active(root):
+            if time.time() - heartbeat > 180:
+                value.update(state="error", recoverable=True, updated_at=time.time(),
+                             message="上次更新进程已停止；当前服务已解锁，可重新检查并安装更新")
+                temporary = path.with_suffix(".tmp")
+                temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
+                os.replace(temporary, path)
     return value

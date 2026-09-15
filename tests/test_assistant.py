@@ -429,6 +429,37 @@ class AssistantTests(unittest.TestCase):
             self.assertEqual(jobs[0]["id"], first["id"])
             self.assertEqual(jobs[0]["project_id"], "a" * 32)
 
+    def test_compact_latest_panel_history_restores_without_large_stage_arrays(self):
+        import queue
+        import threading
+        from app.yue2_app import service
+        from app.yue2_app.io import atomic_json
+        store = service.JobStore.__new__(service.JobStore)
+        store.updating = False
+        store.lock, store.storage_lock = threading.RLock(), threading.RLock()
+        store.jobs, store.pending = {}, queue.Queue()
+        project_id = "c" * 32
+        with patch.object(service, "ROOT", self.root), patch.object(
+                service, "OUTPUTS", self.root / "outputs/jobs"), patch.object(
+                service, "runtime_ready", return_value={"capabilities": {}}):
+            request = self.request(); request["project_id"] = project_id
+            older = store.create("assistant", request, client_request_id="older")
+            newer = store.create("assistant", request, client_request_id="newer")
+            doctor = store.create("doctor", {"project_id": project_id}, result_panel="create")
+            for created, timestamp in ((older, 1.0), (newer, 3.0), (doctor, 2.0)):
+                status = dict(store.jobs[created["id"]], created_at=timestamp,
+                              history=[{"step": index} for index in range(200)],
+                              result={"history": [{"step": index} for index in range(200)], "ok": True})
+                store.jobs[created["id"]] = status
+                atomic_json(service.job_directory(created["id"]) / "status.json", status)
+            jobs, total = store.list_page(project_id=project_id, latest_by_panel=True, compact=True)
+            self.assertEqual(total, 2)
+            self.assertEqual([job["id"] for job in jobs], [newer["id"], doctor["id"]])
+            for job in jobs:
+                self.assertNotIn("history", job)
+                self.assertNotIn("history", job["result"])
+                self.assertTrue(job["result"]["ok"])
+
     def test_secret_config_rejected_and_endpoint_no_credential_redirect(self):
         with self.assertRaises(ValueError):
             data.normalize_config({"api_key": "dummy"})

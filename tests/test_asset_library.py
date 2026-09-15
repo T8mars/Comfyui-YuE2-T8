@@ -24,7 +24,7 @@ class AssetLibraryTest(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(prefix="asset-test-", dir=ROOT / "cache")
         self.root = Path(self.temp.name).resolve()
         self.source = self.root / "source.wav"
-        signal = (.2 * np.sin(np.arange(48000, dtype=np.float32) * .02)).astype(np.float32)
+        signal = (.2 * np.sin(np.arange(288000, dtype=np.float32) * .02)).astype(np.float32)
         sf.write(self.source, signal, 48000, subtype="FLOAT")
         self.library = AssetLibrary(self.root)
 
@@ -38,7 +38,7 @@ class AssetLibraryTest(unittest.TestCase):
                                           provenance={"source": "test-b"})
         self.assertNotEqual(first["id"], second["id"])
         self.assertEqual(first["blob_sha256"], second["blob_sha256"])
-        self.assertEqual(first["metadata"]["duration"], 1.0)
+        self.assertEqual(first["metadata"]["duration"], 6.0)
         blobs = [item for item in self.library.blobs.rglob("*") if item.is_file()]
         self.assertEqual(len(blobs), 1)
         self.source.unlink()
@@ -66,7 +66,7 @@ class AssetLibraryTest(unittest.TestCase):
     def test_snapshot_rejects_track_group_leakage(self):
         asset = self.library.import_file(self.source, kind="song", title="歌曲")
         base = {"asset_id": asset["id"], "revision_id": asset["current_revision_id"],
-                "start": 0, "end": 1, "track_group_id": "same-song"}
+                "start": 0, "end": 6, "track_group_id": "same-song"}
         with self.assertRaisesRegex(ValueError, "有权使用"):
             self.library.create_snapshot(title="未确认权利", training_kind="yue2_style",
                                          items=[{**base, "split": "train"}])
@@ -100,7 +100,7 @@ class AssetLibraryTest(unittest.TestCase):
         snapshot = self.library.create_snapshot(
             title="数据集", training_kind="yue2_style",
             items=[{"asset_id": asset["id"], "revision_id": asset["current_revision_id"],
-                    "start": 0, "end": 1, "track_group_id": "song-a", "split": "train",
+                    "start": 0, "end": 6, "track_group_id": "song-a", "split": "train",
                     "instrumental": True}],
             options={"default_style": "warm jazz", "rights_confirmed": True})
         run = self.library.create_training_run(title="风格模型", training_kind="yue2_style",
@@ -116,17 +116,38 @@ class AssetLibraryTest(unittest.TestCase):
         second = self.library.import_file(self.source, kind="song", title="歌曲 A 的重复导入")
         def item(asset, split):
             return {"asset_id": asset["id"], "revision_id": asset["current_revision_id"],
-                    "start": 0, "end": 1, "track_group_id": asset["id"], "split": split,
+                    "start": 0, "end": 6, "track_group_id": asset["id"], "split": split,
                     "instrumental": True}
         with self.assertRaisesRegex(ValueError, "歌曲 A.*歌曲 A 的重复导入.*音频内容完全相同"):
             self.library.create_snapshot(title="重复内容", training_kind="yue2_style",
                                          items=[item(first, "train"), item(second, "validation")],
                                          options={"rights_confirmed": True})
 
+    def test_snapshot_derives_track_group_from_server_metadata(self):
+        first = self.library.import_file(self.source, kind="song", title="同源混音",
+                                         metadata={"track_group_id": "job:source"})
+        other_source = self.root / "stem.wav"
+        sf.write(other_source, .1 * np.cos(np.arange(288000, dtype=np.float32) * .03), 48000,
+                 subtype="FLOAT")
+        second = self.library.import_file(other_source, kind="work", title="同源衍生",
+                                          metadata={"source_job_id": "job:source"})
+        def item(asset, split):
+            return {"asset_id": asset["id"], "revision_id": asset["current_revision_id"],
+                    "start": 0, "end": 6, "track_group_id": asset["id"], "split": split,
+                    "instrumental": True}
+        with self.assertRaisesRegex(ValueError, "同一首歌"):
+            self.library.create_snapshot(title="同源泄漏", training_kind="yue2_style",
+                                         items=[item(first, "train"), item(second, "validation")],
+                                         options={"rights_confirmed": True})
+
     def test_vocal_training_requires_lyrics_or_explicit_instrumental(self):
         asset = self.library.import_file(self.source, kind="song", title="含人声歌曲")
         item = {"asset_id": asset["id"], "revision_id": asset["current_revision_id"],
-                "start": 0, "end": 1, "split": "train"}
+                "start": 0, "end": 6, "split": "train"}
+        with self.assertRaisesRegex(ValueError, "至少需要 5 秒"):
+            self.library.create_snapshot(title="过短片段", training_kind="yue2_style",
+                                         items=[{**item, "end": 1, "instrumental": True}],
+                                         options={"rights_confirmed": True})
         with self.assertRaisesRegex(ValueError, "必须选择歌词"):
             self.library.create_snapshot(title="缺少歌词", training_kind="yue2_style", items=[item],
                                          options={"default_style": "pop", "rights_confirmed": True})
@@ -161,6 +182,7 @@ class AssetLibraryTest(unittest.TestCase):
         archived = self.library.update_project(project["id"], status="archived")
         self.assertEqual(archived["status"], "archived")
         self.assertNotIn(project["id"], {item["id"] for item in self.library.list_projects()})
+        self.assertIn(project["id"], {item["id"] for item in self.library.list_projects(status="archived")})
 
     def test_project_master_export_and_checkpoint_listing(self):
         project = self.library.create_project("夜航：最终版")
@@ -180,7 +202,7 @@ class AssetLibraryTest(unittest.TestCase):
         snapshot = self.library.create_snapshot(
             title="训练快照", training_kind="yue2_style",
             items=[{"asset_id": song["id"], "revision_id": song["current_revision_id"],
-                    "start": 0, "end": 1, "split": "train", "instrumental": True}],
+                    "start": 0, "end": 6, "split": "train", "instrumental": True}],
             options={"rights_confirmed": True})
         run = self.library.create_training_run(title="测试训练", training_kind="yue2_style",
                                                snapshot_id=snapshot["id"], config={})
@@ -232,6 +254,38 @@ class AssetLibraryTest(unittest.TestCase):
         promoted = AssetLibrary(self.root).get_asset(first_ids[0])
         self.assertEqual(promoted["kind"], "work")
         self.assertEqual(promoted["provenance"]["job_id"], job_id)
+
+    def test_completed_remix_promotes_midi_and_result_abc(self):
+        outputs = self.root / "outputs"
+        outputs.mkdir()
+        job_id = "20260916-120000-feedface"
+        directory = outputs / job_id
+        artifacts = directory / "artifacts"
+        artifacts.mkdir(parents=True)
+        audio = artifacts / "result.flac"
+        midi = artifacts / "melody.mid"
+        sf.write(audio, np.zeros(4800, dtype=np.float32), 48000)
+        midi.write_bytes(b"MThd\x00\x00\x00\x06\x00\x00\x00\x01\x01\xe0")
+        project = self.library.create_project("重新编曲")
+        atomic_json(directory / "job.json", {
+            "kind": "mulacover_remix",
+            "request": {"project_id": project["id"], "tags": "warm pop"},
+        })
+        status = {"status": "complete", "result": {
+            "audio": str(audio), "melody_midi": str(midi),
+            "abc": "X:1\nT:Test\nM:4/4\nK:C\nCDEF|",
+        }, "summary": "测试重新编曲"}
+        store = service.JobStore.__new__(service.JobStore)
+        store.lock = __import__("threading").RLock()
+        store.jobs = {job_id: status}
+        with patch.object(service, "ROOT", self.root), patch.object(service, "OUTPUTS", outputs):
+            store._promote_completed_result(job_id, status)
+        promoted = [AssetLibrary(self.root).get_asset(asset_id) for asset_id in status["asset_ids"]]
+        self.assertIn("midi", {asset["kind"] for asset in promoted})
+        self.assertIn("score", {asset["kind"] for asset in promoted})
+        project_assets = AssetLibrary(self.root).get_project(project["id"])["assets"]
+        self.assertTrue(any(asset["kind"] == "midi" for asset in project_assets))
+        self.assertTrue(any(asset["kind"] == "score" for asset in project_assets))
 
 
 if __name__ == "__main__":

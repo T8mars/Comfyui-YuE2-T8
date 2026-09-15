@@ -48,9 +48,9 @@
       <div class="meta">${m.duration.toFixed(1)} 秒 · ${m.sample_rate} Hz · ${m.channels} 声道${m.warnings.length ? ' · ' + e(m.warnings.join('；')) : ''}</div>
       <audio controls preload="metadata" aria-label="${e(m.name)} 原始素材试听" src="/api/rvc/projects/${project.id}/audio/${m.id}/original"></audio>
       ${m.separated_path ? `<label>分离后人声<audio controls preload="metadata" aria-label="${e(m.name)} 分离后人声试听" src="/api/rvc/projects/${project.id}/audio/${m.id}/vocal"></audio></label><p class="meta">伴奏能量估计 ${(100 * m.accompaniment_energy_ratio).toFixed(1)}%，请以试听结果为准。</p>` : ''}
-      <div class="toolbar"><label class="rvc-check"><input type="checkbox" data-field="enabled" ${m.enabled ? 'checked' : ''}>用于训练 / 分离</label><label class="rvc-check"><input type="checkbox" data-field="reviewed" ${m.reviewed ? 'checked' : ''}>已试听，确认素材合适</label>
+      <div class="toolbar"><label class="rvc-check"><input type="checkbox" data-field="enabled" ${m.enabled ? 'checked' : ''}>用于训练 / 分离</label><label>素材确认<select data-field="source_type"><option value="unknown" ${m.source_type==='unknown'?'selected':''}>尚未确认</option><option value="dry" ${m.source_type==='dry'?'selected':''}>纯人声</option><option value="mix" ${m.source_type==='mix'?'selected':''}>含伴奏</option></select></label><label class="rvc-check"><input type="checkbox" data-field="reviewed" ${m.reviewed ? 'checked' : ''}>已试听，确认素材合适</label>
       <label>说话人<select data-field="speaker_id">${project.speakers.map(s => `<option value="${s.id}" ${s.id === m.speaker_id ? 'selected' : ''}>${e(s.name)}</option>`).join('')}</select></label></div>
-      ${m.accompaniment === 'present' && !m.separated_path ? '<p class="meta">此素材含伴奏，请先分离人声。</p>' : ''}</article>`).join('') || '<p class="meta">还没有素材。导入后可逐段试听、确认和分配说话人。</p>';
+      ${m.accompaniment === 'unchecked' ? '<p class="meta">请先试听并选择“纯人声”或“含伴奏”，否则不能训练。</p>' : m.accompaniment === 'present' && !m.separated_path ? '<p class="meta">此素材含伴奏，请先分离人声。</p>' : ''}</article>`).join('') || '<p class="meta">还没有素材。导入后可逐段试听、确认和分配说话人。</p>';
   }
   async function refresh() {
     const data = await api('/api/rvc'), selected = project?.id || savedValue('rvc-project');
@@ -166,7 +166,7 @@
   });
   $('#rvc-materials').onchange = handle(async event => {
     const field = event.target.dataset.field, id = event.target.closest('[data-material]')?.dataset.material;
-    if (id && field) await update({materials:[{id,[field]:field === 'speaker_id' ? Number(event.target.value) : event.target.checked}]});
+    if (id && field) await update({materials:[{id,[field]:field === 'speaker_id' ? Number(event.target.value) : field === 'source_type' ? event.target.value : event.target.checked}]});
   });
   $('#rvc-materials').onclick = handle(event => { const id = event.target.closest('[data-remove]')?.dataset.remove; if (id) return update({remove_material_ids:[id]}); });
   $('#rvc-separate').onclick = handle(() => start('rvc_separate',{material_ids:project.materials.filter(m => m.enabled).map(m => m.id)}));

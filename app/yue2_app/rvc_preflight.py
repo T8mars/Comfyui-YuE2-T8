@@ -5,6 +5,7 @@ import shutil
 import subprocess
 
 from .rvc_library import locations
+from .rvc_projects import validate_material_selection
 from .rvc_training import training_options
 from .settings import model_directory
 
@@ -26,6 +27,13 @@ def check_training(root: Path, project: dict) -> dict:
         errors.append('请先导入并选择训练素材')
     if any(not item.get('reviewed') for item in selected):
         errors.append('请先逐段试听并确认选中的素材')
+    if selected:
+        try:
+            validate_material_selection(project, verify_files=False)
+        except ValueError as error:
+            message = str(error)
+            if message not in errors:
+                errors.append(message)
     if free < required:
         errors.append(f'训练目录空间不足：预计还需约 {required / 1024**3:.1f} GB，可用 {free / 1024**3:.1f} GB')
     if seconds < 300:

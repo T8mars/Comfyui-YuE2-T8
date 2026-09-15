@@ -29,7 +29,7 @@ class RvcMaterialsTest(unittest.TestCase):
         wave = .2 * np.sin(np.arange(32000) * .07)
         sf.write(path, wave, 16000, subtype='FLOAT')
         project = create_project(self.root, '测试音色')
-        item = add_material(self.root, project, path)
+        item = add_material(self.root, project, path, source_type='dry')
         self.assertEqual(add_material(self.root, project, path)['duplicate_of'], item['id'])
         with self.assertRaisesRegex(ValueError, '试听'):
             selected_materials(project)
@@ -37,6 +37,18 @@ class RvcMaterialsTest(unittest.TestCase):
         self.assertEqual(len(selected_materials(project)), 1)
         Path(item['path']).write_bytes(b'changed')
         with self.assertRaisesRegex(ValueError, '已改变'):
+            selected_materials(project)
+
+    def test_unclassified_or_unseparated_mix_cannot_train(self):
+        path = self.root / 'sample.wav'
+        sf.write(path, .2 * np.sin(np.arange(32000) * .07), 16000, subtype='FLOAT')
+        project = create_project(self.root, '测试音色')
+        item = add_material(self.root, project, path)
+        item['reviewed'] = True
+        with self.assertRaisesRegex(ValueError, '纯人声.*含伴奏'):
+            selected_materials(project)
+        item.update(source_type='mix', accompaniment='present')
+        with self.assertRaisesRegex(ValueError, '先分离人声'):
             selected_materials(project)
 
     def test_clipped_audio(self):

@@ -202,7 +202,8 @@ def get(handler, parsed, library: AssetLibrary, *, head: bool = False) -> bool:
                                             int(query.get("bins", ["720"])[0])))
             return True
     if path == "/api/workbench/projects":
-        handler._json(200, {"projects": library.list_projects(int(query.get("limit", ["100"])[0]))})
+        handler._json(200, {"projects": library.list_projects(
+            int(query.get("limit", ["100"])[0]), query.get("status", ["active"])[0])})
         return True
     if path.startswith("/api/workbench/projects/"):
         pieces = path.split("/")

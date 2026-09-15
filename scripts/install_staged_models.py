@@ -12,7 +12,8 @@ source = args.source.resolve()
 root = args.root.resolve()
 if (root / 'cache/updates').resolve() not in source.parents:
     raise ValueError('Staged models must come from this installation update directory')
-script = source / 'scripts/download_rvc_models.py'
 sys.path.insert(0, str(source))
-sys.argv = [str(script), '--root', str(root), '--source', str(source)]
-runpy.run_path(str(script), run_name='__main__')
+for name in ('download_rvc_models.py', 'download_mulacover_models.py'):
+    script = source / 'scripts' / name
+    sys.argv = [str(script), '--root', str(root), '--source', str(source)]
+    runpy.run_path(str(script), run_name='__main__')

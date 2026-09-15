@@ -422,8 +422,9 @@ async function refreshWorkspace() {
   if (workspaceRefreshing) return;
   workspaceRefreshing = true;
   try {
-    const [healthData, listData] = await Promise.all([api('/api/health'), api('/api/jobs?limit=100')]);
-    renderHealth(healthData); renderTaskCenter(healthData, listData.jobs); renderPanelResults(listData.jobs);
+    const projectId=String(window.workbenchProjectId?.()||''),projectScope=projectId||'__global__';
+    const [healthData, listData, panelData] = await Promise.all([api('/api/health'),api('/api/jobs?limit=100&compact=1'),api(`/api/jobs?limit=20&compact=1&latest_by_panel=1&project_id=${encodeURIComponent(projectScope)}`)]);
+    renderHealth(healthData); renderTaskCenter(healthData, listData.jobs); renderPanelResults(panelData.jobs);
     const assetJob = listData.jobs.find(job => job.asset_ids?.length);
     const assetSignature = assetJob ? `${assetJob.id}:${assetJob.asset_ids.length}` : '';
     if (assetSignature && assetSignature !== projectAssetSignature) { projectAssetSignature = assetSignature; window.refreshWorkbenchProject?.(); }

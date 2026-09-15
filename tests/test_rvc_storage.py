@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from app.yue2_app.io import atomic_json
-from app.yue2_app.rvc_library import locations, storage_settings
+from app.yue2_app.rvc_library import locations, material_location, storage_settings
 from app.yue2_app.rvc_projects import get_project, save_project
 from app.yue2_app.rvc_storage import migrate, preview
 from app.yue2_app.worker_common import JobContext, Cancelled
@@ -118,6 +118,23 @@ class StorageMigration(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, '原目录发生改变'):
                 migrate(root, {'resume_from':str(first.job_dir)}, self.context(root,'second'))
             self.assertEqual(storage_settings(root),{})
+
+    def test_portable_bundle_rebases_missing_previous_version_material(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            parent = Path(temporary).resolve()
+            root = parent/'YuE2-T8-Local-v2'
+            current = root/'userdata/rvc/datasets'/('a'*32)/'voice.wav'
+            current.parent.mkdir(parents=True)
+            current.write_bytes(b'portable audio')
+            old = parent/'YuE2-T8-Local-v1'/'userdata/rvc/datasets'/('a'*32)/'voice.wav'
+            self.assertFalse(old.exists())
+            self.assertEqual(Path(material_location(root, str(old))), current.resolve())
+
+    def test_portable_rebase_does_not_redirect_arbitrary_external_path(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()/'bundle'
+            external = Path(temporary).resolve()/'external'/'voice.wav'
+            self.assertEqual(Path(material_location(root, str(external))), external.resolve())
 
 
 if __name__ == '__main__':

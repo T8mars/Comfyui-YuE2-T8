@@ -100,7 +100,16 @@ def normalize_request(root: Path, request: dict) -> dict:
     supplied_source = request.get("source") if isinstance(request.get("source"), dict) else {}
     if source_mode == "audio":
         raw_audio = supplied_source.get("ref_audio") or request.get("source_path")
-        source = {"ref_audio": str(_input_path(root, raw_audio, "参考歌曲", AUDIO_SUFFIXES))}
+        ref_audio = _input_path(root, raw_audio, "参考歌曲", AUDIO_SUFFIXES)
+        try:
+            import soundfile as sf
+            if float(sf.info(str(ref_audio)).duration) > 900:
+                raise ValueError("参考歌曲不能超过 15 分钟；请先裁剪需要重新编曲的部分")
+        except ValueError:
+            raise
+        except Exception:
+            pass
+        source = {"ref_audio": str(ref_audio)}
         bpm = supplied_source.get("bpm", request.get("bpm"))
         if bpm not in (None, ""):
             source["bpm"] = _number({"bpm": bpm}, "bpm", 120, 30, 300)

@@ -42,6 +42,27 @@ def material_location(root: Path, value: str) -> str:
         previous = Path(previous).resolve()
         if previous in path.parents:
             return str(current / path.relative_to(previous))
+    # Portable bundles are commonly extracted into a new versioned directory.
+    # Recover the same relative material in this bundle when a project still
+    # holds the missing absolute path from an older bundle. Arbitrary external
+    # paths are intentionally left unchanged.
+    if not path.exists():
+        folded = [part.casefold() for part in path.parts]
+        marker = ('userdata', 'rvc', 'datasets')
+        for index in range(len(folded) - len(marker) + 1):
+            if tuple(folded[index:index + len(marker)]) != marker:
+                continue
+            suffix = path.parts[index + len(marker):]
+            if not suffix:
+                break
+            candidate = (current.joinpath(*suffix)).resolve()
+            try:
+                within(current, candidate)
+            except ValueError:
+                break
+            if candidate.is_file():
+                return str(candidate)
+            break
     return str(path)
 
 

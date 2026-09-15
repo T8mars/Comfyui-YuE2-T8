@@ -41,6 +41,16 @@ YuE2 Music T8 把 YuE2-3B 完整歌曲生成接入 ComfyUI，并提供一个可�
 - 自动清理过期或超出容量的任务、上传和日志；`exports` 中的重要成品永久保留，服务重启时会把中断任务明确标为失败。
 - MuLaCover 重新编曲可从完整歌曲自动提取旋律、和弦与鼓组，或直接读取 MIDI；支持新歌词、结构化曲风、移调、固定种子、试听、MIDI 导出，并把成品继续发送到 Seed-VC/RVC 音色转换。
 
+### v1.5.2：训练、恢复与更新稳定性复查
+
+- YuE2 训练只接受至少 5 秒的完整歌曲或作品，训练集和验证集使用服务端记录的歌曲来源，避免同一首歌的不同片段被误当作两首歌。
+- RVC 素材必须明确标记为纯人声；含伴奏或尚未确认的素材会先引导分离，防止误训练产生啸叫和持续杂音。
+- 项目草稿覆盖 AI 创作、YuE2 训练和 MuLaCover；页面切换后恢复各项目内容，归档项目也可直接恢复。
+- 当前结果按项目和面板从完整任务库恢复，任务列表使用轻量状态，不再因历史阶段数组变大而拖慢页面。
+- 训练素材可直接试听，完成模型显示步数、时间与来源；MIDI 和 ABC 任务结果自动进入资产库。
+- 修复异常退出后更新器长期锁死的问题；统一安装流程会准备 RVC 与 MuLaCover 模型，代码更新仍不包含 Python、模型或用户数据。
+- 手机端调整训练表单顺序并增加四步新手引导；桌面、平板和手机浏览器回归覆盖项目隔离、归档恢复与训练草稿。
+
 ### v1.5.0：MuLaCover 原生重新编曲
 
 - 独立工作台新增“重新编曲”：参考歌曲或 MIDI、歌词和曲风都保存在当前项目草稿中，页面切换或刷新后可恢复。
@@ -264,7 +274,8 @@ The [CSD Korean Female v1 examples](https://huggingface.co/t8star/YuE2-Comfy/tre
 - YouTube: https://www.youtube.com/@T8star-Aix/
 - API: https://api.seedance.nz/sign-up?aff=5f4w
 - 在线 AI 应用 / Online AI apps: https://www.runninghub.ai/zh-cn/user-center/1907375370302308353/userPost?inviteCode=rh-v1121
-- ComfyUI 整合包 / Portable package: https://pan.quark.cn/s/264edb7e36bd
+- ComfyUI 整合包 / Portable package: https://pan.quark.cn/s/67ebf18a2d51
+- Full portable bundle on Hugging Face: https://huggingface.co/t8star/YuE2-Comfy/resolve/main/bundles/Yue2-T8-Onekey-v1.5.0-Windows-NVIDIA.rar?download=true
 - Hugging Face: https://huggingface.co/t8star
 - Model repository: https://huggingface.co/t8star/YuE2-Comfy
 - Release validation: [VALIDATION.md](VALIDATION.md)

@@ -343,6 +343,10 @@ class JobStore:
             if kind == "yue2_train":
                 from .yue2_trainer import training_config
                 training_config(run.get("config"))
+                if run.get("state") not in {"draft", "failed", "cancelled", "paused"}:
+                    raise ValueError("这个训练记录已经完成或正在运行，不能重复启动")
+                if not run.get("config", {}).get("prepared"):
+                    raise ValueError("请先完成训练素材预处理")
             if kind in {"yue2_prepare", "yue2_train"} and not capabilities.get("yue2_training"):
                 raise ValueError("YuE2 训练资源或 MERT 模型尚未安装完整")
         if kind in MULACOVER_KINDS:
@@ -574,7 +578,8 @@ class JobStore:
         return result
 
     def list_page(self, *, limit: int = 100, offset: int = 0, kind: str = "",
-                  status: str = "", query: str = "", project_id: str = "") -> tuple[list[dict], int]:
+                  status: str = "", query: str = "", project_id: str = "",
+                  latest_by_panel: bool = False, compact: bool = False) -> tuple[list[dict], int]:
         limit, offset, needle = max(1, min(int(limit), 500)), max(0, int(offset)), str(query).strip().lower()[:200]
         with self.lock:
             values = list(self.jobs.items())
@@ -603,10 +608,24 @@ class JobStore:
                 return False
             return True
         filtered = [item for item in values if matches(item)]
+        if latest_by_panel:
+            latest, panels = [], set()
+            for item in filtered:
+                key = str(item[1].get("result_panel") or item[1].get("kind") or "")
+                if key in panels:
+                    continue
+                panels.add(key); latest.append(item)
+            filtered = latest
         result = []
         for job_id, _ in filtered[offset:offset + limit]:
             try:
-                result.append(self.get(job_id))
+                value = self.get(job_id)
+                if compact:
+                    value.pop("history", None)
+                    if isinstance(value.get("result"), dict):
+                        value["result"] = dict(value["result"])
+                        value["result"].pop("history", None)
+                result.append(value)
             except KeyError:
                 continue
         return result, len(filtered)
@@ -679,14 +698,21 @@ class JobStore:
             elif isinstance(value, list):
                 for child in value:
                     visit(child, key)
-            elif isinstance(value, str) and key in {"audio", "converted", "converted_vocal", "separated_vocal", "accompaniment"}:
-                candidate = Path(value).resolve()
+            elif isinstance(value, str) and key in {
+                "audio", "converted", "converted_vocal", "separated_vocal", "accompaniment",
+                "melody_midi", "chord_midi", "drum_midi",
+            }:
+                try:
+                    candidate = Path(value).resolve()
+                except (OSError, ValueError):
+                    return
                 try:
                     within(directory, candidate)
                 except ValueError:
                     return
-                if candidate.is_file() and candidate.suffix.lower() in {".wav", ".flac", ".mp3", ".m4a", ".ogg", ".aac"}:
-                    kind = "vocal" if "vocal" in key or key == "converted" else "instrumental" if key == "accompaniment" else "work"
+                suffix = candidate.suffix.lower()
+                if candidate.is_file() and suffix in {".wav", ".flac", ".mp3", ".m4a", ".ogg", ".aac", ".mid", ".midi"}:
+                    kind = "midi" if suffix in {".mid", ".midi"} else "vocal" if "vocal" in key or key == "converted" else "instrumental" if key == "accompaniment" else "work"
                     marker = (str(candidate), kind)
                     if marker not in seen:
                         seen.add(marker); paths.append((candidate, kind, key))
@@ -699,7 +725,8 @@ class JobStore:
             asset = library.import_file(
                 path, kind=kind, title=(status.get("summary") or kind) + ("" if index == 0 else f" · {role}"),
                 provenance={"job_id": job_id, "job_kind": job.get("kind"), "result_key": role},
-                metadata={"source_job_id": job_id, "result_panel": status.get("result_panel")},
+                metadata={"source_job_id": job_id, "track_group_id": f"job:{job_id}",
+                          "result_panel": status.get("result_panel")},
             )
             asset_ids.append(asset["id"])
             if project_id:
@@ -708,17 +735,39 @@ class JobStore:
                 except (ValueError, KeyError):
                     project_id = ""
         generation = generate_request if isinstance(generate_request, dict) else request
-        if project_id and isinstance(generation, dict):
+        if isinstance(generation, dict):
             for kind, key in (("style", "style"), ("lyrics", "lyrics"), ("score", "abc")):
-                content = generation.get(key)
-                if kind == "style" and not content and job.get("kind") == "mulacover_remix":
-                    content = generation.get("tags")
-                if isinstance(content, str) and content.strip():
+                if kind != "score" and not project_id:
+                    continue
+                candidates = [generation.get(key)]
+                if kind == "score":
+                    candidates.append(result.get("abc"))
+                contents: list[str] = []
+                for candidate in candidates:
+                    if not isinstance(candidate, str) or not candidate.strip():
+                        continue
+                    text = candidate
+                    if kind == "score" and not candidate.lstrip().startswith("X:"):
+                        try:
+                            source = Path(candidate).resolve()
+                            within(directory, source)
+                            if source.is_file() and source.suffix.lower() == ".abc":
+                                text = source.read_text(encoding="utf-8-sig")
+                            else:
+                                continue
+                        except (OSError, UnicodeError, ValueError):
+                            continue
+                    if text.strip() and text not in contents:
+                        contents.append(text)
+                if kind == "style" and not contents and job.get("kind") == "mulacover_remix":
+                    contents = [str(generation.get("tags") or "").strip()]
+                for content in filter(None, contents):
                     text_asset = library.create_text(
                         kind=kind, title=(status.get("summary") or "作品") + f" · {kind}", text=content,
                         provenance={"job_id": job_id, "job_kind": job.get("kind")})
                     asset_ids.append(text_asset["id"])
-                    library.add_to_project(project_id, text_asset["id"], role=kind)
+                    if project_id:
+                        library.add_to_project(project_id, text_asset["id"], role=kind)
         if asset_ids:
             status["asset_ids"] = asset_ids
             status["updated_at"] = time.time()
@@ -1049,6 +1098,26 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(content)
 
+    def _job_file(self, path: str, *, head: bool = False):
+        pieces = path.split("/")
+        if len(pieces) < 5:
+            return self._error(400, "缺少文件路径")
+        job_id = pieces[3]
+        with STORE.storage_lock:
+            status = STORE.get(job_id)
+            relative = Path(urllib.parse.unquote("/".join(pieces[4:])))
+            directory = job_directory(job_id)
+            file = within(directory, directory / relative)
+            if status.get("status") != "complete" and file not in retained_audio_files(status, directory):
+                return self._error(409, "该音频尚未完成，暂不可读取")
+            if not file.is_file():
+                return self._error(404, "文件不存在")
+            stat = file.stat()
+            info = {"blob_sha256": f"{stat.st_mtime_ns:x}-{stat.st_size:x}",
+                    "mime": mimetypes.guess_type(file.name)[0] or "application/octet-stream"}
+        from .workbench_api import stream_file
+        return stream_file(self, file, info, head=head)
+
     def do_GET(self):
         assert STORE is not None
         parsed = urllib.parse.urlparse(self.path)
@@ -1080,7 +1149,9 @@ class Handler(BaseHTTPRequestHandler):
                 limit, offset = int(query.get("limit", ["100"])[0]), int(query.get("offset", ["0"])[0])
                 jobs, total = STORE.list_page(limit=limit, offset=offset, kind=query.get("kind", [""])[0],
                                               status=query.get("status", [""])[0], query=query.get("q", [""])[0],
-                                              project_id=query.get("project_id", [""])[0])
+                                              project_id=query.get("project_id", [""])[0],
+                                              latest_by_panel=query.get("latest_by_panel", ["0"])[0] == "1",
+                                              compact=query.get("compact", ["0"])[0] == "1")
                 return self._json(200, {"jobs": jobs, "total": total,
                                         "limit": max(1, min(limit, 500)), "offset": max(0, offset)})
             if path == "/api/assistant/config":
@@ -1109,21 +1180,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self._error(404, "接口不存在")
                 return self._json(200, STORE.get(pieces[3]))
             if path.startswith("/api/files/"):
-                pieces = path.split("/")
-                if len(pieces) < 5:
-                    return self._error(400, "缺少文件路径")
-                job_id = pieces[3]
-                with STORE.storage_lock:
-                    status = STORE.get(job_id)
-                    relative = Path(urllib.parse.unquote("/".join(pieces[4:])))
-                    directory = job_directory(job_id)
-                    file = within(directory, directory / relative)
-                    if status.get('status') != 'complete' and file not in retained_audio_files(status, directory):
-                        return self._error(409, "该音频尚未完成，暂不可读取")
-                    if not file.is_file():
-                        return self._error(404, "文件不存在")
-                    content = file.read_bytes()
-                return self._static_content(file, content)
+                return self._job_file(path)
             if path == "/" or path == "/index.html":
                 return self._static(WEB_ROOT / "index.html")
             if path.startswith("/static/"):
@@ -1145,6 +1202,8 @@ class Handler(BaseHTTPRequestHandler):
                 from . import workbench_api
                 if workbench_api.get(self, parsed, ASSETS, head=True):
                     return
+            if parsed.path.startswith("/api/files/"):
+                return self._job_file(parsed.path, head=True)
             return self._error(404, "接口不存在")
         except (KeyError, ValueError, OSError) as exc:
             return self._error(400, str(exc))

@@ -166,6 +166,16 @@ def post(handler, parsed, store, root: Path) -> bool:
                     if type(update[field]) is not bool:
                         raise ValueError('素材选择与试听确认必须是布尔值')
                     item[field] = update[field]
+            if 'source_type' in update:
+                source_type = str(update['source_type'])
+                if source_type not in ('unknown', 'dry', 'mix'):
+                    raise ValueError('素材类型无效')
+                item['source_type'] = source_type
+                item['accompaniment'] = {'unknown': 'unchecked', 'dry': 'absent', 'mix': 'present'}[source_type]
+                # Changing the classification requires a fresh listening
+                # confirmation; otherwise a stale checkbox could admit audio
+                # the user has just declared unsuitable.
+                item['reviewed'] = False
             if 'speaker_id' in update:
                 sid = int(update['speaker_id'])
                 if sid not in {speaker['id'] for speaker in project['speakers']}:

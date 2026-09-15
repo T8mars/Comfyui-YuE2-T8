@@ -148,6 +148,8 @@ def wait_for_ui(page: Page) -> None:
 def seed_browser_state(root: Path) -> None:
     library = AssetLibrary(root)
     library.create_project("空项目")
+    archived = library.create_project("已归档回归项目")
+    library.update_project(archived["id"], status="archived")
     project = library.create_project("浏览器回归项目")
     for index, kind in enumerate(("lyrics", "style", "score", "lyrics"), start=1):
         asset = library.create_text(kind=kind, title=f"回归素材 {index}", text=f"浏览器回归内容 {index}")
@@ -158,7 +160,7 @@ def seed_browser_state(root: Path) -> None:
         source = root / f"training-song-{index + 1}.wav"
         with wave.open(str(source), "wb") as stream:
             stream.setnchannels(1); stream.setsampwidth(2); stream.setframerate(8000)
-            stream.writeframes((b"\0\0" if index == 0 else b"\1\0") * 8000)
+            stream.writeframes((b"\0\0" if index == 0 else b"\1\0") * 48000)
         asset = library.import_file(source, kind="song", title=f"训练歌曲 {index + 1}")
         library.add_to_project(project["id"], asset["id"], role="song")
         training_songs.append(asset)
@@ -167,7 +169,7 @@ def seed_browser_state(root: Path) -> None:
     snapshot = library.create_snapshot(
         title="浏览器模型分页快照", training_kind="yue2_style",
         items=[{"asset_id": asset["id"], "revision_id": asset["current_revision_id"],
-                "start": 0, "end": 1, "split": "train" if index == 0 else "validation",
+                "start": 0, "end": 6, "split": "train" if index == 0 else "validation",
                 "instrumental": True, "track_group_id": asset["id"]}
                for index, asset in enumerate(training_songs)],
         options={"rights_confirmed": True, "default_style": "browser folk"},
@@ -263,6 +265,11 @@ def run_browser(url: str, output: Path) -> dict:
         assert page.locator("#mobile-workspace-menu").is_hidden()
         assert page.locator("#workspace-menu-dialog [data-go-tab].active").count() == 1
         assert page.locator("[aria-selected]").count() == 0
+        page.locator('.studio-sidebar [data-tab="project"]').click()
+        assert page.locator("#new-user-guide").is_visible()
+        page.locator(".archived-project-card").evaluate("element => { element.open = true; }")
+        page.locator("[data-restore-project]").wait_for(state="visible")
+        assert page.locator("[data-restore-project]").count() == 1
         assert_no_page_overflow(page, "desktop")
         assert_unique_ids(page)
         assert_named_controls(page)
@@ -369,7 +376,8 @@ def run_browser(url: str, output: Path) -> dict:
         page.wait_for_function("""() => document.querySelectorAll('.training-model-actions').length === 3
           && document.querySelector('#training-model-page-status').textContent.includes('第 1 / 2 页 · 4 个')""")
         assert page.locator(".training-model-card").count() == 3
-        assert "第 1 / 2 页 · 4 个" in page.locator("#training-model-page-status").inner_text()
+        model_page_status = page.locator("#training-model-page-status").inner_text()
+        assert "第 1 / 2 页 · 4 个" in model_page_status, repr(model_page_status)
         action_widths = page.evaluate("""() => [...document.querySelector('.training-model-actions').children]
           .map(item => Math.round(item.getBoundingClientRect().width))""")
         assert len(set(action_widths)) == 1, action_widths
@@ -408,6 +416,8 @@ def run_browser(url: str, output: Path) -> dict:
         page.locator("#asset-training-back").click()
         page.wait_for_function("document.body.dataset.activeTab === 'training'")
         assert page.locator("body").get_attribute("data-active-tab") == "training"
+        style_input.fill("persistent project training style")
+        page.locator("[data-training-asset]").first.check()
         assert_no_page_overflow(page, "desktop training asset guidance")
         empty_value = page.locator("#workbench-project-select option").filter(has_text="空项目").get_attribute("value")
         page.locator('.studio-sidebar [data-tab="project"]').click()
@@ -415,6 +425,8 @@ def run_browser(url: str, output: Path) -> dict:
         page.wait_for_function("document.querySelector('#header-project-name').textContent === '空项目'")
         page.locator('.studio-sidebar [data-tab="training"]').click()
         page.locator("[data-open-training-assets]").wait_for(state="visible")
+        assert page.locator("#training-form [name=style]").input_value() == ""
+        page.locator("#training-form [name=style]").fill("empty project training style")
         assert "当前项目还没有可训练的歌曲" in page.locator("#training-assets").inner_text()
         assert page.locator("[data-import-training-song]").is_visible()
         page.locator("#training-assets").scroll_into_view_if_needed()
@@ -423,6 +435,10 @@ def run_browser(url: str, output: Path) -> dict:
         page.locator('.studio-sidebar [data-tab="project"]').click()
         page.locator("#workbench-project-select").select_option(active_value)
         page.wait_for_function("document.querySelector('#header-project-name').textContent === '浏览器回归项目'")
+        page.locator('.studio-sidebar [data-tab="training"]').click()
+        page.wait_for_function("document.querySelectorAll('[data-training-asset]').length === 2")
+        assert page.locator("#training-form [name=style]").input_value() == "persistent project training style"
+        assert page.locator("[data-training-asset]").first.is_checked()
 
         page.locator('.studio-sidebar [data-tab="assets"]').click()
         page.locator(".asset-card").first.wait_for(state="visible")

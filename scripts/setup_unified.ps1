@@ -131,5 +131,7 @@ if (-not $SkipModels) {
     Assert-ExitCode 'Voice models verification'
     & $Python -X utf8 (Join-Path $PSScriptRoot 'download_rvc_models.py') @ModelArgs
     Assert-ExitCode 'RVC models installation'
+    & $Python -X utf8 (Join-Path $PSScriptRoot 'download_mulacover_models.py') @ModelArgs
+    Assert-ExitCode 'MuLaCover models installation'
 }
 Write-Host '统一 Python 环境安装完成。所有音乐、音色和本地 LLM 功能使用 runtime\python.exe。' -ForegroundColor Green
