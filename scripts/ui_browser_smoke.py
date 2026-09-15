@@ -296,6 +296,10 @@ def run_browser(url: str, output: Path) -> dict:
         assert positions["taskBottom"] <= positions["playerTop"] + 1, positions
         page.locator("#global-player").evaluate("element => element.classList.add('hidden')")
         page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        page.evaluate("""() => renderTaskCenter({current_job: 'ui-smoke-running'}, [{
+          id: 'ui-smoke-running', kind: 'generate', status: 'running', stage: 'semantic',
+          progress: .42, created_at: Date.now() / 1000 - 12, source: 'webui', summary: '后台进度回归'
+        }])""")
         workload.click()
         page.wait_for_timeout(250)
         assert section_top(page, "#task-center") < 900
@@ -324,6 +328,9 @@ def run_browser(url: str, output: Path) -> dict:
         assert page.locator("#assistant-status-signup").is_visible()
         model_choice = page.locator("#assistant-model-choice")
         assert model_choice.input_value() == "bytedance/doubao-seed-2.1-turbo"
+        output_budget = page.locator('#assistant-config-form [name="max_tokens"]')
+        assert output_budget.input_value() == "32768"
+        assert output_budget.get_attribute("max") == "262144"
         assert page.locator("#assistant-custom-model-field").is_hidden()
         model_choice.select_option("__custom__")
         assert page.locator("#assistant-custom-model-field").is_visible()

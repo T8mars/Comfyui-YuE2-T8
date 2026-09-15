@@ -1,6 +1,6 @@
 /* Standalone WebUI only. Drafts are revisioned; credentials never enter them. */
 const assistant = {config: null, defaults: {}, result: null, job: null, polling: false, pollToken: 0, pollingJobId: '', pollingProjectId: '', originalLyrics: '', resultEdited: false, resultJobId: null,
-  drafts: {}, providers: {}, localModels: [], remoteModels: {}, providerSelections: {}, providerBaseUrls: {}, providerCredentials: {}, activeProvider: null, credential: null,
+  drafts: {}, providers: {}, localModels: [], remoteModels: {}, providerSelections: {}, providerBaseUrls: {}, providerCredentials: {}, providerBudgets: {}, activeProvider: null, credential: null,
   ticks: {assistant: 0, create: 0, plan: 0, cover: 0}, queues: {}, timers: {}, undo: null, sending: null,
   projectId: '', baselines: {}, switchQueue: Promise.resolve()};
 const assistantPost = (path, value) => api(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(value)});
@@ -275,6 +275,7 @@ function providerChanged() {
   if (previous) {
     assistant.providerSelections[previous] = $('#assistant-model').value;
     assistant.providerBaseUrls[previous] = $('#assistant-base-url').value;
+    assistant.providerBudgets[previous] = Number($('#assistant-config-form').elements.max_tokens.value);
   }
   assistant.activeProvider = provider;
   const details = assistant.providers[provider] || {};
@@ -285,6 +286,9 @@ function providerChanged() {
   if (previous !== provider || !$('#assistant-model').value.trim()) {
     const localDefault = assistant.localModels.find(item => item.id === details.default_model)?.id || assistant.localModels[0]?.id;
     $('#assistant-model').value = assistant.providerSelections[provider] || details.default_model || (provider === 'local' ? localDefault || '' : '');
+  }
+  if (previous && previous !== provider) {
+    $('#assistant-config-form').elements.max_tokens.value = assistant.providerBudgets[provider] ?? (provider === 'local' ? 4096 : 32768);
   }
   const signup = $('#assistant-signup');
   signup.classList.toggle('hidden', !details.signup_url);
@@ -558,6 +562,7 @@ async function initAssistant() {
     assistant.providerSelections[info.config.provider] = info.config.model;
     assistant.providerBaseUrls[info.config.provider] = info.config.base_url;
     assistant.providerCredentials[info.config.provider] = info.config.credential_id || '';
+    assistant.providerBudgets[info.config.provider] = info.config.max_tokens;
     for (const [id, provider] of Object.entries(info.providers)) { const opt = document.createElement('option'); opt.value = id; opt.textContent = provider.label; $('#assistant-provider').append(opt); }
     for (const [selector, values] of [['#assistant-lyrics-mode', info.options.lyrics_modes], ['#assistant-abc-source', info.options.abc_sources]]) {
       for (const value of values) { const opt = document.createElement('option'); opt.value = value; opt.textContent = value; $(selector).append(opt); }

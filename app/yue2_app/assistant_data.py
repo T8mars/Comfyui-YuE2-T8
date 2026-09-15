@@ -22,6 +22,7 @@ LOCK = threading.RLock()
 PANELS = {"assistant", "create", "plan", "cover"}
 SEEDANCE_DEFAULT_MODEL = "bytedance/doubao-seed-2.1-turbo"
 LEGACY_SEEDANCE_DEFAULT_MODEL = "bytedance/doubao-seed-evolving"
+MAX_ASSISTANT_TOKENS = 262144
 PROVIDERS = {
     "seedance": {"label": "贞贞平价小屋", "base_url": "https://api.seedance.nz/v1",
                   "default_model": SEEDANCE_DEFAULT_MODEL,
@@ -37,7 +38,7 @@ PROVIDERS = {
 }
 DEFAULT_CONFIG = {"provider": "seedance", "base_url": "https://api.seedance.nz/v1",
                   "model": SEEDANCE_DEFAULT_MODEL,
-                  "credential_id": "", "max_tokens": 4096, "context_size": 16384,
+                  "credential_id": "", "max_tokens": 32768, "context_size": 16384,
                   "gpu_layers": 24, "threads": 4, "think": False, "temperature_policy": "auto",
                   "extra_parameters": {}, "stream": True, "llm_directory": ""}
 
@@ -145,10 +146,12 @@ def normalize_config(value: dict) -> dict:
     if not isinstance(value, dict) or set(value) - set(DEFAULT_CONFIG):
         raise ValueError("LLM 配置包含未知字段；密钥请使用独立凭据入口")
     config = {**DEFAULT_CONFIG, **value}
+    if config["provider"] == "local" and "max_tokens" not in value:
+        config["max_tokens"] = 4096
     endpoint(config)
     if not str(config.get("model", "")).strip():
         config["model"] = PROVIDERS[config["provider"]]["default_model"]
-    for key, low, high in (("max_tokens", 64, 32768), ("context_size", 512, 131072),
+    for key, low, high in (("max_tokens", 64, MAX_ASSISTANT_TOKENS), ("context_size", 512, MAX_ASSISTANT_TOKENS),
                            ("gpu_layers", -1, 200), ("threads", 1, 64)):
         item = config[key]
         if type(item) is not int or not low <= item <= high:

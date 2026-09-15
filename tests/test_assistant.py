@@ -272,6 +272,16 @@ class AssistantTests(unittest.TestCase):
                          "https://example.com/api/v3/models")
         self.assertEqual(data.normalize_config({"provider": "workshop", "model": ""})["model"], "gemini-3.5-flash")
 
+    def test_cloud_output_budget_defaults_to_32k_and_accepts_220k(self):
+        self.assertEqual(data.DEFAULT_CONFIG["max_tokens"], 32768)
+        config = data.normalize_config({"provider": "seedance", "max_tokens": 220000})
+        self.assertEqual(config["max_tokens"], 220000)
+        with self.assertRaisesRegex(ValueError, "64–262144"):
+            data.normalize_config({"provider": "seedance", "max_tokens": 262145})
+        with self.assertRaisesRegex(ValueError, "必须小于上下文"):
+            data.normalize_config({"provider": "local", "model": "fixture.gguf",
+                                   "max_tokens": 220000, "context_size": 220000})
+
     def test_new_assistant_defaults_generate_abc_and_migrate_the_old_seedance_default(self):
         self.assertEqual(engine.DEFAULTS["abc_source"], engine.ABC_GENERATE)
         config = self.root / "userdata/assistant/config.json"
