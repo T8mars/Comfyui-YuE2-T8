@@ -181,6 +181,25 @@ def seed_browser_state(root: Path) -> None:
     atomic_json(directory / "job.json", job)
     atomic_json(directory / "status.json", status)
 
+    assistant_id = "20990101-000001-00000002"
+    assistant_directory = root / "outputs" / "jobs" / assistant_id
+    assistant_result = {
+        "style": "Persistent browser folk",
+        "lyrics": "[Verse]\nPersistent browser lyrics",
+        "abc": "X:1\nT:Persistent browser score\nM:4/4\nL:1/4\nK:C\nCDEF|",
+        "cot": "full",
+        "abc_status": "validated",
+        "outcome": "success",
+    }
+    assistant_request = {"values": {"idea": "持久化回归"}, "project_id": project["id"]}
+    assistant_job = {"id": assistant_id, "kind": "assistant", "request": assistant_request,
+                     "source": "webui", "result_panel": "assistant", "project_id": project["id"]}
+    assistant_status = {**assistant_job, "status": "complete", "stage": "complete", "progress": 1.0,
+                        "created_at": now + 1, "updated_at": now + 1, "finished_at": now + 1,
+                        "summary": "持久化浏览器回归", "result": assistant_result}
+    atomic_json(assistant_directory / "job.json", assistant_job)
+    atomic_json(assistant_directory / "status.json", assistant_status)
+
 
 def run_browser(url: str, output: Path) -> dict:
     console_errors: list[str] = []
@@ -234,6 +253,17 @@ def run_browser(url: str, output: Path) -> dict:
             assert_text_contrast(page, panel_id)
 
         page.locator('.studio-sidebar [data-tab="assistant"]').click()
+        page.wait_for_function("document.querySelector('#assistant-result-style').value === 'Persistent browser folk'")
+        assert page.locator("#assistant-result-lyrics").input_value() == "[Verse]\nPersistent browser lyrics"
+        assert "T:Persistent browser score" in page.locator("#assistant-result-abc").input_value()
+        page.locator('.studio-sidebar [data-tab="create"]').click()
+        page.locator('.studio-sidebar [data-tab="assistant"]').click()
+        assert page.locator("#assistant-result-style").input_value() == "Persistent browser folk"
+        page.reload(wait_until="domcontentloaded")
+        wait_for_ui(page)
+        page.locator('.studio-sidebar [data-tab="assistant"]').click()
+        page.wait_for_function("document.querySelector('#assistant-result-style').value === 'Persistent browser folk'")
+        assert page.locator("#assistant-result-lyrics").input_value() == "[Verse]\nPersistent browser lyrics"
         channel_status = page.locator("#assistant-channel-status")
         assert channel_status.get_attribute("data-state") == "missing"
         assert "设置 API Key" in page.locator("#assistant-channel-title").inner_text()
@@ -473,6 +503,7 @@ def run_browser(url: str, output: Path) -> dict:
             "full and partial technical failures use a public summary and required fields use Chinese validation",
             "ordinary workspace buttons use current-page semantics without unsupported selected state",
             "API credentials, Seedance 2.1 Turbo, explicit Custom model input and one-click ABC completion are visible and reachable",
+            "assistant lyrics, style and ABC recover from the latest project job after tab switches and a browser reload",
             "YuE2 training exposes per-song lyrics, inline validation and a guided asset-library round trip",
             "backend-reported progress stays fixed across workspaces and opens the full task details",
             "Seed-VC and RVC expose independent remembered octave presets in the main cover flow",

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.18 - 2026-09-15
+
+- Persist each paid AI Assistant checkpoint as soon as it reaches the browser, so later ABC work cannot hide already generated lyrics or style text.
+- Restore the latest project-scoped Assistant task from the durable job store after workspace switches, reloads, and browser restarts, even when the draft did not record its job ID.
+- Recheck the current Assistant task whenever its workspace opens while preserving deliberate user edits.
+
 ## 1.4.17 - 2026-09-15
 
 - Migrate older assistant drafts from the former downstream ABC default while preserving deliberate downstream choices saved by the new draft format.

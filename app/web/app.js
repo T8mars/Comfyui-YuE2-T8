@@ -525,6 +525,7 @@ $$('.tab').forEach(button => button.onclick = () => {
   $$('.panel').forEach(panel => panel.classList.toggle('active', panel.id === button.dataset.tab));
   window.scrollTo({top: 0, left: 0, behavior: 'auto'});
   if (button.dataset.tab === 'history') loadHistory();
+  if (button.dataset.tab === 'assistant') window.assistantRestoreCurrentScope?.();
 });
 const restoredTab = savedValue('active-tab');
 const allowedTabs = ['project', 'assets', 'training', 'create', 'plan', 'cover', 'history', 'assistant', 'voices'];

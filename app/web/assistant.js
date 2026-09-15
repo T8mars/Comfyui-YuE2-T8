@@ -366,8 +366,11 @@ async function pollAssistant(id, startingRevision, projectId = assistant.project
         cancel.onclick = () => assistantPost(`/api/jobs/${id}/cancel`, {}); progress.append(cancel);
       }
       const signature = JSON.stringify(job.result || {});
-    if (job.result && signature !== lastResult && assistant.ticks.assistant === startingRevision && !job.result.connection) {
+      if (job.result && signature !== lastResult && assistant.ticks.assistant === startingRevision && !job.result.connection) {
         showAssistantResult(job.result); lastResult = signature;
+        // Each paid model checkpoint is useful by itself. Persist it immediately so
+        // a workspace switch, reload, or long-running later stage cannot hide it.
+        await savePanel('assistant').catch(error => assistantText('#assistant-draft-status', `阶段结果未保存：${error.message}`));
       }
       if (TERMINAL.has(job.status)) {
         if (job.error) appendAssistantError(progress, job.error);
@@ -384,16 +387,35 @@ async function pollAssistant(id, startingRevision, projectId = assistant.project
   } catch (error) { if(pollToken===assistant.pollToken)assistantText('#assistant-progress', `连接中断：${error.message}。任务可能仍在运行，刷新后可恢复查看。`); }
   finally { if(pollToken===assistant.pollToken){assistant.polling=false;assistant.pollingJobId='';assistant.pollingProjectId='';$('#assistant-generate').disabled=false;$('#assistant-test').disabled=false;$('#assistant-retry').disabled=false;$('#assistant-compose-abc').disabled=false;} }
 }
+async function latestAssistantJobForScope(projectId = assistant.projectId) {
+  const recent = await api('/api/jobs?limit=100&kind=assistant');
+  return recent.jobs.find(job => job.kind === 'assistant' && !job.result?.connection && job.summary !== '测试 LLM 连接'
+    && String(job.project_id || job.request?.project_id || '') === String(projectId || '')) || null;
+}
 async function restoreAssistantJobForCurrentScope() {
   const id=assistant.job?.id,projectId=assistant.projectId;
-  if(!id)return;
-  const current=await api(`/api/jobs/${id}`).catch(()=>null);
-  if(!current||String(current.project_id||'')!==projectId){assistant.job=null;return;}
-  if(!TERMINAL.has(current.status)){pollAssistant(current.id,assistant.ticks.assistant,projectId);return;}
+  let current=id ? await api(`/api/jobs/${id}`).catch(()=>null) : null;
+  if(current&&String(current.project_id||current.request?.project_id||'')!==projectId)current=null;
+  // The job store is authoritative. This also recovers when the browser left
+  // before its draft could record the new job id.
+  const latest=await latestAssistantJobForScope(projectId).catch(()=>null);
+  if(latest&&(!current||Number(latest.created_at||0)>Number(current.created_at||0)))current=latest;
+  if(!current){assistant.job=null;return;}
   assistant.job=current;
-  if(current.result&&!current.result.connection&&!assistant.resultEdited){showAssistantResult(current.result);await savePanel('assistant');}
+  if(current.result&&!current.result.connection&&!assistant.resultEdited){
+    showAssistantResult(current.result);
+    await savePanel('assistant').catch(error=>assistantText('#assistant-draft-status',`任务结果未保存：${error.message}`));
+  } else if(current.result&&!current.result.connection&&assistant.resultEdited&&TERMINAL.has(current.status)){
+    const notice=$('#assistant-progress'); notice.textContent='该任务已结束。当前编辑已保留，可查看任务的最新结果。';
+    const button=document.createElement('button'); button.className='ghost'; button.textContent='查看最新任务结果';
+    button.onclick=()=>{if(confirm('替换当前编辑区？需要保留的内容请先下载。')){showAssistantResult(current.result);changedDraft('assistant');}};
+    notice.append(button);
+  }
+  if(!TERMINAL.has(current.status)){pollAssistant(current.id,assistant.ticks.assistant,projectId);return;}
   if(current.error)appendAssistantError($('#assistant-progress'),current.error);
 }
+window.assistantRestoreCurrentScope = () => restoreAssistantJobForCurrentScope()
+  .catch(error=>assistantText('#assistant-progress',`任务状态读取失败：${error.message}，稍后可刷新恢复。`));
 async function startAssistant(test = false, retry = false) {
   if (assistant.polling) return;
   try {
@@ -562,26 +584,7 @@ async function initAssistant() {
       });
     }
     updateCostHint();
-    if (!assistant.job?.id) {
-      const recent = await api('/api/jobs?limit=100');
-      assistant.job = recent.jobs.find(job => job.kind === 'assistant' && !job.result?.connection && job.summary !== '测试 LLM 连接' && String(job.project_id||'')===assistant.projectId) || null;
-    }
-    if (assistant.job?.id) {
-      const current = await api(`/api/jobs/${assistant.job.id}`).catch(() => null);
-      if (current && !TERMINAL.has(current.status)) pollAssistant(current.id, assistant.ticks.assistant);
-      else if (current) {
-        assistant.job = current;
-        if (current.result && !current.result.connection) {
-          if (!assistant.resultEdited) { showAssistantResult(current.result); await savePanel('assistant'); }
-          else {
-            const notice = $('#assistant-progress'); notice.textContent = '该任务已结束。当前编辑已保留，可查看任务的最新结果。';
-            const button = document.createElement('button'); button.className = 'ghost'; button.textContent = '查看最新任务结果';
-            button.onclick = () => { if (confirm('替换当前编辑区？需要保留的内容请先下载。')) { showAssistantResult(current.result); changedDraft('assistant'); } }; notice.append(button);
-          }
-        }
-        if (current.error) appendAssistantError($('#assistant-progress'), current.error);
-      }
-    }
+    await restoreAssistantJobForCurrentScope();
   } catch (error) { assistantText('#assistant-progress', `助手初始化失败：${error.message}`); }
 }
 $('#assistant-config-form').onsubmit = event => { event.preventDefault(); saveAssistantConfig().catch(error => assistantText('#assistant-config-status', error.message)); };
