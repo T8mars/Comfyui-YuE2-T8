@@ -92,6 +92,72 @@ def remix_audio(converted_vocal: Path, accompaniment: Path, destination: Path, *
     }
 
 
+def gate_converted_vocal(reference_vocal: Path, converted_vocal: Path, destination: Path | None = None,
+                         *, frame_ms: float = 20.0, padding_ms: float = 120.0) -> dict:
+    """Mute RVC output where the separated source contains no usable vocal activity.
+
+    Source separation can leave a very quiet, high-frequency residue in instrumental
+    passages.  RVC may turn that residue into a stable pitched tone.  The gate follows
+    the separated vocal's RMS envelope rather than the converted signal, so generated
+    tones cannot hold the gate open.
+    """
+    reference, reference_rate = _read_audio(reference_vocal)
+    converted, converted_rate = _read_audio(converted_vocal)
+    mono = reference.mean(axis=1, dtype=np.float64)
+    frame_samples = max(1, int(round(reference_rate * frame_ms / 1000.0)))
+    frame_count = max(1, math.ceil(len(mono) / frame_samples))
+    padded = np.pad(mono, (0, frame_count * frame_samples - len(mono)))
+    frame_rms = np.sqrt(np.mean(np.square(padded.reshape(frame_count, frame_samples)), axis=1))
+    noise_floor = float(np.quantile(frame_rms, 0.20))
+    active_level = float(np.quantile(frame_rms, 0.90))
+    threshold = max(1e-5, active_level * 0.01, min(noise_floor * 6.0, active_level * 0.15))
+    confirmation_threshold = max(threshold * 2.0, active_level * 0.08)
+    low_activity = frame_rms > threshold
+    confirmed_activity = frame_rms > confirmation_threshold
+    active = np.zeros_like(low_activity)
+    discarded_segments = 0
+    index = 0
+    while index < frame_count:
+        if not low_activity[index]:
+            index += 1
+            continue
+        end = index + 1
+        while end < frame_count and low_activity[end]:
+            end += 1
+        if confirmed_activity[index:end].any():
+            active[index:end] = True
+        else:
+            discarded_segments += 1
+        index = end
+    padding_frames = max(0, int(round(padding_ms / frame_ms)))
+    if padding_frames and active.any():
+        kernel = np.ones(padding_frames * 2 + 1, dtype=np.int16)
+        expanded = np.convolve(active.astype(np.int16), kernel, mode="full")
+        active = expanded[padding_frames:padding_frames + frame_count] > 0
+
+    # Use real time rather than sample indexes because Demucs and RVC commonly use
+    # different sample rates. Linear interpolation makes the gate transitions quiet.
+    frame_times = (np.arange(frame_count, dtype=np.float64) + 0.5) * frame_samples / reference_rate
+    sample_times = np.arange(len(converted), dtype=np.float64) / converted_rate
+    gain = np.interp(sample_times, frame_times, active.astype(np.float32), left=0.0, right=0.0)
+    gated = converted * gain[:, None]
+    destination = destination or converted_vocal
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    sf.write(destination, gated, converted_rate, subtype="FLOAT")
+    return {
+        "version": "rms-v2",
+        "threshold_rms": round(threshold, 8),
+        "confirmation_threshold_rms": round(confirmation_threshold, 8),
+        "noise_floor_rms": round(noise_floor, 8),
+        "active_level_rms": round(active_level, 8),
+        "active_fraction": round(float(np.mean(active)), 6),
+        "muted_fraction": round(float(1.0 - np.mean(gain)), 6),
+        "frame_ms": frame_ms,
+        "padding_ms": padding_ms,
+        "discarded_unconfirmed_segments": discarded_segments,
+    }
+
+
 def _run_seed_vc(root: Path, source: Path, reference: Path, output: Path, request: dict,
                  ctx: JobContext | None = None) -> Path:
     source_root = root / "vendor" / "seed-vc"
@@ -330,19 +396,29 @@ def main(argv=None) -> int:
         conversion_source = {**separation_source, "reference_sha256": sha256(reference) if reference else None,
                              "settings": {k: request[k] for k in (
                                  "diffusion_steps", "cfg_rate", "auto_f0_adjust", "semi_tone_shift")}}
+        conversion_files = ["converted_vocal.wav"]
+        activity_gate_info = None
         if voice:
             voice_manifest['components']['RVC'] = json.loads((root / 'app/yue2_app/rvc_assets.json').read_text(encoding='utf-8'))
             voice_manifest['components']['UserVoice'] = reference_info
             conversion_source.update(voice=reference_info, settings={key: request[key] for key in (
                 'backend', 'voice_id', 'speaker_id', 'semi_tone_shift', 'index_rate', 'protect')})
-        if not restore_voice_stage(previous, output, "conversion", ["converted_vocal.wav"], voice_manifest, conversion_source):
+            conversion_source['settings']['vocal_activity_gate'] = 'rms-v2'
+            conversion_files.append("vocal_activity_gate.json")
+        if not restore_voice_stage(previous, output, "conversion", conversion_files, voice_manifest, conversion_source):
             raw_converted = (_run_rvc(root, separated_vocal, converted, request, voice, ctx) if voice else
                              _run_seed_vc(root, separated_vocal, reference, converted, request, ctx))
             shutil.copy2(raw_converted, converted_vocal)
+            if voice:
+                activity_gate_info = gate_converted_vocal(separated_vocal, converted_vocal)
+                atomic_json(output / "vocal_activity_gate.json", activity_gate_info)
         else:
             ctx.update("converting_voice", resumed_stage="conversion")
+            if voice:
+                activity_gate_info = json.loads(
+                    (output / "vocal_activity_gate.json").read_text(encoding="utf-8-sig"))
         write_artifact_manifest(output, "conversion_manifest.json", "yue2-voice-conversion-v1",
-                                ["converted_vocal.wav"], models=voice_manifest, source=conversion_source)
+                                conversion_files, models=voice_manifest, source=conversion_source)
         ctx.memory("conversion_saved")
         ctx.check_cancelled()
 
@@ -357,9 +433,12 @@ def main(argv=None) -> int:
             "song": {"file": source.name, "sha256": sha256(source), "bytes": source.stat().st_size},
             "reference_voice": reference_info,
         }
+        result_files = ["audio.flac", "converted_vocal.wav", "separated_vocal.wav", "accompaniment.wav"]
+        if voice:
+            result_files.append("vocal_activity_gate.json")
         manifest_path, _ = write_artifact_manifest(
             output, "reference_cover_manifest.json", "yue2-reference-cover-v1",
-            ["audio.flac", "converted_vocal.wav", "separated_vocal.wav", "accompaniment.wav"],
+            result_files,
             models=voice_manifest, source=manifest_source, config={key: value for key, value in request.items()
                                                                   if not key.endswith("_path")},
         )
@@ -373,6 +452,7 @@ def main(argv=None) -> int:
             "artifact_dir": str(output),
             "manifest": str(manifest_path),
             "audio_info": audio_info,
+            "vocal_activity_gate": activity_gate_info,
             "settings": {key: value for key, value in request.items() if not key.endswith("_path")},
         }
         atomic_json(output / "job_result.json", result)

@@ -16,7 +16,7 @@ from app.yue2_app.artifacts import (
     write_artifact_manifest,
 )
 from app.yue2_app.config import ROOT, model_paths, runtime_ready
-from app.yue2_app.core_worker import generation_kwargs, generation_result, run_decode, run_doctor, run_generate
+from app.yue2_app.core_worker import add_upstream, generation_kwargs, generation_result, run_decode, run_doctor, run_generate
 from app.yue2_app.io import atomic_json, public_job, within
 from app.yue2_app.model_verify import PINNED_MODELS, REQUIRED_FILES, verify_bundle
 from app.yue2_app.retention import RetentionManager
@@ -31,10 +31,55 @@ from app.yue2_app.service import (
 )
 from app.yue2_app import service
 from app.yue2_app.worker_common import Cancelled, JobContext
-from app.yue2_app.voice_worker import remix_audio
+from app.yue2_app.voice_worker import gate_converted_vocal, remix_audio
 
 
 class IntegrationCodeTests(unittest.TestCase):
+    def test_saved_korean_plan_loads_on_non_utf8_windows_locale(self):
+        add_upstream(ROOT)
+        from yue2.pipeline import SymbolicPlan
+        from yue2.protocol import SongRequest
+
+        with tempfile.TemporaryDirectory(dir=ROOT) as directory:
+            plan = SymbolicPlan(
+                SongRequest(style="한국 동요", lyrics="아침 햇살", cot="off"),
+                None, [], [1, 2, 3],
+            )
+            plan.save(directory)
+            restored = SymbolicPlan.load(directory)
+            self.assertEqual(restored.request.style, "한국 동요")
+            self.assertEqual(restored.request.lyrics, "아침 햇살")
+
+    def test_rvc_activity_gate_suppresses_hallucinated_tone_during_silent_source(self):
+        import numpy as np
+        import soundfile as sf
+
+        with tempfile.TemporaryDirectory(dir=ROOT) as directory:
+            root = Path(directory)
+            reference_rate = 44100
+            converted_rate = 48000
+            seconds = 2
+            reference = np.zeros(reference_rate * seconds, dtype=np.float32)
+            reference[reference_rate:] = 0.08 * np.sin(
+                2 * np.pi * 220 * np.arange(reference_rate) / reference_rate)
+            converted = 0.08 * np.sin(
+                2 * np.pi * 330 * np.arange(converted_rate * seconds) / converted_rate).astype(np.float32)
+            reference_path = root / "separated.wav"
+            converted_path = root / "converted.wav"
+            sf.write(reference_path, reference, reference_rate, subtype="FLOAT")
+            sf.write(converted_path, converted, converted_rate, subtype="FLOAT")
+
+            report = gate_converted_vocal(reference_path, converted_path)
+            gated, rate = sf.read(converted_path, dtype="float32")
+            silent_rms = float(np.sqrt(np.mean(np.square(gated[:converted_rate * 3 // 4]))))
+            active_rms = float(np.sqrt(np.mean(np.square(gated[converted_rate * 5 // 4:]))))
+
+            self.assertEqual(rate, converted_rate)
+            self.assertEqual(report["version"], "rms-v2")
+            self.assertLess(silent_rms, 1e-5)
+            self.assertGreater(active_rms, 0.04)
+            self.assertGreater(report["muted_fraction"], 0.35)
+
     def test_model_directory_setting_supports_another_drive_layout(self):
         with tempfile.TemporaryDirectory(dir=ROOT) as directory:
             root = Path(directory)

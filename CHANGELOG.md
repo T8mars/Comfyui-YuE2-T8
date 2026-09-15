@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.13 - 2026-09-15
+
+- Gate RVC output from the separated source-vocal envelope so instrumental leakage cannot become sustained synthetic tones.
+- Save and restore Korean and other UTF-8 symbolic plans independently of the Windows system locale.
+
 ## 1.4.12 - 2026-09-15
 
 - Complete the requested YuE2 training schedule but publish the checkpoint with the lowest song-disjoint validation loss.

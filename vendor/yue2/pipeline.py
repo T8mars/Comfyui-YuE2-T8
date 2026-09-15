@@ -52,7 +52,7 @@ class SymbolicPlan:
                 raise ValueError("Invalid plan artifact")
             if sha256_file(directory / name) != digest:
                 raise ValueError("Saved plan changed; supply modified ABC as an external planner input")
-        data = json.loads((directory / "plan.json").read_text())
+        data = json.loads((directory / "plan.json").read_text(encoding="utf-8"))
         for field, filename in (("abc_ids", "abc_tokens.npy"), ("prefix", "prefix.npy")):
             array = np.load(directory / filename, allow_pickle=False)
             if array.ndim != 1 or array.dtype.kind not in "iu" or array.tolist() != data[field]:
