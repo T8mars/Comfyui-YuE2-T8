@@ -89,7 +89,7 @@
     if (selectedVoice?.f0 === false) $('#rvc-pitch-shift').value = '0';
     $('#voice-compare-hint').classList.toggle('hidden', !compare);
     $('#reference-drop-zone').classList.toggle('hidden', rvc);
-    $('#reference-preview').classList.toggle('hidden', rvc || !$('#reference-file').files[0]);
+    $('#reference-preview').classList.toggle('hidden', rvc || !inputHasSource($('#reference-file')));
     $('#seed-pitch-settings').classList.toggle('hidden', rvc);
     if (rvc) $('#reference-preview audio').pause();
     for (const id of ['voice-steps','voice-cfg','voice-auto-f0']) $(`#${id}`).closest('label').classList.toggle('hidden', rvc);
@@ -153,16 +153,20 @@
   $('#rvc-project').onchange = handle(async () => { project = await api(`/api/rvc/projects/${$('#rvc-project').value}`); savedValue('rvc-project',project.id); renderProject(); });
   $('#rvc-refresh').onclick = handle(refresh);
   $('#rvc-open').onclick = handle(() => post('/api/rvc/open',{kind:'projects'}));
+  $('#rvc-files').onchange = () => clearLocalInputReference($('#rvc-files'));
+  $('#rvc-files').addEventListener('local-source-change', () => notice(`已选择资产库素材：${$('#rvc-files').dataset.localName}。导入时由服务端直接引用。`));
   $('#rvc-add-speaker').onclick = handle(() => update({speakers:[...project.speakers,{id:Number($('#rvc-speaker-id').value),name:$('#rvc-speaker-name').value}]}));
   $('#rvc-speakers').onclick = handle(event => { const button = event.target.closest('[data-remove-speaker]'); if (button) return update({speakers:project.speakers.filter(s => s.id !== Number(button.dataset.removeSpeaker))}); });
   $('#rvc-import').onclick = handle(async () => {
     if (!project) throw new Error('请先选择训练项目');
-    const paths = [], names = {};
+    const paths = [], names = {}, display_names = [];
+    const local = localInputReference($('#rvc-files'));
+    if (local) { paths.push(local); display_names.push($('#rvc-files').dataset.localName || '资产库素材'); }
     for (const file of $('#rvc-files').files) {
       notice(`正在上传：${file.name}`);
-      const upload = await api(`/api/uploads?filename=${encodeURIComponent(file.name)}`,{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:file}); paths.push(upload.path); names[upload.path] = file.name;
+      const upload = await api(`/api/uploads?filename=${encodeURIComponent(file.name)}`,{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:file}); paths.push(upload.path); names[upload.path] = file.name; display_names.push(file.name);
     }
-    await start('rvc_import',{paths,names,folder:$('#rvc-folder').value.trim(),speaker_id:Number($('#rvc-import-speaker').value),source_type:$('#rvc-source-type').value});
+    await start('rvc_import',{paths,names,display_names,folder:$('#rvc-folder').value.trim(),speaker_id:Number($('#rvc-import-speaker').value),source_type:$('#rvc-source-type').value});
   });
   $('#rvc-materials').onchange = handle(async event => {
     const field = event.target.dataset.field, id = event.target.closest('[data-material]')?.dataset.material;

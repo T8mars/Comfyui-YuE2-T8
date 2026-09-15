@@ -164,16 +164,12 @@
       catch { card.innerHTML = '<span style="height:2px"></span>'; }
     }
   }
-  async function assetFile(asset) {
-    const response = await fetch(contentUrl(asset)); if(!response.ok) throw new Error(`读取素材失败：HTTP ${response.status}`);
-    const blob = await response.blob(), suffix = asset.blob_suffix || (/audio\/flac/.test(blob.type)?'.flac':'.wav');
-    return new File([blob], asset.title.toLowerCase().endsWith(suffix) ? asset.title : asset.title + suffix, {type:blob.type});
-  }
   async function putAssetInInput(asset, selector, tab, configure=()=>{}, projectId=currentProjectId) {
-    const file=await assetFile(asset);
     if(projectId!==currentProjectId)throw new Error('项目已切换，请在当前项目中重新发送这个素材');
-    const input=$(selector), transfer=new DataTransfer(); transfer.items.add(file); input.files=transfer.files;
-    configure(); input.dispatchEvent(new Event('change',{bubbles:true})); $(`.tab[data-tab="${tab}"]`).click();
+    configure();
+    setLocalInputSource(selector, {$asset:asset.id,revision_id:asset.current_revision_id,name:asset.title},
+      asset.title, contentUrl(asset));
+    $(`.tab[data-tab="${tab}"]`).click();
   }
   async function useAsset(asset, action) {
     const projectId=currentProjectId;

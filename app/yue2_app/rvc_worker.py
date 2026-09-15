@@ -32,12 +32,14 @@ def import_materials(root, project, request, ctx):
     if not files:
         raise ValueError('没有找到支持的音频素材')
     report = {'imported': [], 'duplicates': [], 'errors': []}
+    display_names = request.get('display_names', [])
     for i, path in enumerate(files):
         ctx.progress('rvc_import', i, len(files))
         try:
             item = add_material(root, project, path, speaker_id=int(request.get('speaker_id', 0)),
                                 source_type=request.get('source_type', 'unknown'),
-                                display_name=request.get('names', {}).get(str(path)))
+                                display_name=(display_names[i] if i < len(display_names) else
+                                              request.get('names', {}).get(str(path))))
             report['duplicates' if 'duplicate_of' in item else 'imported'].append(item)
         except (ValueError, OSError) as exc:
             report['errors'].append({'name': path.name, 'error': str(exc)})

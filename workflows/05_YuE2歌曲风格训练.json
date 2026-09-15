@@ -1,0 +1,20 @@
+{
+  "id": "26e1c0aa-bc65-4b96-b676-9f5d8101de53",
+  "revision": 0,
+  "last_node_id": 4,
+  "last_link_id": 3,
+  "nodes": [
+    {"id":1,"type":"YuE2ModelLoader","pos":[20,80],"size":[320,180],"flags":{},"order":0,"mode":0,"inputs":[],"outputs":[{"name":"model","type":"YUE2_MODEL","links":[2]},{"name":"status","type":"STRING","links":null}],"properties":{"Node name for S&R":"YuE2ModelLoader"},"widgets_values":["torch-eager",23.5,true,"sdpa",256]},
+    {"id":2,"type":"YuE2TrainStyle","pos":[20,330],"size":[440,260],"flags":{},"order":1,"mode":0,"inputs":[],"outputs":[{"name":"style_model","type":"YUE2_STYLE_MODEL","links":[1]},{"name":"metadata","type":"STRING","links":null}],"properties":{"Node name for S&R":"YuE2TrainStyle"},"widgets_values":["请先在 YuE2 工作台建立歌曲风格训练","预处理并训练",false]},
+    {"id":3,"type":"YuE2GenerateSong","pos":[560,80],"size":[560,700],"flags":{},"order":2,"mode":0,"inputs":[{"name":"model","type":"YUE2_MODEL","link":2},{"name":"trained_style_model","type":"YUE2_STYLE_MODEL","link":1}],"outputs":[{"name":"audio","type":"AUDIO","links":[3]},{"name":"result","type":"YUE2_RESULT","links":null},{"name":"metadata","type":"STRING","links":null},{"name":"output_directory","type":"STRING","links":null}],"properties":{"Node name for S&R":"YuE2GenerateSong"},"widgets_values":["Korean pop ballad, emotional female vocal, piano and strings","[Verse]\n请填写歌词\n\n[Chorus]\n请填写副歌","off",831001,1.0,1,"","不使用",0.4]},
+    {"id":4,"type":"PreviewAudio","pos":[1210,220],"size":[420,150],"flags":{},"order":3,"mode":0,"inputs":[{"name":"audio","type":"AUDIO","link":3}],"outputs":[{"name":"audio","type":"AUDIO","links":null}],"properties":{"Node name for S&R":"PreviewAudio","cnr_id":"comfy-core"},"widgets_values":[]}
+  ],
+  "links": [[1,2,0,3,1,"YUE2_STYLE_MODEL"],[2,1,0,3,0,"YUE2_MODEL"],[3,3,0,4,0,"AUDIO"]],
+  "groups": [
+    {"id":1,"title":"1. 先在本地工作台准备训练集，再选择训练记录","bounding":[0,300,500,320],"color":"#a15b85","font_size":24,"flags":{}},
+    {"id":2,"title":"2. 风格 LoRA 当前使用直接生成，强度从 0.2–0.4 试听","bounding":[530,30,1130,780],"color":"#3f789e","font_size":24,"flags":{}}
+  ],
+  "config": {},
+  "extra": {"frontendVersion":"1.28.7"},
+  "version": 0.4
+}

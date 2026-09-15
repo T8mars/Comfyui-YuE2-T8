@@ -19,13 +19,14 @@
     for (const field of form.elements) if (field.name && field.type !== 'file' && values[field.name] !== undefined) field.value = values[field.name];
   }
   function switchProjectDraft() {
+    for (const input of [audioInput, melodyInput, chordInput, drumInput]) clearLocalInputReference(input);
     form.reset();
     restoreDraft();
     updateSourceMode();
     updatePreview();
   }
   function sourceReady() {
-    return mode.value === 'audio' ? Boolean(audioInput.files[0]) : Boolean(melodyInput.files[0] && chordInput.files[0]);
+    return mode.value === 'audio' ? inputHasSource(audioInput) : inputHasSource(melodyInput) && inputHasSource(chordInput);
   }
   function updateButtonState() {
     if (!button.dataset.jobId) button.disabled = !modelsReady || !sourceReady();
@@ -41,18 +42,13 @@
   }
   function updatePreview() {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
-    const file = audioInput.files[0];
-    preview.classList.toggle('hidden', !file);
-    $('#remix-drop-zone').classList.toggle('hidden', Boolean(file));
+    const file = audioInput.files[0], local = localInputReference(audioInput), present = Boolean(file || local);
+    preview.classList.toggle('hidden', !present);
+    $('#remix-drop-zone').classList.toggle('hidden', present);
     if (file) { previewUrl = URL.createObjectURL(file); player.src = previewUrl; }
+    else if (local && audioInput.dataset.localPreview) { player.src = audioInput.dataset.localPreview; player.load(); previewUrl = ''; }
     else { player.removeAttribute('src'); player.load(); previewUrl = ''; }
     updateButtonState();
-  }
-  async function upload(file) {
-    if (!file) return null;
-    return api(`/api/uploads?filename=${encodeURIComponent(file.name)}`, {
-      method: 'POST', headers: {'Content-Type': 'application/octet-stream'}, body: file
-    });
   }
   async function refreshModelState() {
     try {
@@ -71,8 +67,12 @@
   window.mulacoverSaveDraft = saveDraft;
   window.mulacoverRestoreDraft = switchProjectDraft;
   mode.onchange = updateSourceMode;
-  audioInput.onchange = updatePreview;
-  for (const input of [melodyInput, chordInput, drumInput]) input.onchange = updateButtonState;
+  audioInput.onchange = () => { clearLocalInputReference(audioInput); updatePreview(); };
+  audioInput.addEventListener('local-source-change', updatePreview);
+  for (const input of [melodyInput, chordInput, drumInput]) {
+    input.onchange = () => { clearLocalInputReference(input); updateButtonState(); };
+    input.addEventListener('local-source-change', updateButtonState);
+  }
   $('#remix-replace').onclick = () => audioInput.click();
   form.addEventListener('input', event => { if (event.target.type !== 'file') saveDraft(); });
   window.addEventListener('beforeunload', () => { if (previewUrl) URL.revokeObjectURL(previewUrl); });
@@ -88,13 +88,13 @@
       for (const key of ['cfg_scale','temperature']) data[key] = Number(data[key]);
       data.seed = safeSeed(data.seed); data.decode_seed = safeSeed(data.decode_seed);
       if (mode.value === 'audio') {
-        const uploaded = await upload(audioInput.files[0]); data.source_path = uploaded.path;
+        data.source_path = await inputSourceValue(audioInput);
       } else {
         const [melody, chord, drum] = await Promise.all([
-          upload(melodyInput.files[0]), upload(chordInput.files[0]), upload(drumInput.files[0])
+          inputSourceValue(melodyInput), inputSourceValue(chordInput), inputSourceValue(drumInput)
         ]);
-        data.melody_midi = melody.path; data.chord_midi = chord.path;
-        if (drum) data.drum_midi = drum.path;
+        data.melody_midi = melody; data.chord_midi = chord;
+        if (drum) data.drum_midi = drum;
       }
       saveDraft();
       await submit('mulacover_remix', data, $('#remix-result'), button, projectScope);

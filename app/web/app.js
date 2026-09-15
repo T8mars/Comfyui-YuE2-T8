@@ -94,6 +94,38 @@ async function api(path, options = {}) {
   return data;
 }
 
+function localInputReference(input) {
+  try { return input?.dataset.localSource ? JSON.parse(input.dataset.localSource) : null; }
+  catch { return null; }
+}
+function inputHasSource(input) { return Boolean(input?.files?.[0] || localInputReference(input)); }
+function clearLocalInputReference(input) {
+  delete input.dataset.localSource; delete input.dataset.localName; delete input.dataset.localPreview;
+  if (input.title.startsWith('已选择本地素材：')) input.removeAttribute('title');
+}
+function setLocalInputSource(selector, reference, name, preview = '') {
+  const input = typeof selector === 'string' ? $(selector) : selector;
+  if (!input) throw new Error('目标输入框不存在');
+  input.value = '';
+  input.dataset.localSource = JSON.stringify(reference);
+  input.dataset.localName = name || '本地素材';
+  input.dataset.localPreview = preview || '';
+  input.title = `已选择本地素材：${input.dataset.localName}`;
+  input.dispatchEvent(new CustomEvent('local-source-change', {bubbles: true}));
+}
+async function inputSourceValue(input) {
+  const local = localInputReference(input);
+  if (local) return local;
+  const file = input?.files?.[0];
+  if (!file) return null;
+  const uploaded = await api(`/api/uploads?filename=${encodeURIComponent(file.name)}`, {
+    method: 'POST', headers: {'Content-Type': 'application/octet-stream'}, body: file
+  });
+  return uploaded.path;
+}
+Object.assign(window, {localInputReference, inputHasSource, clearLocalInputReference,
+  setLocalInputSource, inputSourceValue});
+
 function formObject(form) {
   const data = Object.fromEntries(new FormData(form).entries());
   if (data.seed !== undefined) data.seed = safeSeed(data.seed);
@@ -339,11 +371,11 @@ function restoreButton(button) {
   if (id) buttonBindings.delete(id);
   delete button.dataset.jobId;
   button.textContent = button.dataset.idleLabel || button.textContent;
-  button.disabled = (button.id === 'transcribe-button' && !$('#cover-file').files[0]) ||
+  button.disabled = (button.id === 'transcribe-button' && !inputHasSource($('#cover-file'))) ||
     (button.id === 'generate-reference-cover' &&
       (($('#voice-backend').value !== 'seed-vc' && !$('#rvc-cover-model').value) ||
-       ($('#voice-backend').value !== 'rvc' && !$('#reference-file').files[0]) ||
-       ($('#cover-mode').value === 'direct' && !$('#cover-file').files[0])));
+       ($('#voice-backend').value !== 'rvc' && !inputHasSource($('#reference-file'))) ||
+       ($('#cover-mode').value === 'direct' && !inputHasSource($('#cover-file')))));
 }
 
 function updateButton(button, job, queuePosition = 0) {
@@ -530,13 +562,9 @@ window.exportJob = exportJob;
 
 async function sendJobAudioToCover(jobId, relative) {
   try {
-    const response = await fetch(audioUrl(jobId, relative));
-    if (!response.ok) throw new Error(`读取音频失败：HTTP ${response.status}`);
-    const blob = await response.blob(), input = $('#cover-file'), transfer = new DataTransfer();
-    transfer.items.add(new File([blob], `MuLaCover-${jobId}.flac`, {type: blob.type || 'audio/flac'}));
-    input.files = transfer.files;
+    setLocalInputSource('#cover-file', {$job_file:{job_id:jobId,relative},name:`MuLaCover-${jobId}.flac`},
+      `MuLaCover-${jobId}.flac`, audioUrl(jobId, relative));
     window.setCoverMode?.('direct');
-    input.dispatchEvent(new Event('change', {bubbles: true}));
     $('.tab[data-tab="cover"]').click();
   } catch (error) { alert(error.message); }
 }
@@ -693,19 +721,25 @@ function bindUploadPreview(inputSelector, dropSelector, previewSelector, buttonS
     if (objectUrl) URL.revokeObjectURL(objectUrl);
     objectUrl = null;
   };
-  input.onchange = () => {
+  const render = () => {
     release();
-    const file = input.files[0], button = $(buttonSelector);
-    button.disabled = !file || Boolean(button.dataset.jobId);
-    drop.querySelector('b').textContent = file ? file.name : defaultName;
-    preview.classList.toggle('hidden', !file);
-    status.textContent = defaultStatus;
+    const file = input.files[0], local = localInputReference(input), button = $(buttonSelector);
+    const present = Boolean(file || local), name = file?.name || input.dataset.localName;
+    button.disabled = !present || Boolean(button.dataset.jobId);
+    drop.querySelector('b').textContent = present ? name : defaultName;
+    preview.classList.toggle('hidden', !present);
+    status.textContent = local ? '来自本地资产库或任务结果；提交时由服务端直接引用，不占用浏览器内存。' : defaultStatus;
     if (file) {
       objectUrl = URL.createObjectURL(file);
       audio.src = objectUrl;
       audio.load();
-    }
+    } else if (local && input.dataset.localPreview) {
+      audio.src = input.dataset.localPreview;
+      audio.load();
+    } else { audio.removeAttribute('src'); audio.load(); }
   };
+  input.onchange = () => { clearLocalInputReference(input); render(); };
+  input.addEventListener('local-source-change', render);
   preview.querySelector('[data-replace]').onclick = () => input.click();
   audio.addEventListener('play', () => {
     $$('.upload-preview audio').forEach(other => { if (other !== audio) other.pause(); });
@@ -817,13 +851,13 @@ $('#cover-file').addEventListener('change', () => {
   if (!$('#generate-reference-cover').dataset.jobId) restoreButton($('#generate-reference-cover'));
 });
 $('#transcribe-button').onclick = async () => {
-  const file = $('#cover-file').files[0]; if (!file) return; const button = $('#transcribe-button');
+  const input = $('#cover-file'); if (!inputHasSource(input)) return; const button = $('#transcribe-button');
   const revision = window.assistantDraftRevision?.('cover');
   const projectScope=String(window.workbenchProjectId?.()||'');
   try {
-    setSubmitting(button); button.textContent = '正在上传…';
-    const upload = await api(`/api/uploads?filename=${encodeURIComponent(file.name)}`, {method: 'POST', headers: {'Content-Type': 'application/octet-stream'}, body: file});
-    const job = await submit('transcribe', {source_path: upload.path, melody_only: true, dtype: 'bf16', preset: 'default'}, null, button, projectScope);
+    setSubmitting(button); button.textContent = localInputReference(input) ? '正在读取本地素材…' : '正在上传…';
+    const sourcePath = await inputSourceValue(input);
+    const job = await submit('transcribe', {source_path: sourcePath, melody_only: true, dtype: 'bf16', preset: 'default'}, null, button, projectScope);
     if(String(window.workbenchProjectId?.()||'')!==projectScope)return;
     if (window.assistantDraftRevision?.('cover') === revision) {
       $('#cover-abc').value = job.result.abc || ''; $('#cover-review').classList.remove('hidden'); window.assistantDraftChanged?.('cover');
@@ -850,12 +884,12 @@ $('#reference-file').addEventListener('change', () => {
 
 $('#generate-reference-cover').onclick = async () => {
   const projectScope=String(window.workbenchProjectId?.()||'');
-  const direct = $('#cover-mode').value === 'direct', source = $('#cover-file').files[0];
-  if (direct && !source) return alert('请先选择要转换音色的歌曲');
+  const direct = $('#cover-mode').value === 'direct', sourceInput = $('#cover-file');
+  if (direct && !inputHasSource(sourceInput)) return alert('请先选择要转换音色的歌曲');
   if (!direct && $('#cover').dataset.instrumental === 'true') return alert('纯器乐没有可转换的人声，请使用旋律重制');
-  const reference = $('#reference-file').files[0];
+  const referenceInput = $('#reference-file');
   const backend = $('#voice-backend').value;
-  if (backend !== 'rvc' && !reference) return alert('请先选择参考音色');
+  if (backend !== 'rvc' && !inputHasSource(referenceInput)) return alert('请先选择参考音色');
   if (backend !== 'seed-vc' && !$('#rvc-cover-model').value) return alert('请先到“我的音色 / 训练”创建或导入音色模型');
   let seed;
   try { if (!direct) { seed = safeSeed($('#cover-seed').value); generationMemoryBudget(); } } catch (error) { return alert(error.message); }
@@ -866,8 +900,8 @@ $('#generate-reference-cover').onclick = async () => {
   setSubmitting(button);
   try {
     $('#cover-result').innerHTML = '';
-    const upload = backend !== 'rvc' ? await api(`/api/uploads?filename=${encodeURIComponent(reference.name)}`, {method: 'POST', headers: {'Content-Type': 'application/octet-stream'}, body: reference}) : null;
-    const voice = {backend, reference_path: upload?.path,
+    const referencePath = backend !== 'rvc' ? await inputSourceValue(referenceInput) : null;
+    const voice = {backend, reference_path: referencePath,
       voice_id: $('#rvc-cover-model').value, speaker_id: Number($('#rvc-cover-speaker').value),
       index_rate: Number($('#rvc-index-rate').value), protect: Number($('#rvc-protect').value),
       rvc_pitch_shift: Number($('#rvc-pitch-shift').value),
@@ -875,8 +909,8 @@ $('#generate-reference-cover').onclick = async () => {
       semi_tone_shift: Number($('#voice-shift').value), auto_f0_adjust: $('#voice-auto-f0').checked,
       vocal_gain_db: Number($('#voice-gain').value), accompaniment_gain_db: Number($('#backing-gain').value)};
     if (direct) {
-      const uploaded = await api(`/api/uploads?filename=${encodeURIComponent(source.name)}`, {method: 'POST', headers: {'Content-Type': 'application/octet-stream'}, body: source});
-      await submit('voice_convert', {...voice, source_path: uploaded.path}, $('#cover-result'), button, projectScope);
+      const sourcePath = await inputSourceValue(sourceInput);
+      await submit('voice_convert', {...voice, source_path: sourcePath}, $('#cover-result'), button, projectScope);
     } else await submit('reference_cover', {generate, voice}, $('#cover-result'), button, projectScope);
   } catch (error) { restoreButton(button);renderScopedFailure($('#cover-result'),error,projectScope); }
 };

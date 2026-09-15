@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 import uuid
 from pathlib import Path
@@ -8,6 +9,55 @@ from pathlib import Path
 from . import client
 
 CATEGORY = "YuE2 音乐"
+NONE_CHOICE = "不使用"
+
+
+def _record_choices(path: str, key: str, *, empty: str, predicate=None) -> list[str]:
+    """Return refreshable ComfyUI combo labels without starting the service."""
+    try:
+        records = client.request(path, timeout=2).get(key, [])
+    except Exception:
+        return [empty]
+    choices = []
+    for item in records:
+        if predicate is not None and not predicate(item):
+            continue
+        ident = str(item.get("id", ""))
+        if not re.fullmatch(r"[a-f0-9]{32}", ident):
+            continue
+        title = str(item.get("title") or item.get("name") or ident)[:100]
+        choices.append(f"{title} [{ident}]")
+    return choices or [empty]
+
+
+def style_model_choices() -> list[str]:
+    return [NONE_CHOICE, *_record_choices(
+        "/api/workbench/assets?kind=model&limit=500", "assets", empty="没有已训练的歌曲风格模型",
+        predicate=lambda item: item.get("metadata", {}).get("model_type") == "yue2_ar_lora",
+    )]
+
+
+def rvc_voice_choices() -> list[str]:
+    return _record_choices("/api/rvc", "voices", empty="没有已训练或导入的 RVC 音色")
+
+
+def rvc_project_choices() -> list[str]:
+    return _record_choices("/api/rvc", "projects", empty="请先在 YuE2 工作台建立 RVC 训练项目")
+
+
+def yue2_training_choices() -> list[str]:
+    return _record_choices(
+        "/api/workbench/training-runs?training_kind=yue2_style", "runs",
+        empty="请先在 YuE2 工作台建立歌曲风格训练",
+        predicate=lambda item: item.get("state") in {"draft", "failed", "cancelled", "paused"},
+    )
+
+
+def _selected_id(value: str, label: str) -> str:
+    match = re.search(r"\[([a-f0-9]{32})\]\s*$", str(value))
+    if match is None:
+        raise ValueError(f"{label}不可用；请先在 YuE2 工作台准备完成，然后刷新 ComfyUI 页面")
+    return match.group(1)
 
 
 def base_request(model: dict) -> dict:
@@ -97,17 +147,33 @@ class YuE2GenerateSong:
             "seed": ("INT", {"default": 831001, "min": 0, "max": 0x7fffffffffffffff}),
             "cfg_scale": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 20.0, "step": 0.01}),
             "candidates": ("INT", {"default": 1, "min": 1, "max": 8}),
-        }, "optional": {"abc": ("STRING", {"multiline": True, "default": ""})}}
+        }, "optional": {
+            "abc": ("STRING", {"multiline": True, "default": ""}),
+            "style_model": (style_model_choices(), {"default": NONE_CHOICE}),
+            "style_model_scale": ("FLOAT", {"default": 0.4, "min": 0.0, "max": 2.0, "step": 0.05}),
+            "trained_style_model": ("YUE2_STYLE_MODEL",),
+        }}
     RETURN_TYPES = ("AUDIO", "YUE2_RESULT", "STRING", "STRING")
     RETURN_NAMES = ("audio", "result", "metadata", "output_directory")
     FUNCTION = "generate"
     CATEGORY = CATEGORY
 
-    def generate(self, model, style, lyrics, cot, seed, cfg_scale, candidates, abc=""):
+    def generate(self, model, style, lyrics, cot, seed, cfg_scale, candidates, abc="",
+                 style_model=NONE_CHOICE, style_model_scale=0.4, trained_style_model=None):
         if cot == "off" and abc.strip():
             raise ValueError("off 模式不能输入 ABC")
         payload = {**base_request(model), "style": style, "lyrics": lyrics, "cot": cot,
                    "seed": int(seed), "cfg_scale": float(cfg_scale), "candidates": int(candidates)}
+        model_asset_id = str((trained_style_model or {}).get("asset_id") or "")
+        if trained_style_model is not None and not model_asset_id:
+            raise ValueError("连接的 YuE2 训练节点只完成了预处理，尚未产生歌曲风格模型")
+        if not model_asset_id and style_model != NONE_CHOICE:
+            model_asset_id = _selected_id(style_model, "歌曲风格模型")
+        if model_asset_id:
+            if cot != "off":
+                raise ValueError("训练得到的歌曲风格 LoRA 当前只支持直接生成（cot=off）")
+            payload.update(style_model_asset_id=model_asset_id,
+                           style_model_scale=float(style_model_scale))
         if abc.strip():
             payload["abc"] = abc
         status = client.run("generate", payload)
@@ -261,6 +327,139 @@ class YuE2ReferenceVoiceCover:
                 json.dumps(status, ensure_ascii=False))
 
 
+class YuE2RVCVoiceLoader:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {
+            "voice": (rvc_voice_choices(),),
+            "speaker_id": ("INT", {"default": 0, "min": 0, "max": 109}),
+        }}
+    RETURN_TYPES = ("YUE2_RVC_VOICE", "STRING")
+    RETURN_NAMES = ("voice", "metadata")
+    FUNCTION = "load"
+    CATEGORY = CATEGORY + "/RVC"
+
+    def load(self, voice, speaker_id):
+        health = client.ensure_service()
+        if not health["ready"].get("capabilities", {}).get("rvc_inference"):
+            raise RuntimeError("RVC 推理组件或底模尚未安装完整")
+        voice_id = _selected_id(voice, "RVC 音色")
+        records = client.request("/api/rvc")["voices"]
+        selected = next((item for item in records if item["id"] == voice_id), None)
+        if selected is None:
+            raise ValueError("RVC 音色已被移动或删除，请刷新 ComfyUI 页面")
+        sid = int(speaker_id)
+        if sid not in {int(item["id"]) for item in selected.get("speakers", [])}:
+            names = "、".join(f"{item['name']}（{item['id']}）" for item in selected.get("speakers", []))
+            raise ValueError(f"该音色没有说话人 {sid}；可用说话人：{names or '无'}")
+        handle = {"voice_id": voice_id, "speaker_id": sid, "name": selected.get("name", voice_id)}
+        return (handle, json.dumps(selected, ensure_ascii=False))
+
+
+class YuE2RVCCover:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {
+            "voice": ("YUE2_RVC_VOICE",), "song_audio": ("AUDIO",),
+            "semitone_shift": ("INT", {"default": 0, "min": -12, "max": 12}),
+            "index_rate": ("FLOAT", {"default": 0.75, "min": 0.0, "max": 1.0, "step": 0.05}),
+            "protect": ("FLOAT", {"default": 0.33, "min": 0.0, "max": 0.5, "step": 0.01}),
+            "vocal_gain_db": ("FLOAT", {"default": 0.0, "min": -18.0, "max": 12.0, "step": 0.5}),
+            "accompaniment_gain_db": ("FLOAT", {"default": 0.0, "min": -18.0, "max": 12.0, "step": 0.5}),
+        }}
+    RETURN_TYPES = ("AUDIO", "YUE2_RESULT", "STRING")
+    RETURN_NAMES = ("audio", "result", "metadata")
+    FUNCTION = "convert"
+    CATEGORY = CATEGORY + "/RVC"
+
+    def convert(self, voice, song_audio, semitone_shift, index_rate, protect,
+                vocal_gain_db, accompaniment_gain_db):
+        ready = client.ensure_service()["ready"]
+        capabilities = ready.get("capabilities", {})
+        if not capabilities.get("rvc_inference") or not capabilities.get("vocal_separation"):
+            raise RuntimeError("RVC 推理或人声分离组件尚未安装完整")
+        source = save_comfy_audio(song_audio, "comfy-rvc-song")
+        payload = {
+            "backend": "rvc", "source_path": str(source),
+            "voice_id": voice["voice_id"], "speaker_id": int(voice["speaker_id"]),
+            "rvc_pitch_shift": int(semitone_shift), "index_rate": float(index_rate),
+            "protect": float(protect), "vocal_gain_db": float(vocal_gain_db),
+            "accompaniment_gain_db": float(accompaniment_gain_db),
+        }
+        status = client.run("voice_convert", payload)
+        result = {"job_id": status["id"], **status["result"]}
+        return (audio_value(status["result"]["audio"]), result,
+                json.dumps(status, ensure_ascii=False))
+
+
+class YuE2RVCTrain:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {
+            "training_project": (rvc_project_choices(),),
+            "confirmed_materials_and_rights": ("BOOLEAN", {"default": False}),
+        }}
+    RETURN_TYPES = ("YUE2_RVC_VOICE", "STRING")
+    RETURN_NAMES = ("voice", "metadata")
+    FUNCTION = "train"
+    CATEGORY = CATEGORY + "/RVC"
+    OUTPUT_NODE = True
+
+    def train(self, training_project, confirmed_materials_and_rights):
+        if not confirmed_materials_and_rights:
+            raise ValueError("请先在工作台逐段试听素材、确认训练权利，再勾选确认")
+        health = client.ensure_service()
+        if not health["ready"].get("capabilities", {}).get("rvc_training"):
+            raise RuntimeError("RVC 训练组件或底模尚未安装完整")
+        project_id = _selected_id(training_project, "RVC 训练项目")
+        preflight = client.request(f"/api/rvc/projects/{project_id}/preflight")
+        if not preflight.get("ready"):
+            raise ValueError("RVC 训练检查未通过：" + "；".join(preflight.get("errors", [])))
+        status = client.run("rvc_train", {"project_id": project_id})
+        voice = status["result"]["voice"]
+        speaker_id = int(voice.get("speakers", [{"id": 0}])[0]["id"])
+        handle = {"voice_id": voice["id"], "speaker_id": speaker_id,
+                  "name": voice.get("name", voice["id"])}
+        return (handle, json.dumps(status, ensure_ascii=False))
+
+
+class YuE2TrainStyle:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {
+            "training_run": (yue2_training_choices(),),
+            "action": (["预处理并训练", "仅预处理", "训练或继续训练"], {"default": "预处理并训练"}),
+            "confirmed_materials_and_rights": ("BOOLEAN", {"default": False}),
+        }}
+    RETURN_TYPES = ("YUE2_STYLE_MODEL", "STRING")
+    RETURN_NAMES = ("style_model", "metadata")
+    FUNCTION = "train"
+    CATEGORY = CATEGORY + "/训练"
+    OUTPUT_NODE = True
+
+    def train(self, training_run, action, confirmed_materials_and_rights):
+        if not confirmed_materials_and_rights:
+            raise ValueError("请先在工作台核对训练集、验证集与使用权利，再勾选确认")
+        health = client.ensure_service()
+        if not health["ready"].get("capabilities", {}).get("yue2_training"):
+            raise RuntimeError("YuE2 训练资源、MERT 模型或 CUDA 环境尚未安装完整")
+        run_id = _selected_id(training_run, "YuE2 训练记录")
+        run = client.request(f"/api/workbench/training-runs/{run_id}")
+        metadata = []
+        if action in {"预处理并训练", "仅预处理"}:
+            prepared = client.run("yue2_prepare", {"run_id": run_id})
+            metadata.append(prepared)
+        if action == "仅预处理":
+            return ({"run_id": run_id, "asset_id": ""}, json.dumps(metadata[-1], ensure_ascii=False))
+        if action == "训练或继续训练" and not run.get("config", {}).get("prepared"):
+            raise ValueError("该训练记录还未预处理；请选择“预处理并训练”")
+        trained = client.run("yue2_train", {"run_id": run_id})
+        metadata.append(trained)
+        asset = trained["result"]["model_asset"]
+        return ({"run_id": run_id, "asset_id": asset["id"], "title": asset.get("title", run_id)},
+                json.dumps(metadata, ensure_ascii=False))
+
+
 class YuE2GenerateSemantic:
     @classmethod
     def INPUT_TYPES(cls):
@@ -370,6 +569,8 @@ NODE_CLASS_MAPPINGS = {
     "YuE2PlanSong": YuE2PlanSong, "YuE2RenderPlan": YuE2RenderPlan,
     "YuE2Transcribe": YuE2Transcribe, "YuE2GenerateCover": YuE2GenerateCover,
     "YuE2ReferenceVoiceCover": YuE2ReferenceVoiceCover,
+    "YuE2RVCVoiceLoader": YuE2RVCVoiceLoader, "YuE2RVCCover": YuE2RVCCover,
+    "YuE2RVCTrain": YuE2RVCTrain, "YuE2TrainStyle": YuE2TrainStyle,
     "YuE2GenerateSemantic": YuE2GenerateSemantic, "YuE2Synthesize": YuE2Synthesize,
     "YuE2Decode": YuE2Decode, "YuE2SaveArtifacts": YuE2SaveArtifacts, "YuE2Unload": YuE2Unload,
 }
@@ -379,6 +580,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "YuE2PlanSong": "YuE2 生成乐谱计划", "YuE2RenderPlan": "YuE2 渲染乐谱计划",
     "YuE2Transcribe": "YuE2 音频转谱", "YuE2GenerateCover": "YuE2 旋律重制",
     "YuE2ReferenceVoiceCover": "YuE2 参考音色翻唱",
+    "YuE2RVCVoiceLoader": "YuE2 加载 RVC 音色", "YuE2RVCCover": "YuE2 RVC 翻唱",
+    "YuE2RVCTrain": "YuE2 训练 RVC 音色", "YuE2TrainStyle": "YuE2 训练歌曲风格",
     "YuE2GenerateSemantic": "YuE2 生成语义 Tokens", "YuE2Synthesize": "YuE2 声学合成",
     "YuE2Decode": "YuE2 VAE 解码", "YuE2SaveArtifacts": "YuE2 导出工件", "YuE2Unload": "YuE2 卸载/取消",
 }

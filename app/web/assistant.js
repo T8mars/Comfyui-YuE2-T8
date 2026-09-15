@@ -120,6 +120,10 @@ async function switchAssistantProject(projectId) {
     assistant.projectId = projectId;
     assistant.queues = {};
     assistant.drafts = drafts;
+    for (const selector of ['#cover-file','#reference-file']) {
+      const input=$(selector); clearLocalInputReference(input); input.value='';
+      input.dispatchEvent(new CustomEvent('local-source-change',{bubbles:true}));
+    }
     for (const panel of panels) {
       resetDraftPanel(panel); applyDraft(panel, drafts[panel]?.draft); assistant.ticks[panel]++;
     }
@@ -138,7 +142,11 @@ window.assistantSwitchProject = projectId => {
 function updateInstrumental(panel) {
   if (panel === 'cover') {
     const instrumental = $('#cover').dataset.instrumental === 'true';
-    $('#generate-reference-cover').disabled = instrumental || !$('#reference-file').files[0];
+    const backend=$('#voice-backend').value,direct=$('#cover-mode').value==='direct';
+    $('#generate-reference-cover').disabled = instrumental ||
+      (backend!=='rvc'&&!inputHasSource($('#reference-file'))) ||
+      (backend!=='seed-vc'&&!$('#rvc-cover-model').value) ||
+      (direct&&!inputHasSource($('#cover-file')));
     $('#generate-reference-cover').title = instrumental ? '纯器乐没有可转换的人声，请使用旋律重制' : '';
     return;
   }

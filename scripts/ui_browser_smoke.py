@@ -466,6 +466,22 @@ def run_browser(url: str, output: Path) -> dict:
             assert_named_controls(page)
             dynamic_dialog.press("Escape")
 
+        audio_card = page.locator(".asset-card").filter(has=page.locator("[data-wave]")).first
+        audio_card.locator("[data-use-asset]").click()
+        page.locator('[data-use-action="cover-source"]').click()
+        page.wait_for_function("document.body.dataset.activeTab === 'cover'")
+        asset_reference = page.locator("#cover-file").evaluate(
+            "input => ({files: input.files.length, source: JSON.parse(input.dataset.localSource), preview: input.dataset.localPreview})")
+        assert asset_reference["files"] == 0
+        assert asset_reference["source"].get("$asset")
+        assert asset_reference["preview"].startswith("/api/workbench/assets/")
+        page.evaluate("sendJobAudioToCover('20990101-000000-00000001', 'artifacts/audio.wav')")
+        job_reference = page.locator("#cover-file").evaluate(
+            "input => ({files: input.files.length, source: JSON.parse(input.dataset.localSource)})")
+        assert job_reference["files"] == 0
+        assert job_reference["source"]["$job_file"] == {
+            "job_id": "20990101-000000-00000001", "relative": "artifacts/audio.wav"}
+
         page.locator('.studio-sidebar [data-tab="create"]').click()
         page.locator("#create-result audio").wait_for(state="visible")
         assert_named_controls(page)
@@ -582,6 +598,7 @@ def run_browser(url: str, output: Path) -> dict:
         "scenarios": [
             "seeded project and ten asset cards stay within the desktop viewport",
             "asset use, edit and read dialogs expose accessible names",
+            "asset and completed-job audio handoff uses server references without browser file copies",
             "completed generation stays playable with an accessible audio name on its originating page",
             "full and partial technical failures use a public summary and required fields use Chinese validation",
             "ordinary workspace buttons use current-page semantics without unsupported selected state",

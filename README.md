@@ -41,6 +41,12 @@ YuE2 Music T8 把 YuE2-3B 完整歌曲生成接入 ComfyUI，并提供一个可�
 - 自动清理过期或超出容量的任务、上传和日志；`exports` 中的重要成品永久保留，服务重启时会把中断任务明确标为失败。
 - MuLaCover 重新编曲可从完整歌曲自动提取旋律、和弦与鼓组，或直接读取 MIDI；支持新歌词、结构化曲风、移调、固定种子、试听、MIDI 导出，并把成品继续发送到 Seed-VC/RVC 音色转换。
 
+### v1.5.3：工作台与 ComfyUI 训练链路打通
+
+- 从资产库或任务结果发送大音频时，浏览器只传递受校验的本地引用；服务端通过硬链接或本地复制交给任务，避免整首歌在浏览器内存中下载后再上传。
+- “YuE2 生成歌曲”可选择已训练的歌曲风格 LoRA、设置 0–2 强度，也可直接连接“YuE2 训练歌曲风格”的输出；风格 LoRA 当前只用于已验证的直接生成模式。
+- 新增 RVC 音色加载、训练和翻唱节点。训练项目、素材试听、说话人和训练参数先在本地工作台准备，节点会执行预检并把训练出的音色直接交给 RVC 翻唱。
+
 ### v1.5.2：训练、恢复与更新稳定性复查
 
 - YuE2 训练只接受至少 5 秒的完整歌曲或作品，训练集和验证集使用服务端记录的歌曲来源，避免同一首歌的不同片段被误当作两首歌。
@@ -229,7 +235,7 @@ GitHub 的 `*-code.zip` 是自动更新用代码包，不含模型和 Python；�
 
 ### 使用
 
-节点位于 `YuE2 音乐` 分类。`workflows` 目录提供歌词创作、先计划再渲染、外部 ABC 重生成和参考音色翻唱四个前端工作流。Windows 整合包可双击 `YuE2-T8.exe` 启动；节点源码包可双击 `start_webui.bat`。启动窗口会保留并显示服务地址或失败原因。若 8189 已由另一套空闲 YuE2 占用，启动器会校验进程后自动切换；有运行或排队任务时不会中断。`stop_service.bat` 用于手动停止后台服务。
+节点位于 `YuE2 音乐` 分类。`workflows` 目录提供歌词创作、先计划再渲染、外部 ABC 重生成、参考音色翻唱、YuE2 歌曲风格训练和 RVC 训练翻唱六类工作流。Windows 整合包可双击 `YuE2-T8.exe` 启动；节点源码包可双击 `start_webui.bat`。启动窗口会保留并显示服务地址或失败原因。若 8189 已由另一套空闲 YuE2 占用，启动器会校验进程后自动切换；有运行或排队任务时不会中断。`stop_service.bat` 用于手动停止后台服务。
 
 参考音色翻唱需要 1–30 秒清晰单人干声，推荐 5–25 秒、无伴奏、少混响。工作流先生成或接收歌曲，再分离歌声/伴奏、转换音色并重新混音。请只使用本人声音或已经取得明确授权的声音。
 
@@ -248,6 +254,10 @@ GitHub 的 `*-code.zip` 是自动更新用代码包，不含模型和 Python；�
 | YuE2 音频转谱 | 音频到 ABC、MIDI、事件与乐谱图 |
 | YuE2 生成翻唱 | 使用核对后的 ABC 与新风格生成 |
 | YuE2 参考音色翻唱 | 使用 Seed-VC + Demucs 转换人声音色并重新混音 |
+| YuE2 加载 RVC 音色 | 从本地音色库选择已训练或导入的 RVC 音色与说话人 |
+| YuE2 RVC 翻唱 | 分离完整歌曲、用 RVC 转换人声并与原伴奏重新混音 |
+| YuE2 训练 RVC 音色 | 对工作台中已试听、已通过预检的 RVC 项目执行训练并返回音色 |
+| YuE2 训练歌曲风格 | 预处理并训练工作台中的 YuE2 AR LoRA，产物可直接连接生成节点 |
 | YuE2 生成语义 Tokens | 高级分阶段推理 |
 | YuE2 声学合成 | 语义 tokens 到声学 latent |
 | YuE2 VAE 解码 | latent 到 48kHz 双声道音频 |
@@ -260,7 +270,7 @@ YuE2 Music T8 integrates YuE2-3B full-song generation with ComfyUI and includes 
 
 Install it with `comfy node install yue2-t8`, then run `install_runtime.bat` once from the node directory and restart ComfyUI. Models are downloaded from [t8star/YuE2-Comfy](https://huggingface.co/t8star/YuE2-Comfy) into `<node-directory>/models`; use the WebUI model settings or `configure_models.bat` to place them on another drive. Keep all twelve model subdirectories, including RVC, YuE2-training and the four MuLaCover components, with their configuration files. Windows and an NVIDIA GPU are required, with 24GB VRAM and at least 60GB free disk space recommended for installation and migration, plus storage for training data and outputs.
 
-The node pack supports Chinese and English lyrics, editable ABC plans, multi-candidate generation, SheetSage2 transcription, melody remake, MuLaCover audio/MIDI remixing, Seed-VC reference-voice conversion, staged inference, per-task cancellation, history, and artifact export. MuLaCover results include playable audio and extracted melody, chord and drum MIDI, and can be sent directly to voice conversion. A separate native, in-process node package is available at [Comfyui-Mulacover-T8](https://github.com/T8mars/Comfyui-Mulacover-T8).
+The node pack supports Chinese and English lyrics, editable ABC plans, multi-candidate generation, SheetSage2 transcription, melody remake, MuLaCover audio/MIDI remixing, Seed-VC and RVC voice conversion, YuE2 style LoRA and RVC training, staged inference, per-task cancellation, history, and artifact export. Training datasets and rights review are prepared in the local studio; native ComfyUI nodes run the checked project and can connect the resulting model directly to generation or voice conversion. MuLaCover results include playable audio and extracted melody, chord and drum MIDI, and can be sent directly to voice conversion. A separate native, in-process node package is available at [Comfyui-Mulacover-T8](https://github.com/T8mars/Comfyui-Mulacover-T8).
 
 The standalone v1.4 studio uses one CPython 3.12.10 runtime for music, transcription, Seed-VC, RVC, YuE2 style training and optional GGUF. Its project workspace and content-addressed asset library connect source songs, stems, lyrics, scores, generated versions, voices and trained models. YuE2 AR LoRA training uses immutable train/validation snapshots, pinned Mothersuperior v4 companion resources, loss tracking, resumable checkpoints and an in-page audio preview. Version 1.4.11 samples reproducible 768-token semantic windows (about 30 seconds) from complete songs, while validation checks fixed start, middle and end windows with song-disjoint groups. Trained adapters are currently enabled only for the validated direct-generation mode. The updater migrates legacy runtimes and rolls back a failed startup.
 

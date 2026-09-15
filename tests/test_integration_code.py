@@ -213,6 +213,54 @@ class IntegrationCodeTests(unittest.TestCase):
             self.assertEqual(created["kind"], "voice_convert")
             self.assertEqual(created["summary"], "参考音色翻唱 · voice.wav")
 
+    def test_asset_and_completed_job_references_stay_server_side(self):
+        import numpy as np
+        import soundfile as sf
+        from app.yue2_app.asset_library import AssetLibrary
+        with tempfile.TemporaryDirectory(dir=ROOT) as directory:
+            root = Path(directory)
+            outputs = root / "outputs" / "jobs"; outputs.mkdir(parents=True)
+            uploads = root / "uploads"; uploads.mkdir()
+            source = uploads / "source.wav"
+            sf.write(source, np.zeros(96000, dtype=np.float32), 16000)
+            library = AssetLibrary(root)
+            asset = library.import_file(source, kind="song", title="大型本地歌曲",
+                                        metadata={"duration": 6.0})
+            old_job_id = "20260916-010101-deadbeef"
+            old_job = outputs / old_job_id; old_job.mkdir()
+            old_audio = old_job / "audio.flac"
+            sf.write(old_audio, np.zeros(16000, dtype=np.float32), 16000)
+            atomic_json(old_job / "status.json", {"id": old_job_id, "kind": "generate",
+                                                   "status": "complete", "created_at": 1})
+            store = object.__new__(JobStore)
+            store.updating = False
+            store.storage_lock = threading.RLock(); store.lock = threading.RLock()
+            store.jobs = {old_job_id: {"id": old_job_id, "kind": "generate",
+                                       "status": "complete", "created_at": 1}}
+            store.pending = queue.Queue(); store.current_id = None; store.current_process = None
+            with mock.patch.object(service, "ROOT", root), mock.patch.object(service, "OUTPUTS", outputs), \
+                    mock.patch.object(service, "runtime_ready", return_value={
+                        "capabilities": {"transcription": True}}):
+                created = store.create("transcribe", {
+                    "source_path": {"$asset": asset["id"],
+                                    "revision_id": asset["current_revision_id"], "name": asset["title"]},
+                }, source="webui")
+                saved = json.loads((outputs / created["id"] / "job.json").read_text(encoding="utf-8"))
+                materialized = Path(saved["request"]["source_path"])
+                self.assertTrue(materialized.is_file())
+                self.assertTrue(within(root / "uploads", materialized))
+                self.assertEqual(saved["request"]["_local_references"][0]["asset_id"], asset["id"])
+                references = []
+                linked = store._resolve_local_references({
+                    "$job_file": {"job_id": old_job_id, "relative": "audio.flac"}, "name": "成品"
+                }, references)
+                self.assertTrue(Path(linked).is_file())
+                self.assertEqual(references[0]["job_id"], old_job_id)
+                with self.assertRaises(ValueError):
+                    store._resolve_local_references({
+                        "$job_file": {"job_id": old_job_id, "relative": "../../outside.wav"}
+                    }, [])
+
     def test_result_panel_survives_resume_and_legacy_cover_is_restored(self):
         with tempfile.TemporaryDirectory(dir=ROOT) as directory:
             outputs = Path(directory) / "jobs"
@@ -666,11 +714,17 @@ class IntegrationCodeTests(unittest.TestCase):
 
     def test_workflows_are_well_formed(self):
         workflows = list((Path(__file__).resolve().parents[1] / "workflows").glob("*.json"))
-        self.assertEqual({path.name[:2] for path in workflows}, {"01", "02", "03", "04"})
+        self.assertEqual({path.name[:2] for path in workflows}, {"01", "02", "03", "04", "05", "06"})
+        self.assertEqual(len(workflows), 12)
         for path in workflows:
             data = json.loads(path.read_text(encoding="utf-8"))
             node_ids = {node["id"] for node in data["nodes"]}
-            self.assertIn("YuE2ModelLoader", {node["type"] for node in data["nodes"]})
+            node_types = {node["type"] for node in data["nodes"]}
+            if path.name.startswith("06"):
+                self.assertIn("YuE2RVCTrain", node_types)
+                self.assertIn("YuE2RVCCover", node_types)
+            else:
+                self.assertIn("YuE2ModelLoader", node_types)
             for link in data["links"]:
                 self.assertIn(link[1], node_ids)
                 self.assertIn(link[3], node_ids)

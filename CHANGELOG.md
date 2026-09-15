@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.3 - 2026-09-16
+
+- Keep asset-library and completed-job audio on the server during cross-workspace handoff instead of downloading the whole file into browser memory and uploading it again.
+- Add native ComfyUI nodes for YuE2 style training, trained LoRA selection and strength, RVC voice loading, RVC training and RVC song conversion.
+- Allow completed YuE2 training output to connect directly to song generation and completed RVC training output to connect directly to RVC conversion.
+- Preserve manual uploads while clearly tracking server-side audio and MIDI references across previews, transcription, RVC import, MuLaCover and voice conversion.
+
 ## 1.5.2 - 2026-09-16
 
 - Require verified, separated vocals for RVC training and reject unreviewed or mixed material before GPU work starts.

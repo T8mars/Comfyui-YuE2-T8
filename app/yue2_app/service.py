@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import mimetypes
 import math
@@ -284,6 +285,72 @@ class JobStore:
             "decode": "输出 48 kHz 音频",
         }.get(kind, "本地音乐任务")
 
+    def _materialize_local_reference(self, source: Path, *, identity: str, suffix: str) -> Path:
+        """Expose a verified source to workers without a browser download/upload round trip."""
+        source = source.resolve()
+        suffix = suffix.lower() if suffix.startswith(".") else ".bin"
+        directory = ROOT / "uploads"
+        directory.mkdir(parents=True, exist_ok=True)
+        safe_identity = re.sub(r"[^a-zA-Z0-9_-]+", "-", identity)[:120]
+        destination = within(ROOT / "uploads", directory / f"{safe_identity}{suffix}")
+        if destination.is_file() and destination.stat().st_size == source.stat().st_size:
+            return destination
+        if destination.exists():
+            destination.unlink()
+        try:
+            os.link(source, destination)
+        except OSError:
+            shutil.copy2(source, destination)
+        if not destination.is_file() or destination.stat().st_size != source.stat().st_size:
+            destination.unlink(missing_ok=True)
+            raise ValueError("本地素材引用准备失败")
+        return destination
+
+    def _resolve_local_references(self, value, references: list[dict]):
+        if isinstance(value, list):
+            return [self._resolve_local_references(item, references) for item in value]
+        if not isinstance(value, dict):
+            return value
+        if "$asset" in value:
+            if set(value) - {"$asset", "revision_id", "name"}:
+                raise ValueError("资产引用包含不支持的字段")
+            asset_id = str(value.get("$asset") or "")
+            revision_id = str(value.get("revision_id") or "")
+            library = AssetLibrary(ROOT)
+            asset = library.get_asset(asset_id)
+            source, info = library.revision_file(asset_id, revision_id)
+            if asset.get("kind") not in {"song", "work", "vocal", "instrumental", "reference_voice", "midi"}:
+                raise ValueError("这个资产不能作为本地音频或 MIDI 输入")
+            actual_revision = str(info.get("id") or asset.get("current_revision_id") or revision_id)
+            destination = self._materialize_local_reference(
+                source, identity=f"asset-{info['blob_sha256']}",
+                suffix=str(info.get("blob_suffix") or source.suffix))
+            references.append({"type": "asset", "asset_id": asset_id,
+                               "revision_id": actual_revision, "title": asset.get("title", "")})
+            return str(destination)
+        if "$job_file" in value:
+            if set(value) - {"$job_file", "name"} or not isinstance(value.get("$job_file"), dict):
+                raise ValueError("任务文件引用格式无效")
+            descriptor = value["$job_file"]
+            if set(descriptor) != {"job_id", "relative"}:
+                raise ValueError("任务文件引用字段无效")
+            job_id = str(descriptor.get("job_id") or "")
+            status = self.get(job_id)
+            if status.get("status") != "complete":
+                raise ValueError("只能引用已完成任务的文件")
+            directory = job_directory(job_id)
+            relative = Path(str(descriptor.get("relative") or ""))
+            source = within(directory, directory / relative)
+            if not source.is_file() or source.is_symlink():
+                raise ValueError("引用的任务文件不存在")
+            relative_hash = hashlib.sha256(relative.as_posix().encode("utf-8")).hexdigest()[:20]
+            destination = self._materialize_local_reference(
+                source, identity=f"job-{job_id}-{relative_hash}", suffix=source.suffix)
+            references.append({"type": "job_file", "job_id": job_id,
+                               "relative": relative.as_posix(), "title": str(value.get("name") or source.name)})
+            return str(destination)
+        return {key: self._resolve_local_references(child, references) for key, child in value.items()}
+
     def assert_writable(self) -> None:
         if self.updating or updater.update_status(ROOT, __version__).get('state') in updater.ACTIVE_STATES:
             raise ValueError('整合包正在更新，请等待升级完成后再提交操作')
@@ -321,6 +388,11 @@ class JobStore:
             raise ValueError(f"不支持的任务类型：{kind}")
         if not isinstance(request, dict):
             raise ValueError("request 必须是对象")
+        request = json.loads(json.dumps(request))
+        local_references: list[dict] = []
+        request = self._resolve_local_references(request, local_references)
+        if local_references:
+            request["_local_references"] = local_references
         capabilities = runtime_ready().get("capabilities", {})
         if kind == "rvc_train" and not capabilities.get("rvc_training"):
             raise ValueError("RVC 训练组件或底模尚未安装完整")
@@ -380,7 +452,6 @@ class JobStore:
                     raise ValueError('音色中不存在对应的说话人索引')
             if backend in {'seed-vc', 'compare'} and not capabilities.get('voice_conversion'):
                 raise ValueError('参考音色组件或所选转换方式不可用')
-        request = json.loads(json.dumps(request))
         if kind in ASSISTANT_KINDS:
             request = assistant_data.normalize_request(ROOT, request)
             result_panel = "assistant"
