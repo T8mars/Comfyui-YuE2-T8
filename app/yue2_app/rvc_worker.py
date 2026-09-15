@@ -117,15 +117,17 @@ def train_voice(root, project, request, ctx):
     def done(stage):
         files = state['stages'].get(stage, {})
         return bool(files) and all((workspace / p).is_file() and sha256(workspace / p) == digest for p, digest in files.items())
-    def run(stage, args):
+    def run(stage, args, *, progress_total=None):
         run_stage(root, assets, workspace, stage, args, ctx,
                   extra_env={'RVC_TRAIN_DEVICE': 'cuda' if cuda else 'cpu',
-                             **({} if cuda else {'CUDA_VISIBLE_DEVICES': '-1'})})
+                             **({} if cuda else {'CUDA_VISIBLE_DEVICES': '-1'})},
+                  progress_total=progress_total)
     manifest = directory / 'multispeaker_manifest.json'
     if not done('preprocess'):
         if any(directory.glob('[GD]_*.pth')):
             raise ValueError('已训练项目的预处理文件损坏，请修复备份或新建项目')
-        run('preprocess', [directory, int(options['sample_rate'][:-1]) * 1000, 1, directory, 'True', 3.7, manifest])
+        run('preprocess', [directory, int(options['sample_rate'][:-1]) * 1000, 1, directory, 'True', 3.7, manifest],
+            progress_total=len(entries))
         for entry in entries:
             if not list((directory / '0_gt_wavs').glob(entry['output_key'] + '_*.wav')):
                 raise ValueError(f'素材未产生有效训练片段：{Path(entry["path"]).name}')
@@ -133,9 +135,9 @@ def train_voice(root, project, request, ctx):
     wavs = sorted((directory / '1_16k_wavs').glob('*.wav'))
     if not done('f0'):
         if options['f0_method'] == 'rmvpe' and cuda:
-            run('f0', ['cuda', 1, 0, options['gpu'], directory, 'False'])
+            run('f0', ['cuda', 1, 0, options['gpu'], directory, 'False'], progress_total=len(wavs))
         else:
-            run('f0', ['cpu', directory, 1, options['f0_method']])
+            run('f0', ['cpu', directory, 1, options['f0_method']], progress_total=len(wavs))
         files = [directory / folder / (wav.name + '.npy') for wav in wavs for folder in ('2a_f0', '2b-f0nsf')]
         for file in files:
             value = np.load(file, allow_pickle=False)
@@ -145,7 +147,7 @@ def train_voice(root, project, request, ctx):
     feature_dir = directory / ('3_feature768' if options['version'] == 'v2' else '3_feature256')
     if not done('features'):
         run('features', ['cuda', 1, 0, options['gpu'], directory, options['version'], 'False'] if cuda
-            else ['cpu', 1, 0, directory, options['version'], 'False'])
+            else ['cpu', 1, 0, directory, options['version'], 'False'], progress_total=len(wavs))
         complete('features', [feature_dir / (wav.stem + '.npy') for wav in wavs])
     batch = choose_batch(options)
     prepare_training(root, workspace, experiment, options, project['speakers'], batch_size=batch)
@@ -157,7 +159,8 @@ def train_voice(root, project, request, ctx):
             try:
                 run('train', ['-e', experiment, '-sr', options['sample_rate'], '-v', options['version'], '-f0', 1,
                           '-bs', batch, '-g', options['gpu'], '-te', options['epochs'], '-se', options['save_every'],
-                          '-sw', 1, '-l', 0, '-c', 0, '-pg', generator, '-pd', discriminator])
+                          '-sw', 1, '-l', 0, '-c', 0, '-pg', generator, '-pd', discriminator],
+                    progress_total=options['epochs'])
                 break
             except RuntimeError as exc:
                 oom = any(text in str(exc).lower() for text in ('cuda out of memory', 'cuda error: out of memory', 'torch.outofmemoryerror'))

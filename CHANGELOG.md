@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.5.4 - 2026-09-16
+
+- RVC 切片、音高提取、HuBERT 特征和训练轮次现在把实时 `x/y` 进度写入后台任务，离开页面后仍可在任务中心查看。
+- 完整包构建器强制包含 MuLaCover、HeartCodec、Qwen3 Embedding、SymbolicTranscriptor、示例模型与原生 ComfyUI MuLaCover 节点包，避免发布缺功能的“完整包”。
+
 ## 1.5.3 - 2026-09-16
 
 - Keep asset-library and completed-job audio on the server during cross-workspace handoff instead of downloading the whole file into browser memory and uploading it again.

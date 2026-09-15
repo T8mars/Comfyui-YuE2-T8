@@ -14,8 +14,11 @@ import subprocess
 import time
 import zipfile
 
-MODEL_DIRS = {'Demucs','MERT-v2-FullSong','RVC','Seed-VC','SheetSage2','YuE2-3B','YuE2-Vae','YuE2-training'}
-MODEL_MANIFESTS = {'MODEL_MANIFEST.json','VOICE_MODEL_MANIFEST.json'}
+MODEL_DIRS = {
+    'Demucs','HeartCodec-oss','MERT-v2-FullSong','MuLaCover','Qwen3-Embedding-0.6B',
+    'RVC','Seed-VC','SheetSage2','SymbolicTranscriptor','YuE2-3B','YuE2-Vae','YuE2-training',
+}
+MODEL_MANIFESTS = {'MODEL_MANIFEST.json','MULACOVER_MODEL_MANIFEST.json','VOICE_MODEL_MANIFEST.json'}
 EXCLUDED = {'__pycache__','.git','.cache','.pytest_cache','__MACOSX'}
 PRIVATE_ROOTS = {'models','runtime','downloads','outputs','uploads','exports','logs','cache','userdata','research'}
 PRIVATE_FILES = {'settings.json','server.json','retention.json','service.lock','yue2_home.txt','roadmap.md'}
@@ -107,6 +110,8 @@ def main():
     parser.add_argument('--models',required=True,type=Path)
     parser.add_argument('--launcher',required=True,type=Path)
     parser.add_argument('--flash-build',required=True,type=Path)
+    parser.add_argument('--examples',required=True,type=Path)
+    parser.add_argument('--mulacover-node',required=True,type=Path)
     parser.add_argument('--target',required=True,type=Path)
     args = parser.parse_args()
     target = args.target.absolute()
@@ -133,6 +138,15 @@ def main():
     for name in ('README.md','final-status.json','local-verification.json','prebuilt-verification.json'):
         copies.append((args.flash_build/name,Path('extras/flash-attention/provenance')/name))
     copies.append((args.flash_build/'src/LICENSE',Path('extras/flash-attention/LICENSE')))
+    examples = args.examples.absolute()
+    if not examples.is_dir():
+        raise ValueError('CSD example delivery directory is missing')
+    copies.extend((path, Path('示例模型与试听') / examples.name / path.relative_to(examples))
+                  for path in plain_files(examples))
+    mulacover_node = args.mulacover_node.absolute()
+    if not mulacover_node.is_file() or mulacover_node.suffix.lower() != '.zip':
+        raise ValueError('Native ComfyUI MuLaCover node archive is missing')
+    copies.append((mulacover_node, Path('extras') / mulacover_node.name))
     if not args.launcher.is_file():
         raise ValueError('Native launcher missing')
     copies.append((args.launcher,Path('YuE2-T8.exe')))
@@ -206,6 +220,8 @@ def main():
                                         target,args.runtime,args.models,args.flash_build,args.launcher),encoding='utf-8')
     runtime_files(target/'runtime')
     report.update(state='verified',runtime='runtime/python.exe',models_included=True,llm_weights_included=False,
+                  mulacover_models_included=True,community_examples_included=True,
+                  native_mulacover_node_included=True,
                   flash_attention_wheels_included=True,flash_attention_enabled=False)
     record(report)
     (target/'FULL_BUNDLE_MANIFEST.json').write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')

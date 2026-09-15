@@ -6,7 +6,7 @@
 
 ## 完整版整合包
 
-完整版整合包：[夸克网盘下载](https://pan.quark.cn/s/67ebf18a2d51) · [Hugging Face 下载 v1.5.0](https://huggingface.co/t8star/YuE2-Comfy/resolve/main/bundles/Yue2-T8-Onekey-v1.5.0-Windows-NVIDIA.rar?download=true) · [SHA-256](https://huggingface.co/t8star/YuE2-Comfy/resolve/main/bundles/Yue2-T8-Onekey-v1.5.0-Windows-NVIDIA.rar.sha256?download=true)
+完整版整合包：[夸克网盘下载](https://pan.quark.cn/s/67ebf18a2d51) · [Hugging Face 下载 v1.5.4](https://huggingface.co/t8star/YuE2-Comfy/resolve/main/bundles/Yue2-T8-Onekey-v1.5.4-Windows-NVIDIA.rar?download=true) · [SHA-256](https://huggingface.co/t8star/YuE2-Comfy/resolve/main/bundles/Yue2-T8-Onekey-v1.5.4-Windows-NVIDIA.rar.sha256?download=true)
 
 Windows / NVIDIA 完整包，包含运行环境与模型。完整解压后，双击 `YuE2-T8.exe` 即可启动；首次启动可通过页面“检查更新”安装最新的小型代码补丁。
 
@@ -40,6 +40,11 @@ YuE2 Music T8 把 YuE2-3B 完整歌曲生成接入 ComfyUI，并提供一个可�
 - 共享单 GPU 队列、任务中心、逐项取消、任务历史与导出；任务中心会区分当前任务和完整等待列表，并显示来源、阶段、风格摘要与排队顺序。
 - 自动清理过期或超出容量的任务、上传和日志；`exports` 中的重要成品永久保留，服务重启时会把中断任务明确标为失败。
 - MuLaCover 重新编曲可从完整歌曲自动提取旋律、和弦与鼓组，或直接读取 MIDI；支持新歌词、结构化曲风、移调、固定种子、试听、MIDI 导出，并把成品继续发送到 Seed-VC/RVC 音色转换。
+
+### v1.5.4：后台进度与完整包交付收口
+
+- RVC 素材切片、F0、HuBERT 特征和训练轮次都会向后台任务写入数字进度，切换页面后也能查看。
+- 完整包构建会验证并带上 MuLaCover 全部四组模型、示例 RVC/YuE2 模型和原生 ComfyUI MuLaCover 节点包。
 
 ### v1.5.3：工作台与 ComfyUI 训练链路打通
 
@@ -285,7 +290,7 @@ The [CSD Korean Female v1 examples](https://huggingface.co/t8star/YuE2-Comfy/tre
 - API: https://api.seedance.nz/sign-up?aff=5f4w
 - 在线 AI 应用 / Online AI apps: https://www.runninghub.ai/zh-cn/user-center/1907375370302308353/userPost?inviteCode=rh-v1121
 - ComfyUI 整合包 / Portable package: https://pan.quark.cn/s/67ebf18a2d51
-- Full portable bundle on Hugging Face: https://huggingface.co/t8star/YuE2-Comfy/resolve/main/bundles/Yue2-T8-Onekey-v1.5.0-Windows-NVIDIA.rar?download=true
+- Full portable bundle on Hugging Face: https://huggingface.co/t8star/YuE2-Comfy/resolve/main/bundles/Yue2-T8-Onekey-v1.5.4-Windows-NVIDIA.rar?download=true
 - Hugging Face: https://huggingface.co/t8star
 - Model repository: https://huggingface.co/t8star/YuE2-Comfy
 - Release validation: [VALIDATION.md](VALIDATION.md)

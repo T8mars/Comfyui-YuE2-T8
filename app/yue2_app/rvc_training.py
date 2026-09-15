@@ -36,6 +36,17 @@ def training_progress(text: str) -> dict:
     return result
 
 
+def stage_progress(text: str) -> dict:
+    """Extract the latest bounded item progress emitted by RVC helper stages."""
+    matches = re.findall(r'进度[：:]\s*(\d+)\s*/\s*(\d+)', text)
+    if not matches:
+        return {}
+    completed, total = map(int, matches[-1])
+    if total <= 0 or completed < 0 or completed > total:
+        return {}
+    return {'completed': completed, 'total': total, 'progress': completed / total}
+
+
 def training_options(raw: dict) -> dict:
     if not isinstance(raw, dict):
         raise ValueError('训练设置必须是对象')
@@ -135,7 +146,7 @@ def prepare_training(root: Path, workspace: Path, experiment: str, options: dict
 
 
 def run_stage(root: Path, assets: Path, workspace: Path, stage: str, arguments: list,
-              ctx, *, extra_env: dict | None = None) -> None:
+              ctx, *, extra_env: dict | None = None, progress_total: int | None = None) -> None:
     ctx.check_cancelled()
     log_path = ctx.job_dir / ('rvc-' + stage + '.log')
     offset = log_path.stat().st_size if log_path.exists() else 0
@@ -151,7 +162,11 @@ def run_stage(root: Path, assets: Path, workspace: Path, stage: str, arguments: 
         if text:
             print(text, end='', flush=True)
         recent = (recent + text)[-8192:]
-        return training_progress(recent) if stage == 'train' else {}
+        result = training_progress(recent) if stage == 'train' else stage_progress(recent)
+        if stage == 'train' and progress_total and result.get('epoch'):
+            completed = min(progress_total, int(result['epoch']))
+            result.update(completed=completed, total=progress_total, progress=completed / progress_total)
+        return result
     environment = os.environ.copy()
     environment.update(PYTHONIOENCODING='utf-8', OMP_NUM_THREADS='2')
     environment.update(extra_env or {})

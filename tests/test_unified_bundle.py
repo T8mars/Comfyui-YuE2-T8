@@ -16,6 +16,11 @@ release_spec.loader.exec_module(release_builder)
 
 
 class PortableBundleBoundary(unittest.TestCase):
+    def test_full_bundle_requires_all_integrated_music_models(self):
+        for name in ('MuLaCover','HeartCodec-oss','Qwen3-Embedding-0.6B','SymbolicTranscriptor'):
+            self.assertIn(name,builder.MODEL_DIRS)
+        self.assertIn('MULACOVER_MODEL_MANIFEST.json',builder.MODEL_MANIFESTS)
+
     def test_archive_rejects_private_paths_roadmap_and_traversal(self):
         prefix = 'Release/'
         for name in ('roadmap.md','docs/ROADMAP.MD','userdata/voice.pth','cache/test','settings.json',
