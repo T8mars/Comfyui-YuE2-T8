@@ -87,6 +87,8 @@ class MuLaCoverUiAndNodeTests(unittest.TestCase):
 
     def test_native_node_package_has_no_service_bridge(self):
         root = Path(__file__).resolve().parents[2] / "Comfyui-Mulacover-T8"
+        if not (root / "__init__.py").is_file():
+            self.skipTest("Native nodes are validated in their separately released repository")
         source = "\n".join(path.read_text(encoding="utf-8") for path in root.glob("*.py"))
         self.assertNotIn("127.0.0.1", source)
         self.assertNotIn("/api/jobs", source)
