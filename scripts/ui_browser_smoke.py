@@ -256,6 +256,25 @@ def run_browser(url: str, output: Path) -> dict:
         assert page.locator("#assistant-compose-abc").inner_text() == "补写 ABC"
         page.locator("#assistant-compose-abc").scroll_into_view_if_needed()
         page.screenshot(path=output / "desktop-assistant-abc-recovery.png", full_page=False)
+        page.evaluate("showAssistantResult({style:'English folk',lyrics:'[Verse]\\nBrowser test',abc:'X:1\\ninvalid paid draft',cot:'full',abc_status:'failed',outcome:'partial_success',report:{abc:{error:'bar duration mismatch'}}})")
+        assert page.locator("#assistant-result-abc").input_value() == "X:1\ninvalid paid draft"
+        assert page.locator("#assistant-compose-abc").is_visible()
+        assert page.locator("#assistant-compose-abc").inner_text() == "重新生成 ABC"
+        assert "已保留模型返回的 ABC" in page.locator("#assistant-abc-status").inner_text()
+        assert page.locator("#assistant-abc-status").bounding_box()["y"] < page.locator("#assistant-result-abc").bounding_box()["y"]
+        page.locator("#assistant-abc-status").scroll_into_view_if_needed()
+        page.screenshot(path=output / "desktop-assistant-invalid-abc-retained.png", full_page=False)
+        page.locator('[data-assistant-send="plan"]').click()
+        assert page.locator('#assistant-send-dialog [name="abc"]').is_enabled()
+        assert page.locator('#assistant-send-dialog [name="abc"]').is_checked()
+        assert "完整原样填入" in page.locator("#assistant-send-details").inner_text()
+        page.locator("#assistant-send-confirm").click()
+        page.wait_for_function("document.body.dataset.activeTab === 'plan'")
+        assert page.locator("#plan-abc").input_value() == "X:1\ninvalid paid draft"
+        assert "未校验导入谱" in page.locator("#plan-badge").inner_text()
+        page.locator("#plan-workbench").scroll_into_view_if_needed()
+        page.screenshot(path=output / "desktop-plan-invalid-abc-received.png", full_page=False)
+        page.locator('.studio-sidebar [data-tab="assistant"]').click()
         channel_status.scroll_into_view_if_needed()
         page.screenshot(path=output / "desktop-assistant-api-key-entry.png", full_page=False)
         page.locator("#assistant-open-settings").click()
@@ -272,6 +291,13 @@ def run_browser(url: str, output: Path) -> dict:
 
         page.locator('.studio-sidebar [data-tab="training"]').click()
         assert "当前项目“浏览器回归项目”" in page.locator("#training-assets-scope").inner_text()
+        assert page.locator("#training-preset").input_value() == "quick"
+        assert page.locator("#training-form [name=steps]").input_value() == "200"
+        style_input = page.locator("#training-form [name=style]")
+        style_input.fill("warm song")
+        assert style_input.evaluate("el => getComputedStyle(el).direction") == "ltr"
+        assert style_input.evaluate("el => getComputedStyle(el).textAlign") == "left"
+        style_input.fill("")
         assert page.locator("[data-training-asset]").count() == 2
         assert page.locator(".training-lyrics-text:not(.hidden) textarea").count() == 2
         page.locator("#training-select-all").click()

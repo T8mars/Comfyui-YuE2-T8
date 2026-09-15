@@ -19,6 +19,9 @@
 #assistant-advanced { padding-top: 16px; }
 #assistant-result > label { display: block; margin: 20px 0; }
 #assistant-result textarea { width: 100%; }
+.assistant-abc-status { display: block; margin: 8px 0 10px; padding: 9px 11px; border-radius: 8px; color: #4d596c; background: #f3f6fb; font-size: 12px; font-weight: 650; line-height: 1.5; }
+.assistant-abc-status[data-state="failed"] { color: #713046; background: #fff1f5; }
+.assistant-abc-status[data-state="validated"] { color: #246845; background: #eefaf3; }
 #assistant-result pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 340px; overflow: auto; }
 .assistant-send { margin: 24px 0; }
 #assistant-progress:not(:empty) { margin: 24px 0; padding: 20px; border: 1px solid #dadcf2; border-radius: 16px; }

@@ -126,6 +126,7 @@ main { max-width: 1380px; padding: 32px 28px 160px; }
 .training-form-status { padding: 10px 11px; border-radius: 8px; background: #f6f8fc; line-height: 1.55; }
 .training-form-status[data-state="error"] { color: #8f2946; background: #fff1f4; }
 .training-form-status[data-state="busy"] { color: #345a91; background: #eef5ff; }
+.training-inspector textarea, .training-lyrics-text textarea { direction: ltr !important; text-align: left !important; }
 .training-asset input { width: auto; }
 .training-asset b { display: block; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .training-asset small { color: var(--muted); font-size: 9px; }

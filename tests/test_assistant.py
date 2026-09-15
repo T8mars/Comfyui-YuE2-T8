@@ -123,12 +123,32 @@ class AssistantTests(unittest.TestCase):
         result = execute(self.root, ctx, request, transport=transport)
         self.assertEqual(result["outcome"], "partial_success")
         self.assertTrue(result["style"])
-        self.assertEqual(result["abc"], "")
+        self.assertEqual(result["abc"], "bad score")
+        self.assertEqual(result["abc_status"], "failed")
+        self.assertTrue(result["report"]["abc"]["retained_invalid"])
+        self.assertNotIn("abc", result["request"])
         self.assertEqual(calls, ["style", "abc", "abc_repair"])
         calls.clear()
         request["resume_from"] = str(ctx.job_dir)
         execute(self.root, self.context(2), request, transport=transport)
         self.assertEqual(calls, ["abc", "abc_repair"])
+
+    def test_failed_repair_keeps_the_first_paid_abc_response(self):
+        request = self.request(lyrics="[Verse]\nCome home to me", lyrics_mode=engine.PRESERVE,
+                               abc_source=engine.ABC_GENERATE)
+        calls = []
+        def transport(stage, *args):
+            calls.append(stage)
+            if stage == "style":
+                return {"style": "English folk, warm guitar"}
+            if stage == "abc":
+                return {"abc": "X:1\npaid but invalid"}
+            raise engine.YuE2PromptError("repair request failed")
+        result = execute(self.root, self.context(), request, transport=transport)
+        self.assertEqual(calls, ["style", "abc", "abc_repair"])
+        self.assertEqual(result["abc"], "X:1\npaid but invalid")
+        self.assertEqual(result["abc_status"], "failed")
+        self.assertTrue(result["report"]["abc"]["retained_invalid"])
 
     def test_style_failure_keeps_valid_lyrics_and_resume_reuses_lyrics(self):
         request, ctx, calls = self.request(lyrics_mode=engine.GENERATE), self.context(), []
@@ -327,6 +347,18 @@ class AssistantTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "项目 ID"):
             data.save_draft(self.root, {"panel": "create", "project_id": "../escape",
                                         "revision": 0, "draft": {}})
+
+    def test_legacy_assistant_draft_migrates_old_downstream_default_once(self):
+        saved = data.save_draft(self.root, {"panel": "assistant", "revision": 0, "draft": {
+            "values": {"abc_source": engine.ABC_DOWNSTREAM}}})
+        migrated = data.drafts(self.root)["assistant"]
+        self.assertEqual(migrated["draft"]["values"]["abc_source"], engine.ABC_GENERATE)
+        self.assertEqual(migrated["draft"]["defaults_version"], 2)
+        self.assertEqual(migrated["migrated_defaults"], ["abc_source"])
+        data.save_draft(self.root, {"panel": "assistant", "revision": saved["revision"], "draft": {
+            "defaults_version": 2, "values": {"abc_source": engine.ABC_DOWNSTREAM}}})
+        preserved = data.drafts(self.root)["assistant"]
+        self.assertEqual(preserved["draft"]["values"]["abc_source"], engine.ABC_DOWNSTREAM)
 
     def test_assistant_job_project_scope_is_validated_and_preserved(self):
         raw = {"values": {"music_idea": "A warm song about home", "lyrics_language": "English"},

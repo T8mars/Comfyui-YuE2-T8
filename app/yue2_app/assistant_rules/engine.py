@@ -61,6 +61,15 @@ REVIEW_SCHEMA = {
 class YuE2PromptError(RuntimeError):
     pass
 
+
+class AbcCompositionError(YuE2PromptError):
+    """A paid composer response failed validation but remains user-visible."""
+
+    def __init__(self, message: str, candidate: str = ""):
+        super().__init__(message)
+        self.candidate = candidate
+
+
 def abc_failure_report(error: Exception, *, provided: bool, cot: str) -> dict:
     # Errors can contain rejected notation; keep credentials/URLs out of UI.
     reason = API_KEY_PATTERN.sub("[redacted-key]", str(error))
@@ -68,7 +77,8 @@ def abc_failure_report(error: Exception, *, provided: bool, cot: str) -> dict:
     return {"provided": provided, "generated": False, "status": "failed",
             "source": "user" if provided else "t8_llm", "structural_check": False,
             "error": reason, "error_type": type(error).__name__, "audio_verified": False,
-            "planner": "YuE2" if cot != "off" else "off"}
+            "planner": "YuE2" if cot != "off" else "off",
+            "retained_invalid": bool(getattr(error, "candidate", "")), "safe_for_downstream": False}
 
 def official_snapshot() -> dict[str, Any]:
     manifest = json.loads((SOURCE_ROOT / "source.json").read_text(encoding="utf-8"))
@@ -284,13 +294,20 @@ def compose_abc(runner: YuE2Runner, brief: dict, style: str, lyrics: str, cot: s
     score_mode = "melody" if action == ABC_STRIP else cot
     content = {"brief": brief, "final_style": style, "final_lyrics": lyrics,
                "score_mode": score_mode, "required_sections": sections}
-    failures = []
+    failures, last_candidate = [], ""
     for attempt in range(2):
-        draft = runner.complete("abc" if attempt == 0 else "abc_repair", ABC_SYSTEM, content, 0.4, result_key="abc")
         candidate = ""
+        try:
+            draft = runner.complete("abc" if attempt == 0 else "abc_repair", ABC_SYSTEM, content, 0.4, result_key="abc")
+        except YuE2PromptError as exc:
+            if attempt and last_candidate:
+                raise AbcCompositionError("ABC 修正请求未完成，已保留第一次返回的谱面：" + str(exc),
+                                          last_candidate) from exc
+            raise
         try:
             raw_candidate = _field(draft, "abc")
             candidate = normalize_generated_abc(raw_candidate)
+            last_candidate = candidate
             abc, result = prepare_abc(candidate, cot, action, brief["bpm"], brief["meter"], brief["key_scale"])
             score = yue2_abc.parse_abc(abc)
             if result["control_conflicts"]:
@@ -323,7 +340,8 @@ def compose_abc(runner: YuE2Runner, brief: dict, style: str, lyrics: str, cot: s
         except (YuE2PromptError, yue2_abc.AbcError) as exc:
             failures.append(str(exc))
             if attempt:
-                raise YuE2PromptError("ABC 创作及一次修正仍未通过校验：" + str(exc)) from exc
+                raise AbcCompositionError("ABC 创作及一次修正仍未通过校验：" + str(exc),
+                                          candidate or last_candidate) from exc
             content = {**content, "invalid_abc": candidate, "validation_error": str(exc),
                        "repair": "Return the COMPLETE corrected score, not a fragment or diff; preserve final lyrics."}
     raise AssertionError("ABC composition loop did not return")
@@ -460,6 +478,9 @@ def enhance_yue2_prompt(*, runner, **kwargs) -> tuple[str, str, str, str, str]:
         if not abc and not str(values["abc"]).strip() and cot in {"full", "melody"} and values["abc_source"] == ABC_GENERATE:
             try:
                 abc, abc_report = compose_abc(runner, brief, style, lyrics, cot, values["abc_action"])
+            except AbcCompositionError as exc:
+                abc = exc.candidate
+                abc_report = abc_failure_report(exc, provided=False, cot=cot)
             except YuE2PromptError as exc:
                 abc_report = abc_failure_report(exc, provided=False, cot=cot)
             else:
@@ -471,7 +492,7 @@ def enhance_yue2_prompt(*, runner, **kwargs) -> tuple[str, str, str, str, str]:
         elif abc:
             abc_report.update(generated=False, source="user")
         if abc_report.get("status") == "failed":
-            warnings.append("ABC 未通过或未完成；风格和歌词已保留，ABC 输出留空，请求 JSON 不含坏谱。" +
+            warnings.append("ABC 未通过或未完成；风格和歌词已保留，模型返回的谱面草稿也会显示并允许下载，但请求 JSON 不含未校验谱面。" +
                             ("下游 YuE2 将按原 full/melody 设置重新规划。" if cot != "off" else "下游按 off 不使用乐谱。"))
         else:
             abc_report["status"] = "validated" if abc else "not_requested"

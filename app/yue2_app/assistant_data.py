@@ -375,6 +375,18 @@ def drafts(root: Path, project_id: str = "") -> dict:
             if (not isinstance(value, dict) or value.get("schema") != 1 or type(value.get("revision")) is not int
                     or value["revision"] < 0 or not isinstance(value.get("draft"), dict)):
                 raise ValueError("unsupported draft")
+            # v1 drafts inherited the former downstream-only ABC default. Migrate
+            # that one legacy choice once; v2 drafts preserve an explicit user
+            # decision to leave ABC planning to YuE2.
+            draft = value["draft"]
+            values = draft.get("values") if panel == "assistant" else None
+            defaults_version = draft.get("defaults_version", 0)
+            defaults_version = defaults_version if type(defaults_version) is int else 0
+            if (isinstance(values, dict) and defaults_version < 2
+                    and values.get("abc_source") == engine.ABC_DOWNSTREAM):
+                values["abc_source"] = engine.ABC_GENERATE
+                draft["defaults_version"] = 2
+                value["migrated_defaults"] = ["abc_source"]
             result[panel] = value
         except (OSError, ValueError):
             result[panel] = {**empty, "error": "草稿版本或格式不支持，原文件已保留；请使用匹配版本或从 previous 备份恢复"}

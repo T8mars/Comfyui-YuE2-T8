@@ -30,10 +30,10 @@ function readAssistantResult() {
   return r;
 }
 function captureDraft(panel) {
-  if (panel === 'assistant') return {values: assistantValues(), result: readAssistantResult(), job_id: assistant.job?.id || null, result_edited: assistant.resultEdited, result_job_id: assistant.resultJobId};
+  if (panel === 'assistant') return {defaults_version: 2, values: assistantValues(), result: readAssistantResult(), job_id: assistant.job?.id || null, result_edited: assistant.resultEdited, result_job_id: assistant.resultJobId};
   if (panel === 'create') return {form: formFields($('#create-form'))};
   if (panel === 'plan') return {form: formFields($('#plan-form')), abc: $('#plan-abc').value,
-    exact: $('#plan-exact').checked, plan: planState ? {source: planState.source || 'saved_exact', plan_dir: planState.plan_dir || null, request: planState.request || {}} : null};
+    exact: $('#plan-exact').checked, plan: planState ? {source: planState.source || 'saved_exact', abc_status: planState.abc_status || null, plan_dir: planState.plan_dir || null, request: planState.request || {}} : null};
   return {abc: $('#cover-abc').value, lyrics: $('#cover-lyrics').value, style: $('#cover-style').value,
     seed: $('#cover-seed').value, mode: $('#cover-mode').value, instrumental: $('#cover').dataset.instrumental === 'true', visible: !$('#cover-review').classList.contains('hidden')};
 }
@@ -55,7 +55,7 @@ function applyDraft(panel, draft) {
     $('#plan-exact').checked = Boolean(draft.exact && !imported);
     $('#plan-exact').disabled = imported;
     $('#plan-abc').disabled = $('#plan-exact').checked;
-    $('#plan-badge').textContent = imported ? '外部导入谱 · 重新生成' : '原始计划';
+    $('#plan-badge').textContent = imported && planState?.abc_status && planState.abc_status !== 'validated' ? '未校验导入谱 · 请先修改' : imported ? '外部导入谱 · 重新生成' : '原始计划';
     $('#plan-workbench').classList.toggle('hidden', !planState);
     updateInstrumental('plan');
   } else {
@@ -166,15 +166,18 @@ function showAssistantResult(result) {
   assistantText('#assistant-result-note', '文本与谱面检查不等于听感验收。发送仅填入目标页面，不会自动开始制作音频。');
   renderAbcState();
   const compose = $('#assistant-compose-abc');
-  compose.classList.toggle('hidden', Boolean(assistant.result.abc.trim()) || assistant.result.cot === 'off');
+  compose.classList.toggle('hidden', (Boolean(assistant.result.abc.trim()) && assistant.result.abc_status !== 'failed') || assistant.result.cot === 'off');
   compose.textContent = assistant.result.abc_status === 'failed' ? '重新生成 ABC' : '补写 ABC';
   assistantText('#assistant-report', JSON.stringify(result.report || result, null, 2));
 }
 function renderAbcState() {
-  const labels = {validated: 'ABC 已通过原生格式校验；编辑后需要重新校验。', failed: '作谱未通过，歌词与曲风已保留。可单独重试作谱，或交给 YuE2 规划。',
+  const labels = {validated: 'ABC 已通过原生格式校验；编辑后需要重新校验。', failed: '已保留模型返回的 ABC，但未通过原生格式校验。仍可原样发送到乐谱计划的 ABC 提示词框，也可以下载、修改或点“重新生成 ABC”。',
     downstream_yue2: 'ABC 留空：将在目标页面交给 YuE2 规划。', off: '当前选择不用谱面。', pending: 'ABC 已修改，发送前将重新校验。',
     not_requested: '尚未生成 ABC。'};
-  assistantText('#assistant-abc-status', labels[assistant.result?.abc_status] || '谱面状态待检查');
+  const status = assistant.result?.abc_status || 'not_requested';
+  const reason = status === 'failed' ? String(assistant.result?.report?.abc?.error || '').trim().slice(0, 500) : '';
+  $('#assistant-abc-status').dataset.state = status;
+  assistantText('#assistant-abc-status', (labels[status] || '谱面状态待检查') + (reason ? ` 失败原因：${reason}` : ''));
 }
 function configFromForm() {
   const values = formFields($('#assistant-config-form'));
@@ -434,13 +437,13 @@ function prepareTransfer(panel) {
   assistantText('#assistant-send-title', `发送到${{create: '歌曲创作', plan: '乐谱计划', cover: '旋律重制'}[panel]}`);
   for (const name of ['style', 'lyrics', 'abc']) {
     const input = dialog.querySelector(`[name=${name}]`);
-    input.disabled = name === 'abc' && (panel === 'create' || !r.abc.trim());
+    input.disabled = name === 'abc' && (panel === 'create' || !r.abc.trim() || (panel === 'cover' && r.abc_status !== 'validated'));
     input.checked = !input.disabled;
   }
   $('#assistant-send-mode').value = r.cot === 'off' ? '' : panel === 'cover' ? 'melody' : r.cot;
   $('#assistant-send-mode-label').classList.toggle('hidden', panel !== 'plan');
   assistantText('#assistant-send-warning', '将替换目标页面中选中的字段，已有种子与上传音频保留。填入后可撤销。');
-  assistantText('#assistant-send-details', panel === 'cover' && r.abc ? '发送谱面时会去除和弦，并验证两个声部的音高与节奏不变。只选 ABC 可能与目标已有歌词不匹配。' : panel === 'create' && r.abc ? '该页只接收歌词、曲风及规划模式；如需使用这份 ABC，请发送到乐谱计划。' : '有 ABC 时建议整套发送，避免谱面与目标页面的旧歌词错配。');
+  assistantText('#assistant-send-details', panel === 'plan' && r.abc_status !== 'validated' ? '这份 ABC 未通过校验，但会完整原样填入乐谱计划的 ABC 提示词框并标明状态；修改后可再开始生成。' : panel === 'cover' && r.abc ? '发送谱面时会去除和弦，并验证两个声部的音高与节奏不变。只选 ABC 可能与目标已有歌词不匹配。' : panel === 'create' && r.abc ? '该页只接收歌词、曲风及规划模式；如需使用这份 ABC，请发送到乐谱计划。' : '有 ABC 时建议整套发送，避免谱面与目标页面的旧歌词错配。');
   dialog.showModal();
 }
 async function confirmTransfer() {
@@ -453,7 +456,9 @@ async function confirmTransfer() {
     if (!['style', 'lyrics', 'abc'].some(selected)) throw new Error('至少选择一个字段');
     if (panel === 'plan' && !mode) throw new Error('乐谱页需要明确选择旋律或完整谱面；也可取消并发送到歌曲创作，保留 off');
     let abc = null;
-    if (selected('abc')) abc = (await assistantPost('/api/assistant/validate-abc', {abc: r.abc, cot: mode, strip_chords: panel === 'cover'})).abc;
+    if (selected('abc')) abc = r.abc_status === 'validated'
+      ? (await assistantPost('/api/assistant/validate-abc', {abc: r.abc, cot: mode, strip_chords: panel === 'cover'})).abc
+      : r.abc;
     if (panel === 'cover') {
       if (selected('style')) after.style = r.style;
       if (selected('lyrics')) { after.lyrics = r.lyrics; after.instrumental = r.instrumental && !r.lyrics.trim(); }
@@ -465,7 +470,7 @@ async function confirmTransfer() {
       if (selected('lyrics')) { after.form.lyrics = r.lyrics; after.form.instrumental = r.instrumental && !r.lyrics.trim(); }
       after.form.cot = mode;
       if (panel === 'plan') {
-        if (abc !== null) { after.abc = abc; after.exact = false; after.plan = {source: 'imported_abc', request: {style: after.form.style, lyrics: after.form.lyrics, cot: mode}}; }
+        if (abc !== null) { after.abc = abc; after.exact = false; after.plan = {source: 'imported_abc', abc_status: r.abc_status, request: {style: after.form.style, lyrics: after.form.lyrics, cot: mode}}; }
         else if (after.plan) { after.exact = false; after.plan.source = 'imported_abc'; }
       }
     }

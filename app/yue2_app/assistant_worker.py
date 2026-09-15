@@ -239,7 +239,7 @@ def execute(root, ctx, request, secret="", transport=None):
             if abc_report.get("status") == "failed":
                 runner.invalidate(["abc"])
             runner.result.update(outcome=report["status"], report=report, request=json.loads(request_json),
-                                 abc_status="validated" if abc else "failed" if abc_report.get("status") == "failed" else abc_report.get("source", "not_requested"))
+                                 abc_status="failed" if abc_report.get("status") == "failed" else "validated" if abc else abc_report.get("source", "not_requested"))
             runner.publish(style=style, lyrics=lyrics, abc=abc)
         runner.result["stages"] = runner.stages
         runner.result["requests"] = runner.calls

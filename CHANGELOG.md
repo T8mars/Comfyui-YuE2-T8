@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.4.17 - 2026-09-15
+
+- Migrate older assistant drafts from the former downstream ABC default while preserving deliberate downstream choices saved by the new draft format.
+- Make YuE2 quick training (200 steps) the default and align its underlying advanced parameters with that preset.
+- Force training text fields to left-to-right, left-aligned entry so English style prompts cannot unexpectedly type from the right edge.
+- Preserve an invalid paid ABC response in the result and allow sending it unchanged to the score-planning prompt, with a visible validation warning at both ends.
+- Add a real Seedance ABC-generation acceptance check to the release verification record.
+
 ## 1.4.16 - 2026-09-15
 
 - Change the Seedance provider default to `bytedance/doubao-seed-2.1-turbo` and expose an explicit Custom model choice with a dedicated model-ID input.
