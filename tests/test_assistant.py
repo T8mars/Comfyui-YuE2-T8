@@ -18,7 +18,7 @@ class AssistantTests(unittest.TestCase):
         self.root = Path(self.temp.name)
 
     def request(self, **values):
-        return data.normalize_request(self.root, {"values": {"music_idea": "A warm song about home", "lyrics_language": "English", **values},
+        return data.normalize_request(self.root, {"values": {"music_idea": "A warm song about home", "lyrics_language": "English", "abc_source": engine.ABC_DOWNSTREAM, **values},
             "config": {"provider": "compatible", "base_url": "http://127.0.0.1:9999/v1", "model": "fixture"}})
 
     def context(self, number=1):
@@ -242,7 +242,7 @@ class AssistantTests(unittest.TestCase):
             self.assertEqual(data.endpoint({"provider": "compatible", "base_url": base}), "https://example.com/v1/chat/completions")
 
     def test_provider_defaults_signup_links_and_model_list_routes_match_reference_node(self):
-        self.assertEqual(data.PROVIDERS["seedance"]["default_model"], "bytedance/doubao-seed-evolving")
+        self.assertEqual(data.PROVIDERS["seedance"]["default_model"], "bytedance/doubao-seed-2.1-turbo")
         self.assertEqual(data.PROVIDERS["workshop"]["default_model"], "gemini-3.5-flash")
         self.assertEqual(data.PROVIDERS["seedance"]["signup_url"], "https://api.seedance.nz/sign-up?aff=5f4w")
         self.assertEqual(data.PROVIDERS["workshop"]["signup_url"], "https://ai.t8star.org/register?aff=dP7j")
@@ -251,6 +251,14 @@ class AssistantTests(unittest.TestCase):
         self.assertEqual(data.models_endpoint({"provider": "compatible", "base_url": "https://example.com/api/v3"}),
                          "https://example.com/api/v3/models")
         self.assertEqual(data.normalize_config({"provider": "workshop", "model": ""})["model"], "gemini-3.5-flash")
+
+    def test_new_assistant_defaults_generate_abc_and_migrate_the_old_seedance_default(self):
+        self.assertEqual(engine.DEFAULTS["abc_source"], engine.ABC_GENERATE)
+        config = self.root / "userdata/assistant/config.json"
+        config.parent.mkdir(parents=True)
+        config.write_text(json.dumps({**data.DEFAULT_CONFIG, "model": data.LEGACY_SEEDANCE_DEFAULT_MODEL}), encoding="utf-8")
+        info = data.config_info(self.root)
+        self.assertEqual(info["config"]["model"], "bytedance/doubao-seed-2.1-turbo")
 
     def test_remote_model_list_is_bounded_deduplicated_and_does_not_follow_redirects(self):
         response = Mock(status_code=200)

@@ -136,6 +136,11 @@ class AssetLibraryTest(unittest.TestCase):
             items=[{**item, "lyrics_revision_id": lyrics["current_revision_id"]}],
             options={"default_style": "pop", "rights_confirmed": True})
         self.assertEqual(snapshot["items"][0]["lyrics_revision_id"], lyrics["current_revision_id"])
+        pasted = self.library.create_snapshot(
+            title="逐首粘贴歌词", training_kind="yue2_style",
+            items=[{**item, "lyrics": "[Verse]\n这首歌自己的歌词"}],
+            options={"default_style": "pop", "rights_confirmed": True})
+        self.assertEqual(pasted["items"][0]["lyrics"], "[Verse]\n这首歌自己的歌词")
 
     def test_asset_paging_and_project_management(self):
         project = self.library.create_project("初版")

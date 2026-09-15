@@ -118,9 +118,14 @@ main { max-width: 1380px; padding: 32px 28px 160px; }
 .training-stage span { padding: 8px 6px; border-bottom: 2px solid var(--line); color: #667085; font-size: 10px; text-align: center; }
 .training-stage span.active { color: var(--accent-strong); border-color: var(--accent); font-weight: 800; }
 .training-stage span.done { color: #287b5a; border-color: #8ad4b2; font-weight: 700; }
-.training-assets { max-height: 300px; margin-top: 14px; display: grid; gap: 7px; overflow: auto; }
+.training-assets { max-height: 460px; margin-top: 14px; display: grid; gap: 7px; overflow: auto; }
 .training-asset { padding: 10px; display: grid; grid-template-columns: auto minmax(0,1fr) 110px; gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: 8px; }
 .training-asset-options { grid-column: 2 / -1; display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: end; }
+.training-lyrics-text { grid-column: 1 / -1; }
+.training-lyrics-text textarea { min-height: 105px; resize: vertical; }
+.training-form-status { padding: 10px 11px; border-radius: 8px; background: #f6f8fc; line-height: 1.55; }
+.training-form-status[data-state="error"] { color: #8f2946; background: #fff1f4; }
+.training-form-status[data-state="busy"] { color: #345a91; background: #eef5ff; }
 .training-asset input { width: auto; }
 .training-asset b { display: block; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .training-asset small { color: var(--muted); font-size: 9px; }

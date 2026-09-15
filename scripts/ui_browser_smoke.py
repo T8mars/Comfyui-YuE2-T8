@@ -153,6 +153,14 @@ def seed_browser_state(root: Path) -> None:
         asset = library.create_text(kind=kind, title=f"回归素材 {index}", text=f"浏览器回归内容 {index}")
         if index <= 2:
             library.add_to_project(project["id"], asset["id"])
+    for index in range(2):
+        source = root / f"training-song-{index + 1}.wav"
+        with wave.open(str(source), "wb") as stream:
+            stream.setnchannels(1); stream.setsampwidth(2); stream.setframerate(8000)
+            stream.writeframes((b"\0\0" if index == 0 else b"\1\0") * 8000)
+        asset = library.import_file(source, kind="song", title=f"训练歌曲 {index + 1}")
+        library.add_to_project(project["id"], asset["id"], role="song")
+        source.unlink()
 
     job_id = "20990101-000000-00000001"
     directory = root / "outputs" / "jobs" / job_id
@@ -231,6 +239,23 @@ def run_browser(url: str, output: Path) -> dict:
         assert "设置 API Key" in page.locator("#assistant-channel-title").inner_text()
         assert page.locator("#assistant-settings").get_attribute("open") is not None
         assert page.locator("#assistant-status-signup").is_visible()
+        model_choice = page.locator("#assistant-model-choice")
+        assert model_choice.input_value() == "bytedance/doubao-seed-2.1-turbo"
+        assert page.locator("#assistant-custom-model-field").is_hidden()
+        model_choice.select_option("__custom__")
+        assert page.locator("#assistant-custom-model-field").is_visible()
+        page.locator("#assistant-model").fill("custom/provider-model")
+        assert page.locator("#assistant-model").input_value() == "custom/provider-model"
+        page.locator("#assistant-custom-model-field").scroll_into_view_if_needed()
+        page.screenshot(path=output / "desktop-assistant-custom-model.png", full_page=False)
+        model_choice.select_option("bytedance/doubao-seed-2.1-turbo")
+        assert page.locator("#assistant-custom-model-field").is_hidden()
+        assert page.locator("#assistant-abc-source").input_value() == "自动创作 ABC（T8 LLM）/ Compose"
+        page.evaluate("showAssistantResult({style:'English folk',lyrics:'[Verse]\\nBrowser test',abc:'',cot:'full',abc_status:'downstream_yue2',outcome:'success'})")
+        assert page.locator("#assistant-compose-abc").is_visible()
+        assert page.locator("#assistant-compose-abc").inner_text() == "补写 ABC"
+        page.locator("#assistant-compose-abc").scroll_into_view_if_needed()
+        page.screenshot(path=output / "desktop-assistant-abc-recovery.png", full_page=False)
         channel_status.scroll_into_view_if_needed()
         page.screenshot(path=output / "desktop-assistant-api-key-entry.png", full_page=False)
         page.locator("#assistant-open-settings").click()
@@ -247,6 +272,13 @@ def run_browser(url: str, output: Path) -> dict:
 
         page.locator('.studio-sidebar [data-tab="training"]').click()
         assert "当前项目“浏览器回归项目”" in page.locator("#training-assets-scope").inner_text()
+        assert page.locator("[data-training-asset]").count() == 2
+        assert page.locator(".training-lyrics-text:not(.hidden) textarea").count() == 2
+        page.locator("#training-select-all").click()
+        page.locator("#create-training-run").click()
+        assert "请填写公共曲风" in page.locator("#training-form-status").inner_text()
+        assert page.locator("#training-form-status").get_attribute("data-state") == "error"
+        page.screenshot(path=output / "desktop-training-validation.png", full_page=False)
         page.locator("#training-assets-scope").scroll_into_view_if_needed()
         page.screenshot(path=output / "desktop-training-assets.png", full_page=False)
         page.locator("#training-add-songs").click()
@@ -275,10 +307,10 @@ def run_browser(url: str, output: Path) -> dict:
 
         page.locator('.studio-sidebar [data-tab="assets"]').click()
         page.locator(".asset-card").first.wait_for(state="visible")
-        assert page.locator(".asset-card").count() == 4
+        assert page.locator(".asset-card").count() == 6
         assert page.locator(".asset-card [data-add-asset]").count() == 2
-        assert page.locator(".asset-card [data-project-asset-state]").count() == 2
-        assert page.locator(".asset-card [data-project-asset-state]:disabled").count() == 2
+        assert page.locator(".asset-card [data-project-asset-state]").count() == 4
+        assert page.locator(".asset-card [data-project-asset-state]:disabled").count() == 4
         for card in page.locator(".asset-card").all():
             bounds = card.evaluate("""card => {
               const outer=card.getBoundingClientRect();
@@ -409,13 +441,13 @@ def run_browser(url: str, output: Path) -> dict:
     return {
         "viewports": ["1366x900", "820x900", "390x844"],
         "scenarios": [
-            "seeded project and four asset cards stay within the desktop viewport",
+            "seeded project and six asset cards stay within the desktop viewport",
             "asset use, edit and read dialogs expose accessible names",
             "completed generation stays playable with an accessible audio name on its originating page",
             "full and partial technical failures use a public summary and required fields use Chinese validation",
             "ordinary workspace buttons use current-page semantics without unsupported selected state",
-            "missing or stale API credentials expose a prominent status, auto-open settings and recover from the error in one click",
-            "YuE2 training names the current project and provides a guided round trip to add training songs from the asset library",
+            "API credentials, Seedance 2.1 Turbo, explicit Custom model input and one-click ABC completion are visible and reachable",
+            "YuE2 training exposes per-song lyrics, inline validation and a guided asset-library round trip",
             "backend-reported progress stays fixed across workspaces and opens the full task details",
             "Seed-VC and RVC expose independent remembered octave presets in the main cover flow",
             "mobile workspace switching resets a long-page scroll position",

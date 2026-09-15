@@ -20,10 +20,12 @@ from .assistant_rules.provider_capabilities import normalize_extra_parameters
 
 LOCK = threading.RLock()
 PANELS = {"assistant", "create", "plan", "cover"}
+SEEDANCE_DEFAULT_MODEL = "bytedance/doubao-seed-2.1-turbo"
+LEGACY_SEEDANCE_DEFAULT_MODEL = "bytedance/doubao-seed-evolving"
 PROVIDERS = {
     "seedance": {"label": "贞贞平价小屋", "base_url": "https://api.seedance.nz/v1",
-                  "default_model": "bytedance/doubao-seed-evolving",
-                  "models": ["bytedance/doubao-seed-evolving"],
+                  "default_model": SEEDANCE_DEFAULT_MODEL,
+                  "models": [SEEDANCE_DEFAULT_MODEL],
                   "signup_url": "https://api.seedance.nz/sign-up?aff=5f4w"},
     "workshop": {"label": "贞贞的 AI 工坊", "base_url": "https://ai.t8star.org/v1",
                  "default_model": "gemini-3.5-flash", "models": ["gemini-3.5-flash"],
@@ -34,7 +36,7 @@ PROVIDERS = {
               "default_model": "Qwen3.8-27B-Q4_K_M.gguf", "models": [], "signup_url": ""},
 }
 DEFAULT_CONFIG = {"provider": "seedance", "base_url": "https://api.seedance.nz/v1",
-                  "model": "bytedance/doubao-seed-evolving",
+                  "model": SEEDANCE_DEFAULT_MODEL,
                   "credential_id": "", "max_tokens": 4096, "context_size": 16384,
                   "gpu_layers": 24, "threads": 4, "think": False, "temperature_policy": "auto",
                   "extra_parameters": {}, "stream": True, "llm_directory": ""}
@@ -209,6 +211,10 @@ def credential_state(config: dict, credentials=None) -> dict:
 
 def config_info(root: Path, credentials=None) -> dict:
     config = normalize_config(read(root / "userdata/assistant/config.json", {}))
+    # Replace the former bundled default while preserving every other manually
+    # entered model identifier as a Custom choice in the UI.
+    if config["provider"] == "seedance" and config["model"] == LEGACY_SEEDANCE_DEFAULT_MODEL:
+        config["model"] = SEEDANCE_DEFAULT_MODEL
     try:
         runtime_probe = read(root / "runtime/installed.json", {}).get("llm", {}).get("probe", {})
     except (OSError, ValueError, AttributeError):
@@ -237,7 +243,7 @@ def config_info(root: Path, credentials=None) -> dict:
                 models.append({"id": identifier, "bytes": 0, "error": str(exc)})
     return {"config": config, "credential": credential_state(config, credentials), "providers": PROVIDERS, "defaults": engine.DEFAULTS,
             "options": {"lyrics_modes": engine.LYRIC_MODES, "quality_modes": [engine.STANDARD, engine.REVIEW],
-                        "abc_sources": [engine.ABC_DOWNSTREAM, engine.ABC_GENERATE]},
+                        "abc_sources": [engine.ABC_GENERATE, engine.ABC_DOWNSTREAM]},
             "llm_directory": str(directory), "models": models,
             "local_runtime": (root / "runtime/python.exe").is_file() and bool(runtime_probe),
             "local_gpu_offload": runtime_probe.get("gpu_offload") is True,

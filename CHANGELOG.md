@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.16 - 2026-09-15
+
+- Change the Seedance provider default to `bytedance/doubao-seed-2.1-turbo` and expose an explicit Custom model choice with a dedicated model-ID input.
+- Generate ABC by default for new AI Assistant drafts and add a one-click “补写 ABC” action to results created with downstream score planning.
+- Let every YuE2 training song use pasted lyrics, a linked lyrics asset, the optional shared fallback, or an explicit instrumental flag.
+- Replace silent native form blocking with an inline validation and background-preprocessing status beside the training action.
+
 ## 1.4.15 - 2026-09-15
 
 - Scope YuE2 training songs to the current project and refresh them whenever the training workspace opens, removing the stale empty list seen after adding assets.

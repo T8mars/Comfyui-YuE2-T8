@@ -547,11 +547,15 @@ class AssetLibrary:
                 end = float(end) if end is not None else duration
                 if start < 0 or not end > start or (duration and end > duration + .05):
                     raise ValueError("训练片段边界无效")
+                lyrics = raw.get("lyrics", "")
+                if not isinstance(lyrics, str) or len(lyrics) > 200000:
+                    raise ValueError("逐首歌词格式不正确或内容过长")
                 normalized.append({
                     "asset_id": asset_id, "revision_id": revision_id, "blob_sha256": row["blob_sha256"],
                     "start": start, "end": end, "track_group_id": str(raw.get("track_group_id") or asset_id),
                     "split": "validation" if raw.get("split") == "validation" else "train",
                     "lyrics_revision_id": raw.get("lyrics_revision_id") or None,
+                    "lyrics": lyrics.strip(),
                     "style_revision_id": raw.get("style_revision_id") or None,
                     "instrumental": raw.get("instrumental") is True,
                 })
@@ -577,8 +581,8 @@ class AssetLibrary:
         if training_kind == "yue2_style":
             default_lyrics = str(options.get("default_lyrics", "")).strip()
             for item in normalized:
-                if not item["instrumental"] and not item["lyrics_revision_id"] and not default_lyrics:
-                    raise ValueError("含人声训练素材必须选择歌词版本；纯器乐请逐首明确标记")
+                if not item["instrumental"] and not item["lyrics_revision_id"] and not item["lyrics"] and not default_lyrics:
+                    raise ValueError("含人声训练素材必须选择歌词版本、粘贴本曲歌词，或明确标记为纯器乐")
         manifest = {"schema": 1, "training_kind": training_kind, "items": normalized,
                     "options": options}
         import hashlib
