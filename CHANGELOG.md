@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.21 - 2026-09-15
+
+- Restore the previously hidden creator and project links in the compact studio header.
+- Add direct, visible links to the GitHub source, ComfyUI Registry node, Hugging Face model repository, Bilibili creator page and YouTube channel.
+- Prevent older training-record requests from overwriting a newer model-manager refresh during rapid workspace switching.
+
 ## 1.4.20 - 2026-09-15
 
 - Add a completed YuE2 model manager with three models per page, model details, equal-size actions and direct use, download, folder and path controls.

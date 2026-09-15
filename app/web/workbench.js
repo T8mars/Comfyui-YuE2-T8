@@ -6,7 +6,7 @@
   let assetOffset = 0, assetTotal = 0, assetLoadRevision = 0; const assetPageSize = 24;
   let currentProjectId = savedValue('workbench-project') || '';
   let currentRun = null, trainingRuns = [], trainingJobId = savedValue('training-job') || '';
-  let trainingModelPage = 0, trainingModelRenderRevision = 0; const trainingModelPageSize = 3;
+  let trainingModelPage = 0, trainingModelRenderRevision = 0, trainingRunsLoadRevision = 0; const trainingModelPageSize = 3;
   let trainingPreviewJobId = savedValue('training-preview-job') || '', trainingPreviewRunId = savedValue('training-preview-run') || '', auxiliaryTrainingJobId = '';
   const pollingTrainingJobs = new Set();
   const trainingJobsByRun = new Map();
@@ -381,7 +381,7 @@
     const form=$('#training-form');if(!form.elements.style.value&&currentRun.config?.default_style)form.elements.style.value=currentRun.config.default_style;if(!form.elements.lyrics.value&&currentRun.config?.default_lyrics)form.elements.lyrics.value=currentRun.config.default_lyrics;
     const history=currentRun.config?.history||[],last=history.at(-1),metric=value=>value!==null&&value!==undefined&&Number.isFinite(Number(value))?Number(value).toFixed(3):'—';$('#training-step').textContent=`${Number(last?.step||0)} / ${Number(currentRun.config?.steps||0)} 步`;$('#training-progress-bar').style.width=`${currentRun.config?.steps?Math.min(100,Number(last?.step||0)/Number(currentRun.config.steps)*100):0}%`;$('#training-loss').textContent=metric(last?.train_loss);$('#training-val-loss').textContent=metric(last?.validation_loss);setTrainingStage(currentRun.state==='complete'?4:currentRun.config?.prepared?3:currentRun.state==='preparing'?2:1);$('#training-preview-checkpoint').classList.toggle('hidden',!currentRun.model_asset_id&&!currentRun.config?.last_checkpoint);const mappedJob=trainingJobsByRun.get(currentRun.id)||'',linkedJob=mappedJob||(['preparing','running','paused'].includes(currentRun.state)?currentRun.current_job_id||'':'');if(linkedJob)trainingJobsByRun.set(currentRun.id,linkedJob);trainingJobId=linkedJob;savedValue('training-job',linkedJob);$('#training-pause').classList.toggle('hidden',currentRun.state!=='running');$('#training-resume').classList.toggle('hidden',currentRun.state!=='paused');drawChart(history);loadRunCheckpoints(currentRun.id);
   }
-  async function loadRuns(){try{trainingRuns=(await api('/api/workbench/training-runs?training_kind=yue2_style')).runs;const saved=savedValue('training-run');currentRun=trainingRuns.find(run=>run.id===saved)||trainingRuns[0]||null;renderRun();await renderTrainingModels();}catch(error){showError($('#training-result'),error);}}
+  async function loadRuns(){const revision=++trainingRunsLoadRevision;try{const result=await api('/api/workbench/training-runs?training_kind=yue2_style');if(revision!==trainingRunsLoadRevision)return;trainingRuns=result.runs;const saved=savedValue('training-run');currentRun=trainingRuns.find(run=>run.id===saved)||trainingRuns[0]||null;renderRun();await renderTrainingModels();}catch(error){if(revision===trainingRunsLoadRevision)showError($('#training-result'),error);}}
   $('#training-model-prev').onclick=()=>{if(trainingModelPage>0){trainingModelPage--;renderTrainingModels();}};
   $('#training-model-next').onclick=()=>{if((trainingModelPage+1)*trainingModelPageSize<trainingRuns.filter(run=>run.model_asset_id).length){trainingModelPage++;renderTrainingModels();}};
   $('#training-run-select').onchange=event=>{currentRun=trainingRuns.find(run=>run.id===event.target.value)||null;renderRun();};

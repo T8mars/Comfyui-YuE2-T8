@@ -241,6 +241,17 @@ def run_browser(url: str, output: Path) -> dict:
 
         assert page.locator(".tool-nav").count() == 0
         assert page.locator(".studio-sidebar .tab").count() == 9
+        expected_links = {
+            "GitHub 源码": "https://github.com/T8mars/Comfyui-YuE2-T8",
+            "ComfyUI 节点": "https://registry.comfy.org/nodes/yue2-t8",
+            "模型权重": "https://huggingface.co/t8star/YuE2-Comfy",
+            "B站": "https://space.bilibili.com/385085361",
+            "YouTube": "https://www.youtube.com/@T8star-Aix/",
+        }
+        for label, href in expected_links.items():
+            link = page.locator(".project-links a", has_text=label)
+            assert link.is_visible(), label
+            assert link.get_attribute("href") == href
         assert page.locator("#mobile-workspace-menu").is_hidden()
         assert page.locator("#workspace-menu-dialog [data-go-tab].active").count() == 1
         assert page.locator("[aria-selected]").count() == 0
@@ -347,16 +358,18 @@ def run_browser(url: str, output: Path) -> dict:
         page.screenshot(path=output / "desktop-assistant-api-key.png", full_page=False)
 
         page.locator('.studio-sidebar [data-tab="training"]').click()
-        page.locator(".training-model-card").first.wait_for(state="visible")
+        page.wait_for_function("""() => document.querySelectorAll('.training-model-actions').length === 3
+          && document.querySelector('#training-model-page-status').textContent.includes('第 1 / 2 页 · 4 个')""")
         assert page.locator(".training-model-card").count() == 3
         assert "第 1 / 2 页 · 4 个" in page.locator("#training-model-page-status").inner_text()
-        action_widths = page.locator(".training-model-card").first.locator(".training-model-actions > *").evaluate_all(
-            "items => items.map(item => Math.round(item.getBoundingClientRect().width))")
+        action_widths = page.evaluate("""() => [...document.querySelector('.training-model-actions').children]
+          .map(item => Math.round(item.getBoundingClientRect().width))""")
         assert len(set(action_widths)) == 1, action_widths
         assert page.locator('[data-copy-trained-model-path]').first.evaluate(
             "item => !item.classList.contains('compact')")
         page.locator("#training-model-next").click()
-        page.locator(".training-model-card").first.wait_for(state="visible")
+        page.wait_for_function("""() => document.querySelectorAll('.training-model-card').length === 1
+          && document.querySelector('#training-model-page-status').textContent.includes('第 2 / 2 页 · 4 个')""")
         assert page.locator(".training-model-card").count() == 1
         assert "第 2 / 2 页 · 4 个" in page.locator("#training-model-page-status").inner_text()
         page.locator("#training-model-prev").click()
@@ -544,6 +557,7 @@ def run_browser(url: str, output: Path) -> dict:
             "completed generation stays playable with an accessible audio name on its originating page",
             "full and partial technical failures use a public summary and required fields use Chinese validation",
             "ordinary workspace buttons use current-page semantics without unsupported selected state",
+            "creator, source, ComfyUI node and model links stay visible with verified destinations",
             "API credentials, Seedance 2.1 Turbo, explicit Custom model input and one-click ABC completion are visible and reachable",
             "assistant lyrics, style and ABC recover from the latest project job after tab switches and a browser reload",
             "YuE2 training exposes per-song lyrics, inline validation, guided asset selection and three-model pagination",

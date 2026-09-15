@@ -639,6 +639,21 @@ class IntegrationCodeTests(unittest.TestCase):
         self.assertIn('id="training-model-next"', html)
         self.assertNotIn('class="ghost compact" type="button" data-copy-trained-model-path', javascript)
 
+    def test_visible_project_and_creator_links_use_expected_destinations(self):
+        web = Path(__file__).resolve().parents[1] / "app" / "web"
+        html = (web / "index.html").read_text(encoding="utf-8")
+        css = (web / "workbench.css").read_text(encoding="utf-8")
+        for value in (
+            "https://github.com/T8mars/Comfyui-YuE2-T8",
+            "https://registry.comfy.org/nodes/yue2-t8",
+            "https://huggingface.co/t8star/YuE2-Comfy",
+            "https://space.bilibili.com/385085361",
+            "https://www.youtube.com/@T8star-Aix/",
+        ):
+            self.assertIn(f'href="{value}"', html)
+        self.assertNotIn("body > header .lead, body > header .project-meta { display: none; }", css)
+        self.assertIn("body > header .project-meta", css)
+
     def test_workflows_are_well_formed(self):
         workflows = list((Path(__file__).resolve().parents[1] / "workflows").glob("*.json"))
         self.assertEqual({path.name[:2] for path in workflows}, {"01", "02", "03", "04"})
