@@ -240,7 +240,15 @@ def run_browser(url: str, output: Path) -> dict:
         wait_for_ui(page)
 
         assert page.locator(".tool-nav").count() == 0
-        assert page.locator(".studio-sidebar .tab").count() == 9
+        sidebar_tabs = page.locator(".studio-sidebar .tab")
+        expected_tabs = (
+            "project", "assets", "create", "plan", "remix",
+            "cover", "assistant", "training", "voices", "history",
+        )
+        assert sidebar_tabs.count() == len(expected_tabs)
+        assert sidebar_tabs.evaluate_all(
+            "elements => elements.map(element => element.dataset.tab)"
+        ) == list(expected_tabs)
         expected_links = {
             "GitHub 源码": "https://github.com/T8mars/Comfyui-YuE2-T8",
             "ComfyUI 节点": "https://registry.comfy.org/nodes/yue2-t8",
@@ -286,7 +294,7 @@ def run_browser(url: str, output: Path) -> dict:
         assert section_top(page, "#task-center") < 900
         page.evaluate("renderTaskCenter({current_job: null}, []); window.scrollTo(0, 0)")
 
-        for panel_id in ("project", "assets", "create", "plan", "cover", "assistant", "training", "voices", "history"):
+        for panel_id in expected_tabs:
             page.locator(f'.studio-sidebar [data-tab="{panel_id}"]').click()
             assert_text_contrast(page, panel_id)
 
