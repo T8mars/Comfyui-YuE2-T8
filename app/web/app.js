@@ -18,6 +18,78 @@ function savedValue(key, value) {
     return localStorage.getItem(`yue2:${key}`);
   } catch { return null; }
 }
+
+function studioDialog({title = '提示', message = '', confirmLabel = '确定', cancelLabel = '', value = null, placeholder = ''} = {}) {
+  return new Promise(resolve => {
+    const previous = document.querySelector('.studio-dialog');
+    if (previous) previous.close('cancel');
+    const dialog = document.createElement('dialog');
+    dialog.className = 'studio-dialog';
+    const form = document.createElement('form');
+    form.method = 'dialog';
+    const heading = document.createElement('h3');
+    heading.id = `studio-dialog-title-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    dialog.setAttribute('aria-labelledby', heading.id);
+    heading.textContent = title;
+    const description = document.createElement('p');
+    description.className = 'studio-dialog-message';
+    description.textContent = String(message || '');
+    form.append(heading, description);
+    let input = null;
+    if (value !== null) {
+      input = document.createElement('input');
+      input.type = 'text';
+      input.value = String(value);
+      input.placeholder = placeholder;
+      input.setAttribute('aria-label', title);
+      form.append(input);
+    }
+    const actions = document.createElement('div');
+    actions.className = 'toolbar studio-dialog-actions';
+    if (cancelLabel) {
+      const cancel = document.createElement('button');
+      cancel.className = 'ghost';
+      cancel.value = 'cancel';
+      cancel.textContent = cancelLabel;
+      actions.append(cancel);
+    }
+    const confirm = document.createElement('button');
+    confirm.className = 'primary';
+    confirm.value = 'confirm';
+    confirm.textContent = confirmLabel;
+    actions.append(confirm);
+    form.append(actions);
+    dialog.append(form);
+    document.body.append(dialog);
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      const accepted = dialog.returnValue === 'confirm';
+      const result = input ? (accepted ? input.value : null) : accepted;
+      dialog.remove();
+      resolve(result);
+    };
+    dialog.addEventListener('close', finish, {once: true});
+    dialog.addEventListener('cancel', event => {
+      event.preventDefault();
+      dialog.close('cancel');
+    });
+    dialog.showModal();
+    (input || confirm).focus();
+    input?.select();
+  });
+}
+window.uiAlert = (message, title = '提示') => studioDialog({title, message, confirmLabel: '知道了'}).then(() => undefined);
+window.uiConfirm = (message, title = '请确认', confirmLabel = '确定') => studioDialog({title, message, confirmLabel, cancelLabel: '取消'});
+window.uiPrompt = (title, value = '', placeholder = '') => studioDialog({title, value, placeholder, confirmLabel: '保存', cancelLabel: '取消'});
+window.alert = message => { void window.uiAlert(message); };
+const mobileHeaderDetails = $('#mobile-header-details');
+if (mobileHeaderDetails) mobileHeaderDetails.onclick = () => {
+  const expanded = document.body.classList.toggle('mobile-header-expanded');
+  mobileHeaderDetails.setAttribute('aria-expanded', String(expanded));
+  mobileHeaderDetails.innerHTML = expanded ? '<i class="bi bi-chevron-up"></i>收起链接与维护' : '<i class="bi bi-info-circle"></i>链接与维护';
+};
 // Remember one editable budget across all YuE2 generation pages.
 const memoryInputs = $$('[data-generation-memory]');
 const rememberedBudget = Number(savedValue('generation-memory-gib'));
@@ -680,7 +752,7 @@ $('#plan-form').onsubmit = async event => {
     if (window.assistantDraftRevision?.('plan') === revision) apply();
     else {
       const notice = document.createElement('div'); notice.className = 'result-card'; notice.textContent = '计划已完成，当前草稿已有新编辑，因此没有覆盖。';
-      const button = document.createElement('button'); button.className = 'ghost'; button.textContent = '载入这份计划'; button.onclick = () => { if (confirm('替换当前乐谱草稿？')) apply(); };
+      const button = document.createElement('button'); button.className = 'ghost'; button.textContent = '载入这份计划'; button.onclick = async () => { if (await uiConfirm('替换当前乐谱草稿？')) apply(); };
       notice.append(button); $('#plan-result').append(notice);
     }
   } catch (error) { renderScopedFailure($('#plan-result'),error,projectScope); }
@@ -818,7 +890,7 @@ async function waitForUpdatedService(version) {
 
 async function installUpdate() {
   if (!availableUpdate) return checkUpdate();
-  if (!confirm(`更新会替换程序代码并保留模型、作品和设置。现有代码会先备份到 logs/backups，失败时自动恢复。\n\n确定更新到 v${availableUpdate.latest_version}？`)) return;
+  if (!await uiConfirm(`更新会替换程序代码并保留模型、作品和设置。现有代码会先备份到 logs/backups，失败时自动恢复。\n\n确定更新到 v${availableUpdate.latest_version}？`, '安装更新', `更新到 v${availableUpdate.latest_version}`)) return;
   const button = $('#update-button');
   updateInstalling = true;
   button.disabled = true;
@@ -871,7 +943,7 @@ $('#transcribe-button').onclick = async () => {
       $('#cover-abc').value = job.result.abc || ''; $('#cover-review').classList.remove('hidden'); window.assistantDraftChanged?.('cover');
     } else {
       const notice = document.createElement('div'); notice.className = 'result-card'; notice.textContent = '转谱已完成，当前草稿已有新编辑，因此没有覆盖。';
-      const apply = document.createElement('button'); apply.className = 'ghost'; apply.textContent = '载入转谱结果'; apply.onclick = () => { if (confirm('替换当前旋律 ABC？')) { $('#cover-abc').value = job.result.abc || ''; $('#cover-review').classList.remove('hidden'); window.assistantDraftChanged?.('cover'); } };
+      const apply = document.createElement('button'); apply.className = 'ghost'; apply.textContent = '载入转谱结果'; apply.onclick = async () => { if (await uiConfirm('替换当前旋律 ABC？')) { $('#cover-abc').value = job.result.abc || ''; $('#cover-review').classList.remove('hidden'); window.assistantDraftChanged?.('cover'); } };
       notice.append(apply); $('#cover-result').append(notice);
     }
   } catch (error) { restoreButton(button);renderScopedFailure($('#cover-result'),error,projectScope); }
@@ -963,7 +1035,7 @@ async function loadRetention() {
 }
 
 async function cleanupStorage() {
-  if (!confirm('将按当前保留策略删除过期任务、临时上传和日志；正在使用的文件与 exports 导出作品会保留。\n\n确定开始清理？')) return;
+  if (!await uiConfirm('将按当前保留策略删除过期任务、临时上传和日志；正在使用的文件与 exports 导出作品会保留。\n\n确定开始清理？', '清理本地存储', '开始清理')) return;
   try {
     const report = await api('/api/retention/cleanup', {method: 'POST'}); const deleted = Object.values(report.deleted || {}).reduce((sum, items) => sum + items.length, 0);
     alert(`清理完成：删除 ${deleted} 项；重要作品请保存在 exports`); await Promise.all([loadHistory(), loadRetention()]);

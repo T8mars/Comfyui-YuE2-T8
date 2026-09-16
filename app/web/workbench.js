@@ -7,6 +7,7 @@
   let assetOffset = 0, assetTotal = 0, assetLoadRevision = 0; const assetPageSize = 24;
   let currentProjectId = savedValue('workbench-project') || '';
   let projectTimelinePage=0,projectAssetPage=0;const projectTimelinePageSize=8,projectAssetPageSize=10;
+  let trainingAssetPage=0;const trainingAssetPageSize=8;
   let currentRun = null, trainingRuns = [], trainingJobId = savedValue('training-job') || '';
   let renderedTrainingProjectId = '';
   let trainingModelPage = 0, trainingModelRenderRevision = 0, trainingRunsLoadRevision = 0; const trainingModelPageSize = 3;
@@ -50,7 +51,7 @@
     if (nextProjectId && !projects.some(project => project.id === nextProjectId)) nextProjectId = '';
     if (!nextProjectId && projects.length) nextProjectId = projects[0].id;
     const projectChanged = nextProjectId !== currentProjectId;
-    if (projectChanged) { window.mulacoverSaveDraft?.(); saveTrainingDraft(); projectTimelinePage=0; projectAssetPage=0; }
+    if (projectChanged) { window.mulacoverSaveDraft?.(); saveTrainingDraft(); projectTimelinePage=0; projectAssetPage=0; trainingAssetPage=0; }
     await window.assistantSwitchProject?.(nextProjectId);
     currentProjectId = nextProjectId;
     if (projectChanged) { window.mulacoverRestoreDraft?.(); restoreTrainingFormDraft(); }
@@ -61,7 +62,15 @@
     const historyProject=$('#history-project');
     if(historyProject){const previous=historyProject.value;historyProject.innerHTML='<option value="">全部项目</option><option value="__global__">未归档 / 全局</option>'+projects.map(project=>`<option value="${project.id}">${escapeHtml(project.title)}</option>`).join('');if([...historyProject.options].some(option=>option.value===previous))historyProject.value=previous;}
     const selected = projects.find(project => project.id === currentProjectId);
-    const guide=$('#new-user-guide');if(guide)guide.open=!projects.length;
+    const guide=$('#new-user-guide');
+    if(guide){
+      if(!guide.dataset.initialized){
+        guide.open=!projects.length||savedValue('new-user-guide-seen')!=='1';
+        guide.addEventListener('toggle',()=>{if(!guide.open)savedValue('new-user-guide-seen','1');});
+        guide.dataset.initialized='1';
+      }
+      if(!projects.length)guide.open=true;
+    }
     $('#sidebar-project-name').textContent = selected?.title || '未选择项目';
     $('#header-project-name').textContent = selected?.title || '未选择项目';
     savedValue('workbench-project', currentProjectId);
@@ -134,14 +143,14 @@
   $('#refresh-project').onclick = loadProjects;
   $('#rename-project').onclick = async () => {
     if (!currentProjectId) return alert('请先选择项目');
-    const projectId=currentProjectId,current = projects.find(project => project.id === projectId), title = prompt('新的项目名称', current?.title || '');
+    const projectId=currentProjectId,current = projects.find(project => project.id === projectId), title = await uiPrompt('新的项目名称', current?.title || '');
     if (!title?.trim()) return;
     try { await api(`/api/workbench/projects/${projectId}/update`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:title.trim()})}); await loadProjects(); } catch(error) { alert(error.message); }
   };
   $('#archive-project').onclick = async () => {
     if (!currentProjectId) return alert('请先选择项目');
     const projectId=currentProjectId;
-    if (!confirm('归档这个项目？资产仍会保留在资产库。')) return;
+    if (!await uiConfirm('归档这个项目？资产仍会保留在资产库。','归档项目','归档')) return;
     try { window.mulacoverSaveDraft?.(); saveTrainingDraft(); await api(`/api/workbench/projects/${projectId}/update`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'archived'})}); await window.assistantSwitchProject?.(''); currentProjectId=''; window.mulacoverRestoreDraft?.(); restoreTrainingFormDraft(); await loadProjects(); await refreshWorkspace(); } catch(error) { alert(error.message); }
   };
   $('#export-project').onclick = async () => {
@@ -151,7 +160,7 @@
     catch(error) { alert(error.message); }
   };
   $('#new-project').onclick = async () => {
-    const title = prompt('新项目名称', '我的歌曲项目');
+    const title = await uiPrompt('新项目名称', '我的歌曲项目');
     if (!title?.trim()) return;
     try { window.mulacoverSaveDraft?.(); saveTrainingDraft(); const project = await api('/api/workbench/projects', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:title.trim()})}); await window.assistantSwitchProject?.(project.id); currentProjectId = project.id; window.mulacoverRestoreDraft?.(); restoreTrainingFormDraft(); await loadProjects(); await refreshWorkspace(); }
     catch (error) { alert(error.message); }
@@ -311,18 +320,20 @@
   function trainingDraftKey(){return `training-draft:${String(currentProjectId||'__global__')}`;}
   function readTrainingAssetStates(){return Object.fromEntries($$('#training-assets [data-training-asset]').map(box=>{const id=box.dataset.trainingAsset;return[id,{checked:box.checked,split:$(`[data-training-split="${id}"]`)?.value||'train',lyrics:$(`[data-training-lyrics="${id}"]`)?.value||'__manual__',lyricsText:$(`[data-training-lyrics-text="${id}"] textarea`)?.value||'',style:$(`[data-training-style="${id}"]`)?.value||'',styleText:$(`[data-training-style-text="${id}"] textarea`)?.value||'',instrumental:$(`[data-training-instrumental="${id}"]`)?.checked||false}];}));}
   function readTrainingDraft(){try{return JSON.parse(savedValue(trainingDraftKey())||'{}')}catch{return {}}}
-  function saveTrainingDraft(){const form=$('#training-form');if(!form)return;const values={};for(const field of form.elements)if(field.name&&field.type!=='file')values[field.name]=field.type==='checkbox'?field.checked:field.value;savedValue(trainingDraftKey(),JSON.stringify({form:values,preset:$('#training-preset')?.value||'quick',scale:$('#training-style-scale')?.value||'1',assets:readTrainingAssetStates()}));}
+  function saveTrainingDraft(){const form=$('#training-form');if(!form)return;const values={};for(const field of form.elements)if(field.name&&field.type!=='file')values[field.name]=field.type==='checkbox'?field.checked:field.value;const previous=readTrainingDraft();savedValue(trainingDraftKey(),JSON.stringify({form:values,preset:$('#training-preset')?.value||'quick',scale:$('#training-style-scale')?.value||'1',assets:{...(previous.assets||{}),...readTrainingAssetStates()}}));}
   function restoreTrainingFormDraft(){const form=$('#training-form');if(!form)return;form.reset();const draft=readTrainingDraft();for(const field of form.elements)if(field.name&&draft.form?.[field.name]!==undefined){if(field.type==='checkbox')field.checked=Boolean(draft.form[field.name]);else field.value=draft.form[field.name];}if(draft.preset&&[...$('#training-preset').options].some(option=>option.value===draft.preset))$('#training-preset').value=draft.preset;if(draft.scale!==undefined)$('#training-style-scale').value=draft.scale;$('#training-style-scale-value').textContent=Number($('#training-style-scale').value).toFixed(2);renderedTrainingProjectId='';}
   function updateTrainingLyricsControl(id){const source=$(`[data-training-lyrics="${id}"]`),manual=$(`[data-training-lyrics-text="${id}"]`),instrumental=$(`[data-training-instrumental="${id}"]`)?.checked;source.disabled=instrumental;manual.classList.toggle('hidden',instrumental||source.value!=='__manual__');}
   function updateTrainingStyleControl(id){const source=$(`[data-training-style="${id}"]`),manual=$(`[data-training-style-text="${id}"]`);manual.classList.toggle('hidden',source.value!=='__manual__');}
   function renderTrainingAssets() {
     const list = $('#training-assets'); if (!list) return;
-    const retained=new Map(Object.entries(renderedTrainingProjectId===currentProjectId?readTrainingAssetStates():(readTrainingDraft().assets||{})));
+    const retained=new Map(Object.entries(readTrainingDraft().assets||{}));
     const project=projects.find(item=>item.id===currentProjectId);
     $('#training-assets-scope').textContent=currentProjectId?`当前项目“${project?.title||'未命名项目'}”：这里只显示已加入该项目的歌曲。至少选择两首不同歌曲，一首用于训练，一首用于验证；同一首歌的衍生片段不会跨集合。`:'训练素材按歌曲项目管理。请先选择或新建项目，再加入至少两首不同歌曲。';
-    list.innerHTML = trainingAssets.length ? trainingAssets.map(asset => `<div class="training-asset"><input type="checkbox" data-training-asset="${asset.id}" aria-label="选择 ${escapeHtml(asset.title)}"><span><b>${escapeHtml(asset.title)}</b><small>${kindNames[asset.kind]} · ${Number(asset.metadata.duration).toFixed(1)} 秒</small></span><select data-training-split="${asset.id}" aria-label="${escapeHtml(asset.title)} 的数据集"><option value="train">训练集</option><option value="validation">验证集</option></select><div class="training-asset-options"><label>这首歌的歌词来源<select data-training-lyrics="${asset.id}">${trainingLyricsOptions()}</select></label><label>这首歌的曲风<select data-training-style="${asset.id}">${trainingStyleOptions()}</select></label><label class="check"><input type="checkbox" data-training-instrumental="${asset.id}">纯器乐</label><label class="training-lyrics-text" data-training-lyrics-text="${asset.id}">粘贴“${escapeHtml(asset.title)}”的完整歌词<textarea rows="5" placeholder="按 [Verse] / [Chorus] 分段，填写与这首音频对应的歌词"></textarea></label><label class="training-style-text" data-training-style-text="${asset.id}">填写“${escapeHtml(asset.title)}”的曲风<textarea rows="4" maxlength="20000" placeholder="例如：warm acoustic folk, female vocal, slow tempo, guitar and strings"></textarea></label></div></div>`).join('') : `<div class="empty-state"><i class="bi bi-music-note-list"></i><b>${currentProjectId?'当前项目还没有可训练的歌曲':'尚未选择歌曲项目'}</b><p>${currentProjectId?'请把至少两首不同且不少于 5 秒的歌曲或作品加入当前项目；人声、伴奏和参考音色不会出现在这里。':'先到歌曲项目选择或新建项目，再添加训练歌曲。'}</p><div class="toolbar"><button class="primary compact" type="button" data-open-training-assets>${currentProjectId?'去资产库选择歌曲':'去选择歌曲项目'}</button>${currentProjectId?'<button class="ghost compact" type="button" data-import-training-song>直接导入歌曲</button>':''}</div></div>`;
+    const pageCount=Math.max(1,Math.ceil(trainingAssets.length/trainingAssetPageSize));trainingAssetPage=Math.min(trainingAssetPage,pageCount-1);const visibleAssets=trainingAssets.slice(trainingAssetPage*trainingAssetPageSize,(trainingAssetPage+1)*trainingAssetPageSize);
+    list.innerHTML = trainingAssets.length ? visibleAssets.map(asset => `<div class="training-asset"><div class="training-asset-head"><input type="checkbox" data-training-asset="${asset.id}" aria-label="选择 ${escapeHtml(asset.title)}"><span><b>${escapeHtml(asset.title)}</b><small>${kindNames[asset.kind]} · ${Number(asset.metadata.duration).toFixed(1)} 秒</small></span><select data-training-split="${asset.id}" aria-label="${escapeHtml(asset.title)} 的数据集"><option value="train">训练集</option><option value="validation">验证集</option></select><button class="ghost compact" type="button" data-toggle-training-asset="${asset.id}" aria-expanded="false">设置歌词与曲风</button></div><div class="training-asset-body hidden" data-training-asset-body="${asset.id}"><div class="training-asset-audio" data-training-audio="${asset.id}"></div><div class="training-asset-options"><label>这首歌的歌词来源<select data-training-lyrics="${asset.id}">${trainingLyricsOptions()}</select></label><label>这首歌的曲风<select data-training-style="${asset.id}">${trainingStyleOptions()}</select></label><label class="check"><input type="checkbox" data-training-instrumental="${asset.id}">纯器乐</label><label class="training-lyrics-text" data-training-lyrics-text="${asset.id}">粘贴“${escapeHtml(asset.title)}”的完整歌词<textarea rows="5" placeholder="按 [Verse] / [Chorus] 分段，填写与这首音频对应的歌词"></textarea></label><label class="training-style-text" data-training-style-text="${asset.id}">填写“${escapeHtml(asset.title)}”的曲风<textarea rows="4" maxlength="20000" placeholder="例如：warm acoustic folk, female vocal, slow tempo, guitar and strings"></textarea></label></div></div></div>`).join('') : `<div class="empty-state"><i class="bi bi-music-note-list"></i><b>${currentProjectId?'当前项目还没有可训练的歌曲':'尚未选择歌曲项目'}</b><p>${currentProjectId?'请把至少两首不同且不少于 5 秒的歌曲或作品加入当前项目；人声、伴奏和参考音色不会出现在这里。':'先到歌曲项目选择或新建项目，再添加训练歌曲。'}</p><div class="toolbar"><button class="primary compact" type="button" data-open-training-assets>${currentProjectId?'去资产库选择歌曲':'去选择歌曲项目'}</button>${currentProjectId?'<button class="ghost compact" type="button" data-import-training-song>直接导入歌曲</button>':''}</div></div>`;
     for(const [id,state] of retained){const box=$(`[data-training-asset="${id}"]`);if(!box)continue;box.checked=state.checked;$(`[data-training-split="${id}"]`).value=state.split;if([...$(`[data-training-lyrics="${id}"]`).options].some(option=>option.value===state.lyrics))$(`[data-training-lyrics="${id}"]`).value=state.lyrics;$(`[data-training-lyrics-text="${id}"] textarea`).value=state.lyricsText;if([...$(`[data-training-style="${id}"]`).options].some(option=>option.value===state.style))$(`[data-training-style="${id}"]`).value=state.style;$(`[data-training-style-text="${id}"] textarea`).value=state.styleText;$(`[data-training-instrumental="${id}"]`).checked=state.instrumental;}
-    for(const asset of trainingAssets){const split=$(`[data-training-split="${asset.id}"]`),audio=document.createElement('audio');audio.controls=true;audio.preload='metadata';audio.src=contentUrl(asset);audio.setAttribute('aria-label',`训练前试听 ${asset.title}`);split.after(audio);$(`[data-training-lyrics="${asset.id}"]`).onchange=()=>{updateTrainingLyricsControl(asset.id);saveTrainingDraft();};$(`[data-training-style="${asset.id}"]`).onchange=()=>{updateTrainingStyleControl(asset.id);saveTrainingDraft();};$(`[data-training-instrumental="${asset.id}"]`).onchange=()=>{updateTrainingLyricsControl(asset.id);saveTrainingDraft();};updateTrainingLyricsControl(asset.id);updateTrainingStyleControl(asset.id);}
+    for(const asset of visibleAssets){const audio=document.createElement('audio');audio.controls=true;audio.preload='metadata';audio.src=contentUrl(asset);audio.setAttribute('aria-label',`训练前试听 ${asset.title}`);$(`[data-training-audio="${asset.id}"]`).append(audio);$(`[data-training-lyrics="${asset.id}"]`).onchange=()=>{updateTrainingLyricsControl(asset.id);saveTrainingDraft();};$(`[data-training-style="${asset.id}"]`).onchange=()=>{updateTrainingStyleControl(asset.id);saveTrainingDraft();};$(`[data-training-instrumental="${asset.id}"]`).onchange=()=>{updateTrainingLyricsControl(asset.id);saveTrainingDraft();};const toggle=$(`[data-toggle-training-asset="${asset.id}"]`),body=$(`[data-training-asset-body="${asset.id}"]`);toggle.onclick=()=>{const expanded=toggle.getAttribute('aria-expanded')==='true';toggle.setAttribute('aria-expanded',String(!expanded));toggle.textContent=expanded?'设置歌词与曲风':'收起设置';body.classList.toggle('hidden',expanded);};updateTrainingLyricsControl(asset.id);updateTrainingStyleControl(asset.id);}
+    const pagination=$('#training-assets-pagination');pagination.classList.toggle('hidden',trainingAssets.length<=trainingAssetPageSize);$('#training-assets-page-status').textContent=`第 ${trainingAssetPage+1} / ${pageCount} 页 · 共 ${trainingAssets.length} 首`;$('#training-assets-prev').disabled=trainingAssetPage===0;$('#training-assets-next').disabled=trainingAssetPage>=pageCount-1;
     renderedTrainingProjectId=currentProjectId;
     list.querySelector('[data-open-training-assets]')?.addEventListener('click',()=>currentProjectId?openTrainingAssetLibrary(false):($('.tab[data-tab="project"]').click(),$('#workbench-project-select').focus()));
     list.querySelector('[data-import-training-song]')?.addEventListener('click',()=>openTrainingAssetLibrary(true));
@@ -337,7 +348,9 @@
   }
   $('#training-add-songs').onclick=()=>openTrainingAssetLibrary(false);
   $('#asset-training-back').onclick=async()=>{trainingAssetGuidance=false;$('#asset-training-guidance').classList.add('hidden');await loadTrainingInputs();$('.tab[data-tab="training"]').click();};
-  $('#training-select-all').onclick = () => { const boxes=$$('#training-assets [data-training-asset]'); boxes.forEach(box=>box.checked=true); if(boxes.length>1) $(`[data-training-split="${boxes.at(-1).dataset.trainingAsset}"]`).value='validation'; saveTrainingDraft(); };
+  $('#training-assets-prev').onclick=()=>{if(trainingAssetPage>0){saveTrainingDraft();trainingAssetPage--;renderTrainingAssets();}};
+  $('#training-assets-next').onclick=()=>{if((trainingAssetPage+1)*trainingAssetPageSize<trainingAssets.length){saveTrainingDraft();trainingAssetPage++;renderTrainingAssets();}};
+  $('#training-select-all').onclick = () => { saveTrainingDraft();const draft=readTrainingDraft(),states={...(draft.assets||{})};trainingAssets.forEach((asset,index)=>{states[asset.id]={checked:true,split:index===trainingAssets.length-1&&trainingAssets.length>1?'validation':states[asset.id]?.split||'train',lyrics:states[asset.id]?.lyrics||'__manual__',lyricsText:states[asset.id]?.lyricsText||'',style:states[asset.id]?.style||'',styleText:states[asset.id]?.styleText||'',instrumental:Boolean(states[asset.id]?.instrumental)};});savedValue(trainingDraftKey(),JSON.stringify({...draft,assets:states}));renderTrainingAssets(); };
   $('#training-style-scale').oninput = event => {$('#training-style-scale-value').textContent=Number(event.target.value).toFixed(2);saveTrainingDraft();};
   $('#training-form').addEventListener('input',saveTrainingDraft);
   $('#training-assets').addEventListener('input',saveTrainingDraft);
@@ -443,12 +456,12 @@
     if(button.disabled)return;
     button.disabled=true;button.textContent='正在检查并创建…';status.dataset.state='busy';status.textContent='正在检查歌曲、歌词、数据集划分和使用授权。';
     try{
-      const selected=$$('#training-assets [data-training-asset]:checked');
-      if(selected.length<2)throw new Error('请至少选择两首不同歌曲，并留一首作为验证集');
-      const selectedAssets=selected.map(box=>trainingAssets.find(value=>value.id===box.dataset.trainingAsset));
+      saveTrainingDraft();const assetStates=readTrainingDraft().assets||{};
+      const selectedAssets=trainingAssets.filter(asset=>assetStates[asset.id]?.checked);
+      if(selectedAssets.length<2)throw new Error('请至少选择两首不同歌曲，并留一首作为验证集');
       const duplicateAudio=new Map();
       for(const asset of selectedAssets){
-        const split=$(`[data-training-split="${asset.id}"]`).value,previous=duplicateAudio.get(asset.blob_sha256);
+        const split=assetStates[asset.id].split,previous=duplicateAudio.get(asset.blob_sha256);
         if(previous&&previous.split!==split)throw new Error(`“${previous.asset.title}”与“${asset.title}”是同一音频的重复导入，不能分别作为训练集和验证集；请换一首真正不同的歌曲`);
         duplicateAudio.set(asset.blob_sha256,{asset,split});
       }
@@ -456,12 +469,12 @@
       if(!String(form.title||'').trim())throw new Error('请填写训练名称');
       if(!String(form.style||'').trim())throw new Error('请填写公共曲风，例如乐器、节奏、演唱与编排风格');
       if(form.rights_confirmed!=='on')throw new Error('请先勾选“我确认有权使用所选音乐进行模型训练”');
-      const items=selected.map(box=>{
-        const asset=trainingAssets.find(value=>value.id===box.dataset.trainingAsset),instrumental=$(`[data-training-instrumental="${asset.id}"]`).checked,lyricsChoice=$(`[data-training-lyrics="${asset.id}"]`).value,manualLyrics=$(`[data-training-lyrics-text="${asset.id}"] textarea`).value.trim(),lyricsRevision=lyricsChoice==='__manual__'?'':lyricsChoice,styleChoice=$(`[data-training-style="${asset.id}"]`).value,manualStyle=$(`[data-training-style-text="${asset.id}"] textarea`).value.trim(),styleRevision=styleChoice==='__manual__'?'':styleChoice;
+      const items=selectedAssets.map(asset=>{
+        const state=assetStates[asset.id],instrumental=Boolean(state.instrumental),lyricsChoice=state.lyrics||'__manual__',manualLyrics=String(state.lyricsText||'').trim(),lyricsRevision=lyricsChoice==='__manual__'?'':lyricsChoice,styleChoice=state.style||'',manualStyle=String(state.styleText||'').trim(),styleRevision=styleChoice==='__manual__'?'':styleChoice;
         if(!instrumental&&lyricsChoice==='__manual__'&&!manualLyrics)throw new Error(`请在“${asset.title}”下面粘贴这首歌的歌词`);
         if(!instrumental&&!lyricsRevision&&!manualLyrics&&!String(form.lyrics||'').trim())throw new Error(`“${asset.title}”需要本曲歌词；也可以选择歌词资产或明确标记为纯器乐`);
         if(styleChoice==='__manual__'&&!manualStyle)throw new Error(`请在“${asset.title}”下面填写本曲曲风，或选择使用右侧公共曲风`);
-        return{asset_id:asset.id,revision_id:asset.current_revision_id,start:0,end:Number(asset.metadata.duration),track_group_id:asset.metadata?.track_group_id||asset.blob_sha256,split:$(`[data-training-split="${asset.id}"]`).value,lyrics_revision_id:lyricsRevision||null,lyrics:manualLyrics,style_revision_id:styleRevision||null,style:manualStyle,instrumental};
+        return{asset_id:asset.id,revision_id:asset.current_revision_id,start:0,end:Number(asset.metadata.duration),track_group_id:asset.metadata?.track_group_id||asset.blob_sha256,split:state.split,lyrics_revision_id:lyricsRevision||null,lyrics:manualLyrics,style_revision_id:styleRevision||null,style:manualStyle,instrumental};
       });
       if(!items.some(item=>item.split==='train')||!items.some(item=>item.split==='validation'))throw new Error('训练集和验证集都不能为空；请把至少一首歌改为验证集');
       status.textContent='检查通过，正在固定素材快照并启动后台预处理…';

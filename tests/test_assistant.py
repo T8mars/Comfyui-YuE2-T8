@@ -439,6 +439,29 @@ class AssistantTests(unittest.TestCase):
             self.assertEqual(jobs[0]["id"], first["id"])
             self.assertEqual(jobs[0]["project_id"], "a" * 32)
 
+    def test_latest_creative_job_excludes_connection_tests_before_limit(self):
+        import queue
+        import threading
+        from app.yue2_app import service
+        store = service.JobStore.__new__(service.JobStore)
+        store.updating = False
+        store.lock, store.storage_lock = threading.RLock(), threading.RLock()
+        store.jobs, store.pending = {}, queue.Queue()
+        project_id = "d" * 32
+        with patch.object(service, "ROOT", self.root), patch.object(
+                service, "OUTPUTS", self.root / "outputs/jobs"), patch.object(
+                service, "runtime_ready", return_value={"capabilities": {}}):
+            creative_request = self.request(); creative_request["project_id"] = project_id
+            creative = store.create("assistant", creative_request, client_request_id="creative")
+            for index in range(20):
+                connection_request = self.request()
+                connection_request.update(project_id=project_id, test_connection=True)
+                store.create("assistant", connection_request, client_request_id=f"connection-{index}")
+            jobs, total = store.list_page(limit=1, kind="assistant", project_id=project_id,
+                                          exclude_connection=True)
+            self.assertEqual(total, 1)
+            self.assertEqual([job["id"] for job in jobs], [creative["id"]])
+
     def test_compact_latest_panel_history_restores_without_large_stage_arrays(self):
         import queue
         import threading

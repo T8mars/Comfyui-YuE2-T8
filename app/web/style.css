@@ -28,6 +28,22 @@ body {
     radial-gradient(circle at 92% 12%, rgba(89, 125, 255, .08), transparent 32%),
     var(--bg);
 }
+
+.studio-dialog {
+  width: min(520px, calc(100vw - 28px));
+  border: 1px solid var(--blue-line);
+  border-radius: 18px;
+  padding: 0;
+  color: var(--text);
+  background: var(--panel);
+  box-shadow: 0 24px 80px rgba(17, 27, 53, .28);
+}
+.studio-dialog::backdrop { background: rgba(17, 27, 53, .42); backdrop-filter: blur(3px); }
+.studio-dialog form { display: grid; gap: 16px; padding: 24px; }
+.studio-dialog h3 { margin: 0; font-size: 20px; }
+.studio-dialog-message { margin: 0; white-space: pre-wrap; line-height: 1.65; color: var(--muted); }
+.studio-dialog input { width: 100%; }
+.studio-dialog-actions { justify-content: flex-end; margin-top: 4px; }
 body > header {
   max-width: 1180px;
   margin: 38px auto 30px;

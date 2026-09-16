@@ -650,7 +650,8 @@ class JobStore:
 
     def list_page(self, *, limit: int = 100, offset: int = 0, kind: str = "",
                   status: str = "", query: str = "", project_id: str = "",
-                  latest_by_panel: bool = False, compact: bool = False) -> tuple[list[dict], int]:
+                  latest_by_panel: bool = False, compact: bool = False,
+                  exclude_connection: bool = False) -> tuple[list[dict], int]:
         limit, offset, needle = max(1, min(int(limit), 500)), max(0, int(offset)), str(query).strip().lower()[:200]
         with self.lock:
             values = list(self.jobs.items())
@@ -660,6 +661,9 @@ class JobStore:
             if kind and value.get("kind") != kind:
                 return False
             if status and value.get("status") != status:
+                return False
+            if exclude_connection and (value.get("summary") == "测试 LLM 连接" or
+                                       (isinstance(value.get("result"), dict) and value["result"].get("connection"))):
                 return False
             if project_id:
                 scoped = str(value.get("project_id") or "")
@@ -1236,7 +1240,8 @@ class Handler(BaseHTTPRequestHandler):
                                               status=query.get("status", [""])[0], query=query.get("q", [""])[0],
                                               project_id=query.get("project_id", [""])[0],
                                               latest_by_panel=query.get("latest_by_panel", ["0"])[0] == "1",
-                                              compact=query.get("compact", ["0"])[0] == "1")
+                                              compact=query.get("compact", ["0"])[0] == "1",
+                                              exclude_connection=query.get("exclude_connection", ["0"])[0] == "1")
                 return self._json(200, {"jobs": jobs, "total": total,
                                         "limit": max(1, min(limit, 500)), "offset": max(0, offset)})
             if path == "/api/assistant/config":

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.7 - 2026-09-16
+
+- Replace blocking browser alerts, confirmations and text prompts with accessible in-studio dialogs for project, model, cleanup and update actions.
+- Restore the latest project-scoped AI creation even after any number of later model connection tests by filtering tests before pagination.
+- Align the stable release tag with a fully passing Linux/browser and Windows launcher/update CI run.
+
 ## 1.5.6 - 2026-09-16
 
 - Serialize job status updates across the service and worker so a last-moment cancel can no longer overwrite a committed result.

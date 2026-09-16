@@ -405,7 +405,7 @@ async function pollAssistant(id, startingRevision, projectId = assistant.project
         if (job.result?.connection) line.textContent = '模型连接测试通过；这是文本请求测试，不代表作谱或音乐生成已验收。';
         if (assistant.ticks.assistant !== startingRevision && job.result && !job.result.connection) {
           const restore = document.createElement('button'); restore.className = 'ghost'; restore.textContent = '查看已完成结果（保留当前草稿前请先下载）';
-          restore.onclick = () => { if (confirm('用这个任务的结果替换当前编辑区？')) { showAssistantResult(job.result); changedDraft('assistant'); } }; progress.append(restore);
+          restore.onclick = async () => { if (await uiConfirm('用这个任务的结果替换当前编辑区？')) { showAssistantResult(job.result); changedDraft('assistant'); } }; progress.append(restore);
         }
         await savePanel('assistant'); refreshWorkspace(); loadHistory(); break;
       }
@@ -417,7 +417,7 @@ async function pollAssistant(id, startingRevision, projectId = assistant.project
 }
 async function latestAssistantJobForScope(projectId = assistant.projectId) {
   const scope=projectId||'__global__';
-  const recent = await api(`/api/jobs?limit=20&kind=assistant&project_id=${encodeURIComponent(scope)}`);
+  const recent = await api(`/api/jobs?limit=1&kind=assistant&exclude_connection=1&project_id=${encodeURIComponent(scope)}`);
   return recent.jobs.find(job => job.kind === 'assistant' && !job.result?.connection && job.summary !== '测试 LLM 连接'
     && String(job.project_id || job.request?.project_id || '') === String(projectId || '')) || null;
 }
@@ -437,7 +437,7 @@ async function restoreAssistantJobForCurrentScope() {
   } else if(current.result&&!current.result.connection&&assistant.resultEdited&&TERMINAL.has(current.status)){
     const notice=$('#assistant-progress'); notice.textContent='该任务已结束。当前编辑已保留，可查看任务的最新结果。';
     const button=document.createElement('button'); button.className='ghost'; button.textContent='查看最新任务结果';
-    button.onclick=()=>{if(confirm('替换当前编辑区？需要保留的内容请先下载。')){showAssistantResult(current.result);changedDraft('assistant');}};
+    button.onclick=async()=>{if(await uiConfirm('替换当前编辑区？需要保留的内容请先下载。')){showAssistantResult(current.result);changedDraft('assistant');}};
     notice.append(button);
   }
   if(!TERMINAL.has(current.status)){pollAssistant(current.id,assistant.ticks.assistant,projectId);return;}
@@ -546,7 +546,7 @@ window.openAssistantJob = async id => {
   try {
     const data = await api(`/api/assistant/jobs/${id}`);
     if(String(data.request.project_id||'')!==assistant.projectId)throw new Error('这个助手任务属于另一个项目，请先切换到对应项目再载入');
-    if (assistant.result && !confirm('载入该任务？当前内容可先保存或下载。')) return;
+    if (assistant.result && !await uiConfirm('载入该任务？当前内容可先保存或下载。')) return;
     putFields($('#assistant-form'), data.request.values); assistant.originalLyrics = data.request.values.lyrics || '';
     if (data.job.result) showAssistantResult(data.job.result);
     assistant.job = data.job; changedDraft('assistant'); $('.tab[data-tab=assistant]').click();

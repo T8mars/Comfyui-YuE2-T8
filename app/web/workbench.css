@@ -39,6 +39,7 @@ body > header .project-meta { margin-top: 12px; display: flex; gap: 7px 12px; }
 body > header .project-links { gap: 7px; }
 body > header .project-links a { min-height: 28px; padding: 4px 8px; display: inline-flex; align-items: center; gap: 5px; border: 1px solid rgba(82,96,120,.2); border-radius: 7px; background: rgba(255,255,255,.62); line-height: 1.35; }
 .header-project-context { display: none; }
+.mobile-header-details { display: none; }
 body > header .status-card { padding: 14px 16px; grid-template-columns: auto minmax(0,1fr) auto; gap: 8px 11px; border-radius: 10px; box-shadow: none; }
 body > header .status-card .header-actions { display: contents; }
 body > header .status-card .doctor-action { grid-column: 3; grid-row: 1; }
@@ -127,9 +128,11 @@ main { max-width: 1380px; padding: 32px 28px 160px; }
 .training-stage span.active { color: var(--accent-strong); border-color: var(--accent); font-weight: 800; }
 .training-stage span.done { color: #287b5a; border-color: #8ad4b2; font-weight: 700; }
 .training-assets { max-height: 460px; margin-top: 14px; display: grid; gap: 7px; overflow: auto; }
-.training-asset { padding: 10px; display: grid; grid-template-columns: auto minmax(0,1fr) 110px; gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: 8px; }
-.training-asset > audio { width: 100%; height: 34px; grid-column: 2 / -1; }
-.training-asset-options { grid-column: 2 / -1; display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: end; }
+.training-asset { padding: 10px; border: 1px solid var(--line); border-radius: 8px; }
+.training-asset-head { display: grid; grid-template-columns: auto minmax(0,1fr) 110px auto; gap: 10px; align-items: center; }
+.training-asset-body { margin: 10px 0 0 28px; padding-top: 10px; border-top: 1px solid var(--line); }
+.training-asset-audio audio { width: 100%; height: 34px; }
+.training-asset-options { margin-top: 8px; display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: end; }
 .training-lyrics-text, .training-style-text { grid-column: 1 / -1; }
 .training-lyrics-text textarea, .training-style-text textarea { min-height: 105px; resize: vertical; }
 .training-form-status { padding: 10px 11px; border-radius: 8px; background: #f6f8fc; line-height: 1.55; }
@@ -137,8 +140,8 @@ main { max-width: 1380px; padding: 32px 28px 160px; }
 .training-form-status[data-state="busy"] { color: #345a91; background: #eef5ff; }
 .training-inspector textarea, .training-lyrics-text textarea, .training-style-text textarea { direction: ltr !important; text-align: left !important; }
 .training-asset input { width: auto; }
-.training-asset b { display: block; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.training-asset small { color: var(--muted); font-size: 9px; }
+.training-asset-head b { display: block; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.training-asset-head small { color: var(--muted); font-size: 9px; }
 .metric-row { margin: 20px 0 13px; display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; }
 .metric-row span { padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-soft); }
 .metric-row small, .metric-row b { display: block; }
@@ -185,6 +188,16 @@ body:has(.workload:not(.hidden)):has(.global-player:not(.hidden)) .assistant-tra
   .training-model-grid, .training-model-actions { grid-template-columns: repeat(2,minmax(0,1fr)); }
   body > header .project-meta { align-items: flex-start; gap: 7px; }
   body > header .creator-credit { width: 100%; }
+  body[data-active-tab="project"] > header h1, body[data-active-tab="project"] > header .project-meta,
+  body[data-active-tab="project"] > header .status-card .header-actions { display: none; }
+  body[data-active-tab="project"] > header > div:first-child { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; }
+  body[data-active-tab="project"] > header .header-project-context,
+  body[data-active-tab="project"] > header .mobile-header-details { margin-top: 0; }
+  body[data-active-tab="project"] > header .mobile-header-details { display: inline-flex; align-items: center; gap: 6px; }
+  body[data-active-tab="project"] > header #health-detail { display: none; }
+  body[data-active-tab="project"].mobile-header-expanded > header .project-meta { grid-column: 1 / -1; display: flex; }
+  body[data-active-tab="project"].mobile-header-expanded > header #health-detail { display: block; }
+  body[data-active-tab="project"].mobile-header-expanded > header .status-card .header-actions { display: grid; }
 }
 @media (max-width: 1024px) {
   body { padding: 80px 0 0; }
@@ -211,10 +224,10 @@ body:has(.workload:not(.hidden)):has(.global-player:not(.hidden)) .assistant-tra
   .workflow-strip, .training-stage { grid-template-columns: repeat(2,1fr); }
   .asset-grid { grid-template-columns: 1fr; }
   .inline-editor { grid-template-columns: 1fr; }
-  .training-asset { grid-template-columns: auto minmax(0,1fr); }
-  .training-asset select { grid-column: 2; }
-  .training-asset > audio { grid-column: 1 / -1; }
-  .training-asset-options { grid-column: 1 / -1; grid-template-columns: 1fr; }
+  .training-asset-head { grid-template-columns: auto minmax(0,1fr); }
+  .training-asset-head select, .training-asset-head button { grid-column: 2; }
+  .training-asset-body { margin-left: 0; }
+  .training-asset-options { grid-template-columns: 1fr; }
   .project-track { grid-template-columns: auto minmax(0,1fr); }
   .project-track > .toolbar { grid-column: 1 / -1; justify-content: flex-start; }
   .training-run-controls { grid-template-columns: 1fr; }

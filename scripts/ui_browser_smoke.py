@@ -156,7 +156,7 @@ def seed_browser_state(root: Path) -> None:
         if index <= 2:
             library.add_to_project(project["id"], asset["id"])
     training_songs = []
-    for index in range(2):
+    for index in range(10):
         source = root / f"training-song-{index + 1}.wav"
         with wave.open(str(source), "wb") as stream:
             stream.setnchannels(1); stream.setsampwidth(2); stream.setframerate(8000)
@@ -267,6 +267,13 @@ def run_browser(url: str, output: Path) -> dict:
         assert page.locator("[aria-selected]").count() == 0
         page.locator('.studio-sidebar [data-tab="project"]').click()
         assert page.locator("#new-user-guide").is_visible()
+        assert page.locator("#new-user-guide").evaluate("element => element.open")
+        page.locator("#new-project").click()
+        studio_dialog = page.locator(".studio-dialog")
+        studio_dialog.wait_for(state="visible")
+        labelled_by = studio_dialog.get_attribute("aria-labelledby")
+        assert labelled_by and studio_dialog.locator(f"#{labelled_by}").inner_text() == "新项目名称"
+        studio_dialog.locator('button[value="cancel"]').click()
         page.locator(".archived-project-card").evaluate("element => { element.open = true; }")
         page.locator("[data-restore-project]").wait_for(state="visible")
         assert page.locator("[data-restore-project]").count() == 1
@@ -406,8 +413,15 @@ def run_browser(url: str, output: Path) -> dict:
         assert style_input.evaluate("el => getComputedStyle(el).direction") == "ltr"
         assert style_input.evaluate("el => getComputedStyle(el).textAlign") == "left"
         style_input.fill("")
+        assert page.locator("[data-training-asset]").count() == 8
+        assert page.locator(".training-asset-body:not(.hidden)").count() == 0
+        assert "第 1 / 2 页 · 共 10 首" in page.locator("#training-assets-page-status").inner_text()
+        page.locator("[data-toggle-training-asset]").first.click()
+        assert page.locator(".training-asset-body:not(.hidden)").count() == 1
+        page.locator("#training-assets-next").click()
         assert page.locator("[data-training-asset]").count() == 2
-        assert page.locator(".training-lyrics-text:not(.hidden) textarea").count() == 2
+        assert "第 2 / 2 页 · 共 10 首" in page.locator("#training-assets-page-status").inner_text()
+        page.locator("#training-assets-prev").click()
         page.locator("#training-select-all").click()
         page.locator("#create-training-run").click()
         assert "请填写公共曲风" in page.locator("#training-form-status").inner_text()
@@ -443,16 +457,16 @@ def run_browser(url: str, output: Path) -> dict:
         page.locator("#workbench-project-select").select_option(active_value)
         page.wait_for_function("document.querySelector('#header-project-name').textContent === '浏览器回归项目'")
         page.locator('.studio-sidebar [data-tab="training"]').click()
-        page.wait_for_function("document.querySelectorAll('[data-training-asset]').length === 2")
+        page.wait_for_function("document.querySelectorAll('[data-training-asset]').length === 8")
         assert page.locator("#training-form [name=style]").input_value() == "persistent project training style"
         assert page.locator("[data-training-asset]").first.is_checked()
 
         page.locator('.studio-sidebar [data-tab="assets"]').click()
         page.locator(".asset-card").first.wait_for(state="visible")
-        assert page.locator(".asset-card").count() == 10
+        assert page.locator(".asset-card").count() == 18
         assert page.locator(".asset-card [data-add-asset]").count() == 6
-        assert page.locator(".asset-card [data-project-asset-state]").count() == 4
-        assert page.locator(".asset-card [data-project-asset-state]:disabled").count() == 4
+        assert page.locator(".asset-card [data-project-asset-state]").count() == 12
+        assert page.locator(".asset-card [data-project-asset-state]:disabled").count() == 12
         for card in page.locator(".asset-card").all():
             bounds = card.evaluate("""card => {
               const outer=card.getBoundingClientRect();
@@ -544,6 +558,13 @@ def run_browser(url: str, output: Path) -> dict:
         page.reload(wait_until="domcontentloaded")
         wait_for_ui(page)
         page.evaluate("window.scrollTo(0, 0)")
+        page.locator('.studio-sidebar [data-tab="project"]').click()
+        assert page.locator("#mobile-header-details").is_visible()
+        assert page.locator("body > header .project-meta").is_hidden()
+        page.locator("#mobile-header-details").click()
+        assert page.locator("body > header .project-meta").is_visible()
+        page.locator("#mobile-header-details").click()
+        page.screenshot(path=output / "phone-project.png", full_page=False)
         menu = page.locator("#mobile-workspace-menu")
         menu.wait_for(state="visible")
         menu.click()
@@ -603,7 +624,7 @@ def run_browser(url: str, output: Path) -> dict:
     return {
         "viewports": ["1366x900", "820x900", "390x844"],
         "scenarios": [
-            "seeded project and ten asset cards stay within the desktop viewport",
+            "seeded project and asset cards stay within the desktop viewport",
             "asset use, edit and read dialogs expose accessible names",
             "asset and completed-job audio handoff uses server references without browser file copies",
             "completed generation stays playable with an accessible audio name on its originating page",
@@ -612,10 +633,10 @@ def run_browser(url: str, output: Path) -> dict:
             "creator, source, ComfyUI node and model links stay visible with verified destinations",
             "API credentials, Seedance 2.1 Turbo, explicit Custom model input and one-click ABC completion are visible and reachable",
             "assistant lyrics, style and ABC recover from the latest project job after tab switches and a browser reload",
-            "YuE2 training exposes per-song lyrics, inline validation, guided asset selection and three-model pagination",
+            "YuE2 training exposes collapsed per-song settings, eight-song pagination, inline validation and three-model pagination",
             "backend-reported progress stays fixed across workspaces and opens the full task details",
             "Seed-VC and RVC expose independent remembered octave presets in the main cover flow",
-            "mobile workspace switching resets a long-page scroll position",
+            "mobile project maintenance stays collapsed and workspace switching resets long-page scroll position",
             "all ten workspaces meet WCAG AA contrast for visible normal-size text",
         ],
         "console_errors": console_errors,

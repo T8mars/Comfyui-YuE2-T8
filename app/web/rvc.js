@@ -222,8 +222,8 @@
     const voiceId = button.dataset.voiceId, action = button.dataset.voiceAction, voice = voices.find(v => v.id === voiceId);
     if (action === 'export') return start('rvc_model_export',{voice_id:voiceId});
     let data = {};
-    if (action === 'rename') { const name = prompt('音色名称',voice.name); if (name === null) return; data = {name}; }
-    if (action === 'remove' && !confirm(`移除「${voice.name}」？模型会保留在音色库的 .trash 文件夹，训练素材不受影响。`)) return;
+    if (action === 'rename') { const name = await uiPrompt('音色名称',voice.name); if (name === null) return; data = {name}; }
+    if (action === 'remove' && !await uiConfirm(`移除「${voice.name}」？模型会保留在音色库的 .trash 文件夹，训练素材不受影响。`,'移除音色','移除')) return;
     const result = await post(`/api/rvc/voices/${voiceId}/${action}`,data);
     if (result.recovery_directory) notice(`音色已移除，可从此目录恢复：${result.recovery_directory}`);
     await refresh();
