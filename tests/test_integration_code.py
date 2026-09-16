@@ -1,4 +1,5 @@
 import hashlib
+import io
 import json
 import os
 import queue
@@ -192,6 +193,16 @@ class IntegrationCodeTests(unittest.TestCase):
     def test_public_status_hides_command(self):
         self.assertNotIn("command", public_job({"id": "x", "command": ["secret"]}))
 
+    def test_http_validation_messages_are_localized(self):
+        with self.assertRaisesRegex(ValueError, "查询参数 limit 必须是整数"):
+            service.Handler._query_integer({"limit": ["abc"]}, "limit", 100, minimum=1)
+        request = type("Request", (), {
+            "headers": {"Content-Type": "application/json", "Content-Length": "5"},
+            "rfile": io.BytesIO(b"{bad}")
+        })()
+        with self.assertRaisesRegex(ValueError, "请求 JSON 格式无效"):
+            service.Handler._body_json(request)
+
     def test_active_duplicate_request_reuses_existing_job(self):
         with tempfile.TemporaryDirectory(dir=ROOT) as directory:
             outputs = Path(directory) / "jobs"
@@ -242,6 +253,25 @@ class IntegrationCodeTests(unittest.TestCase):
                 created = store.create("voice_convert", request, source="comfyui")
             self.assertEqual(created["kind"], "voice_convert")
             self.assertEqual(created["summary"], "参考音色翻唱 · voice.wav")
+
+    def test_reference_voice_rejects_string_boolean(self):
+        with tempfile.TemporaryDirectory(dir=ROOT) as directory:
+            outputs = Path(directory) / "jobs"; outputs.mkdir()
+            uploads = Path(directory) / "uploads"; uploads.mkdir()
+            import numpy as np
+            import soundfile as sf
+            for name in ("song.flac", "voice.wav"):
+                sf.write(uploads / name, np.zeros(32000), 16000)
+            store = object.__new__(JobStore)
+            store.updating = False; store.storage_lock = threading.RLock(); store.lock = threading.RLock()
+            store.jobs = {}; store.pending = queue.Queue(); store.current_id = None; store.current_process = None
+            request = {"source_path": str(uploads / "song.flac"),
+                       "reference_path": str(uploads / "voice.wav"), "auto_f0_adjust": "false"}
+            with mock.patch.object(service, "ROOT", Path(directory)), mock.patch.object(service, "OUTPUTS", outputs), \
+                    mock.patch.object(service, "runtime_ready", return_value={
+                        "capabilities": {"voice_conversion": True}}), \
+                    self.assertRaisesRegex(ValueError, "自动音高调整必须是 true 或 false"):
+                store.create("voice_convert", request, source="webui")
 
     def test_asset_and_completed_job_references_stay_server_side(self):
         import numpy as np
@@ -763,18 +793,27 @@ class IntegrationCodeTests(unittest.TestCase):
                 self.assertIn(link[1], node_ids)
                 self.assertIn(link[3], node_ids)
 
-    def test_ci_and_registry_gate_use_current_actions_and_explicit_python(self):
+    def test_ci_and_registry_gate_pin_actions_and_publish_only_immutable_tags(self):
         github = Path(__file__).resolve().parents[1] / ".github/workflows"
         quality = (github / "quality.yml").read_text(encoding="utf-8")
         publish = (github / "publish.yml").read_text(encoding="utf-8")
         for workflow in (quality, publish):
-            self.assertIn("actions/checkout@v7", workflow)
-            self.assertIn("actions/setup-python@v7", workflow)
+            self.assertRegex(workflow, r"actions/checkout@[0-9a-f]{40}")
+            self.assertRegex(workflow, r"actions/setup-python@[0-9a-f]{40}")
+            self.assertNotIn("actions/checkout@v", workflow)
+            self.assertNotIn("actions/setup-python@v", workflow)
         self.assertIn("python scripts/ui_browser_smoke.py", quality)
-        self.assertIn("actions/upload-artifact@v7", quality)
+        self.assertRegex(quality, r"actions/upload-artifact@[0-9a-f]{40}")
+        self.assertRegex(publish, r"Comfy-Org/publish-node-action@[0-9a-f]{40}")
+        self.assertIn('- "v*"', publish)
+        self.assertIn("Require successful Quality run for this commit", publish)
         self.assertTrue((Path(__file__).resolve().parents[1] / "scripts/ui_browser_smoke.py").is_file())
         self.assertIn('python-version: "3.12"', publish)
-        self.assertEqual(publish.count('"${{ steps.python.outputs.python-path }}" - <<\'PY\''), 2)
+        self.assertEqual(publish.count('"${{ steps.python.outputs.python-path }}" - <<\'PY\''), 4)
+
+    def test_launcher_exits_after_success_so_updates_can_replace_it(self):
+        source = (Path(__file__).resolve().parents[1] / "scripts/launcher/YuE2Launcher.cs").read_text(encoding="utf-8")
+        self.assertIn("return Finish(0, null, true);", source)
 
 
 if __name__ == "__main__":

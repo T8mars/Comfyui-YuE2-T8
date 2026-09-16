@@ -177,12 +177,25 @@ def _query(parsed) -> dict[str, list[str]]:
     return urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
 
 
+def _query_integer(query: dict[str, list[str]], name: str, default: int, *,
+                   minimum: int = 0, maximum: int = 500) -> int:
+    raw = query.get(name, [str(default)])[0]
+    try:
+        value = int(raw)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"查询参数 {name} 必须是整数") from exc
+    if not minimum <= value <= maximum:
+        raise ValueError(f"查询参数 {name} 必须在 {minimum}–{maximum} 之间")
+    return value
+
+
 def get(handler, parsed, library: AssetLibrary, *, head: bool = False) -> bool:
     path, query = parsed.path, _query(parsed)
     if path == "/api/workbench/assets":
         filters = {"kind": query.get("kind", [""])[0], "query": query.get("q", [""])[0],
                    "project_id": query.get("project_id", [""])[0]}
-        limit, offset = int(query.get("limit", ["100"])[0]), int(query.get("offset", ["0"])[0])
+        limit = _query_integer(query, "limit", 100, minimum=1, maximum=500)
+        offset = _query_integer(query, "offset", 0, minimum=0, maximum=10_000_000)
         handler._json(200, {"assets": library.list_assets(**filters, limit=limit, offset=offset),
                             "total": library.count_assets(**filters), "limit": min(500, max(1, limit)),
                             "offset": max(0, offset)})
@@ -199,7 +212,7 @@ def get(handler, parsed, library: AssetLibrary, *, head: bool = False) -> bool:
                 stream_file(handler, source, info, head=head)
             else:
                 handler._json(200, waveform(library, pieces[4], revision_id,
-                                            int(query.get("bins", ["720"])[0])))
+                                            _query_integer(query, "bins", 720, minimum=16, maximum=4096)))
             return True
     if path == "/api/workbench/projects":
         handler._json(200, {"projects": library.list_projects(

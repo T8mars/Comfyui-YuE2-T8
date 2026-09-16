@@ -142,6 +142,10 @@ def section_top(page: Page, selector: str) -> float:
 def wait_for_ui(page: Page) -> None:
     page.locator("#health-title").wait_for(state="visible")
     page.wait_for_function("document.querySelector('#health-title').textContent !== '正在检查运行环境'")
+    page.evaluate("() => window.assistantReady")
+    page.evaluate("() => window.workbenchReady")
+    assert page.locator("#assistant-config-form").get_attribute("aria-busy") == "false"
+    assert page.locator("#assistant-form").get_attribute("aria-busy") == "false"
     page.locator("#model-settings").evaluate("element => { element.open = false; }")
 
 
@@ -240,6 +244,9 @@ def run_browser(url: str, output: Path) -> dict:
         page.on("pageerror", lambda error: console_errors.append(str(error)))
         page.goto(url, wait_until="domcontentloaded")
         wait_for_ui(page)
+
+        page.keyboard.press("Tab")
+        assert page.evaluate("document.activeElement.classList.contains('skip-link')")
 
         assert page.locator(".tool-nav").count() == 0
         sidebar_tabs = page.locator(".studio-sidebar .tab")
@@ -363,6 +370,12 @@ def run_browser(url: str, output: Path) -> dict:
         assert page.locator("#assistant-compose-abc").is_visible()
         assert page.locator("#assistant-compose-abc").inner_text() == "重新生成 ABC"
         assert "已保留模型返回的 ABC" in page.locator("#assistant-abc-status").inner_text()
+        page.locator("#assistant-result-abc").fill("")
+        assert page.locator("#assistant-abc-status").get_attribute("data-state") == "pending"
+        page.locator("#assistant-validate").click()
+        page.wait_for_function("document.querySelector('#assistant-abc-status').dataset.state === 'failed'")
+        assert "仍可原样发送" in page.locator("#assistant-abc-status").inner_text()
+        page.evaluate("showAssistantResult({style:'English folk',lyrics:'[Verse]\\nBrowser test',abc:'X:1\\nT:invalid\\nM:4/4\\nL:1/4\\nK:C\\nZ',cot:'full',abc_status:'failed',outcome:'partial_success',report:{abc:{error:'unsupported token Z'}}})")
         assert page.locator("#assistant-abc-status").bounding_box()["y"] < page.locator("#assistant-result-abc").bounding_box()["y"]
         page.locator("#assistant-abc-status").scroll_into_view_if_needed()
         page.screenshot(path=output / "desktop-assistant-invalid-abc-retained.png", full_page=False)
@@ -372,7 +385,11 @@ def run_browser(url: str, output: Path) -> dict:
         assert "完整原样填入" in page.locator("#assistant-send-details").inner_text()
         page.locator("#assistant-send-confirm").click()
         page.wait_for_function("document.body.dataset.activeTab === 'plan'")
-        assert page.locator("#plan-abc").input_value() == "X:1\ninvalid paid draft"
+        transfer_notice = page.locator("#assistant-transfer-notice")
+        assert transfer_notice.is_visible()
+        assert transfer_notice.evaluate("element => getComputedStyle(element).position") == "static"
+        assert transfer_notice.evaluate("element => element.closest('#plan') !== null")
+        assert page.locator("#plan-abc").input_value() == "X:1\nT:invalid\nM:4/4\nL:1/4\nK:C\nZ"
         assert "未校验导入谱" in page.locator("#plan-badge").inner_text()
         page.locator("#plan-workbench").scroll_into_view_if_needed()
         page.screenshot(path=output / "desktop-plan-invalid-abc-received.png", full_page=False)
@@ -537,6 +554,9 @@ def run_browser(url: str, output: Path) -> dict:
         assert seed_pitch.locator('[data-seed-pitch="-12"]').get_attribute("aria-pressed") == "true"
         assert "女声原曲" in page.locator("#seed-pitch-summary").inner_text()
         assert page.evaluate("localStorage.getItem('yue2:seed-pitch-shift')") == "-12"
+        page.locator("#voice-shift").fill("")
+        assert not page.locator("#voice-shift").evaluate("element => element.checkValidity()")
+        page.locator("#voice-shift").fill("-12")
         assert "-12 半音" in page.evaluate("voiceDescription({backend:'seed-vc',settings:{semi_tone_shift:-12}})")
         page.locator("#voice-backend").select_option("rvc")
         assert seed_pitch.is_hidden() and page.locator("#rvc-cover-settings").is_visible()
@@ -570,6 +590,11 @@ def run_browser(url: str, output: Path) -> dict:
         assert page.locator("body > header .project-meta").is_visible()
         page.locator("#mobile-header-details").click()
         page.screenshot(path=output / "phone-project.png", full_page=False)
+        page.locator('.studio-sidebar [data-tab="assets"]').click()
+        page.locator("#asset-grid .asset-card").first.wait_for(state="visible")
+        assert page.locator("#asset-grid .asset-card").count() <= 8
+        assert page.locator("#asset-pagination-top").is_visible()
+        page.screenshot(path=output / "phone-assets.png", full_page=False)
         menu = page.locator("#mobile-workspace-menu")
         menu.wait_for(state="visible")
         menu.click()

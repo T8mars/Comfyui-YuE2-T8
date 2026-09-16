@@ -466,6 +466,8 @@ class JobStore:
             voice_request = request['voice'] if kind in WORKFLOW_KINDS else request
             from .voice_worker import _audio_path, _number
             import soundfile as sf
+            if "auto_f0_adjust" in voice_request and type(voice_request["auto_f0_adjust"]) is not bool:
+                raise ValueError("自动音高调整必须是 true 或 false")
             if kind in VOICE_KINDS:
                 _audio_path(ROOT, voice_request.get('source_path'))
             if voice_request.get('backend', 'seed-vc') in {'seed-vc', 'compare'}:
@@ -1167,10 +1169,31 @@ class Handler(BaseHTTPRequestHandler):
         content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
         if content_type != "application/json":
             raise ValueError("请求必须使用 application/json")
-        length = int(self.headers.get("Content-Length", "0"))
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("请求正文大小无效") from exc
         if length <= 0 or length > maximum:
             raise ValueError("请求正文大小无效")
-        return json.loads(self.rfile.read(length).decode("utf-8"))
+        try:
+            value = json.loads(self.rfile.read(length).decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("请求 JSON 格式无效") from exc
+        if not isinstance(value, dict):
+            raise ValueError("请求 JSON 必须是对象")
+        return value
+
+    @staticmethod
+    def _query_integer(query: dict[str, list[str]], name: str, default: int,
+                       *, minimum: int = 0, maximum: int = 500) -> int:
+        raw = query.get(name, [str(default)])[0]
+        try:
+            value = int(raw)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(f"查询参数 {name} 必须是整数") from exc
+        if not minimum <= value <= maximum:
+            raise ValueError(f"查询参数 {name} 必须在 {minimum}–{maximum} 之间")
+        return value
 
     def _static(self, path: Path):
         if not path.is_file():
@@ -1235,7 +1258,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, settings_info(ROOT))
             if path == "/api/jobs":
                 query = urllib.parse.parse_qs(parsed.query)
-                limit, offset = int(query.get("limit", ["100"])[0]), int(query.get("offset", ["0"])[0])
+                limit = self._query_integer(query, "limit", 100, minimum=1, maximum=500)
+                offset = self._query_integer(query, "offset", 0, minimum=0, maximum=10_000_000)
                 jobs, total = STORE.list_page(limit=limit, offset=offset, kind=query.get("kind", [""])[0],
                                               status=query.get("status", [""])[0], query=query.get("q", [""])[0],
                                               project_id=query.get("project_id", [""])[0],

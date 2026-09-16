@@ -354,7 +354,7 @@ window.openDirectory = openDirectory;
 
 function renderModelSettings(data) {
   $('#model-directory').value = data.model_directory || '';
-  $('#model-path-summary').textContent = `${data.using_default ? '默认目录' : '自定义目录'} · ${data.model_directory}`;
+  $('#model-path-summary').textContent = `${data.using_default ? '共享模型库' : '自定义共享模型库'} · ${data.model_directory}（目录名不代表应用版本）`;
   if (data.error) {
     $('#model-settings-result').textContent = `配置有误，已临时使用默认目录：${data.error}`;
     $('#model-settings').open = true;
@@ -518,7 +518,7 @@ function renderHealth(data) {
   if (!data.ready.capabilities?.transcription) missing.push('音频转谱未就绪');
   if (data.ready.settings_error) missing.unshift('模型路径配置有误');
   $('#health-detail').textContent = `${missing.length ? missing.join(' · ') : '歌曲生成与音频转谱可用'} · ${voice} · ${renderer}`;
-  $('#model-path-summary').textContent = `当前目录 · ${data.ready.model_directory}`;
+  $('#model-path-summary').textContent = `共享模型库 · ${data.ready.model_directory}（可跨应用版本复用）`;
   if (!modelSettingsInitialized) {
     $('#model-settings').open = Boolean(data.ready.settings_error || !data.ready.capabilities?.generation);
     modelSettingsInitialized = true;
@@ -650,23 +650,24 @@ async function sendJobAudioToCover(jobId, relative) {
 }
 window.sendJobAudioToCover = sendJobAudioToCover;
 
-$$('.tab').forEach(button => button.onclick = () => {
+function activateTab(button, userInitiated = true) {
   savedValue('active-tab', button.dataset.tab);
   document.body.dataset.activeTab = button.dataset.tab;
   $('#model-settings').open = false;
-  if(button.closest('.studio-sidebar'))button.scrollIntoView({block:'nearest',inline:'center'});
+  if(userInitiated && button.closest('.studio-sidebar'))button.scrollIntoView({block:'nearest',inline:'center'});
   $$('.tab').forEach(item => { const active=item.dataset.tab===button.dataset.tab;item.classList.toggle('active',active);if(active)item.setAttribute('aria-current','page');else item.removeAttribute('aria-current'); });
   $$('#workspace-menu-dialog [data-go-tab]').forEach(item => { const active=item.dataset.goTab===button.dataset.tab;item.classList.toggle('active',active);if(active)item.setAttribute('aria-current','page');else item.removeAttribute('aria-current'); });
   $$('.panel').forEach(panel => panel.classList.toggle('active', panel.id === button.dataset.tab));
   window.scrollTo({top: 0, left: 0, behavior: 'auto'});
   if (button.dataset.tab === 'history') loadHistory();
   if (button.dataset.tab === 'assistant') window.assistantRestoreCurrentScope?.();
-});
+}
+$$('.tab').forEach(button => button.onclick = () => activateTab(button, true));
 const restoredTab = savedValue('active-tab');
 const allowedTabs = ['project', 'assets', 'training', 'create', 'plan', 'remix', 'cover', 'history', 'assistant', 'voices'];
 const initialTab = allowedTabs.includes(restoredTab) ? restoredTab : document.body.dataset.activeTab;
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
-$(`.tab[data-tab="${initialTab}"]`).click();
+activateTab($(`.tab[data-tab="${initialTab}"]`), false);
 requestAnimationFrame(() => window.scrollTo({top: 0, left: 0, behavior: 'auto'}));
 
 const workspaceMenuDialog = $('#workspace-menu-dialog');
@@ -971,6 +972,8 @@ $('#generate-reference-cover').onclick = async () => {
   const backend = $('#voice-backend').value;
   if (backend !== 'rvc' && !inputHasSource(referenceInput)) return alert('请先选择参考音色');
   if (backend !== 'seed-vc' && !$('#rvc-cover-model').value) return alert('请先到“我的音色 / 训练”创建或导入音色模型');
+  if (backend !== 'seed-vc' && !$('#rvc-pitch-shift').reportValidity()) return;
+  if (backend !== 'rvc' && !$('#voice-shift').reportValidity()) return;
   let seed;
   try { if (!direct) { seed = safeSeed($('#cover-seed').value); generationMemoryBudget(); } } catch (error) { return alert(error.message); }
   const generate = {style: $('#cover-style').value, lyrics: $('#cover-lyrics').value, abc: $('#cover-abc').value, cot: 'melody', seed, cfg_scale: 1, backend: 'torch-eager', candidates: 1, offload_ar: true, nar_query_chunk_size: 256, nar_attention: 'sdpa'};
@@ -1010,9 +1013,10 @@ async function loadHistory() {
       const result = job.result || {}; const audio = relativeAudio(job, result.audio || result.candidates?.[0]?.audio);
       const internalKinds=new Set(['assistant','doctor','yue2_training_assets','yue2_prepare','workbench_migrate','rvc_import','rvc_storage_move']);
       const canExport=(job.status === 'complete' || (TERMINAL.has(job.status) && result.comparison && result.candidates?.length)) && job.result && !internalKinds.has(job.kind);
-      const exportButton = canExport ? `<button class="ghost" onclick="exportJob('${job.id}')">${job.kind==='yue2_train'?'导出模型包':'导出'}</button>` : '';
-      const retryButton = ['failed', 'cancelled'].includes(job.status) && ['generate', 'reference_cover', 'voice_convert', 'render_plan', 'mulacover_remix', 'rvc_train', 'rvc_import', 'rvc_separate', 'rvc_storage_move'].includes(job.kind) ? `<button class="ghost compact" data-kind="${job.kind}" onclick="resumeJob('${job.id}', this)">${job.resumable || ['rvc_train','rvc_storage_move'].includes(job.kind) ? '从已保存阶段继续' : '重新运行'}</button>` : '';
-      const logButtons = (job.kind === 'assistant' ? `<button class="ghost compact" onclick="openAssistantJob('${job.id}')">查看 / 继续创作</button>` : '') + (job.status === 'failed' ? `<button class="ghost compact" onclick="toggleJobLog('${job.id}', this)">查看任务日志</button><button class="ghost compact" onclick="openDirectory('logs')">打开日志目录</button>` : '');
+      const jobName=`${kindLabel(job.kind)}任务 ${shortId(job.id)}`;
+      const exportButton = canExport ? `<button class="ghost" onclick="exportJob('${job.id}')" aria-label="${job.kind==='yue2_train'?'导出模型包':'导出'}：${escapeHtml(jobName)}">${job.kind==='yue2_train'?'导出模型包':'导出'}</button>` : '';
+      const retryButton = ['failed', 'cancelled'].includes(job.status) && ['generate', 'reference_cover', 'voice_convert', 'render_plan', 'mulacover_remix', 'rvc_train', 'rvc_import', 'rvc_separate', 'rvc_storage_move'].includes(job.kind) ? `<button class="ghost compact" data-kind="${job.kind}" onclick="resumeJob('${job.id}', this)" aria-label="继续：${escapeHtml(jobName)}">${job.resumable || ['rvc_train','rvc_storage_move'].includes(job.kind) ? '从已保存阶段继续' : '重新运行'}</button>` : '';
+      const logButtons = (job.kind === 'assistant' ? `<button class="ghost compact" onclick="openAssistantJob('${job.id}')" aria-label="查看或继续：${escapeHtml(jobName)}">查看 / 继续创作</button>` : '') + (job.status === 'failed' ? `<button class="ghost compact" onclick="toggleJobLog('${job.id}', this)" aria-label="查看日志：${escapeHtml(jobName)}">查看任务日志</button><button class="ghost compact" onclick="openDirectory('logs')">打开日志目录</button>` : '');
       const comparison = result.comparison ? (result.candidates || []).map((candidate,index) => {
         const rel = relativeAudio(job, candidate.audio);
         const label=candidate.backend==='rvc'?'RVC 对比结果':candidate.backend==='seed-vc'?'Seed-VC 对比结果':`对比结果 ${index+1}`;

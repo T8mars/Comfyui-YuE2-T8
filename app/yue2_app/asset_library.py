@@ -332,8 +332,11 @@ class AssetLibrary:
         join = ""
         if project_id:
             project_id = _ident(project_id, "项目 ID")
-            join = " JOIN project_assets pa ON pa.asset_id=a.id AND pa.revision_id=r.id "
-            clauses.append("pa.project_id=?")
+            # A revision may legitimately be attached to one project with more than
+            # one role.  Filtering with a JOIN duplicates that asset before LIMIT /
+            # OFFSET is applied, which makes later assets disappear from a page.
+            clauses.append("EXISTS (SELECT 1 FROM project_assets pa WHERE "
+                           "pa.project_id=? AND pa.asset_id=a.id AND pa.revision_id=r.id)")
             values.append(project_id)
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         return join, values, where
@@ -347,7 +350,7 @@ class AssetLibrary:
         offset = max(0, int(offset))
         sql = ("SELECT a.*,r.mime,r.size,r.metadata_json,r.provenance_json,r.blob_sha256,r.blob_suffix "
                "FROM assets a JOIN revisions r ON r.id=a.current_revision_id" + join + where +
-               " ORDER BY a.updated_at DESC LIMIT ? OFFSET ?")
+               " ORDER BY a.updated_at DESC,a.id DESC LIMIT ? OFFSET ?")
         with self.reading() as db:
             return [self._asset_row(row) for row in db.execute(sql, (*values, limit, offset)).fetchall()]
 

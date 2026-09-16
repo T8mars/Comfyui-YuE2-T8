@@ -145,7 +145,8 @@ def main():
         if not args.skip_renderer:
             run([python, '-m', 'playwright', 'install', '--only-shell', 'chromium'], root=root, environment=environment)
     manifest = verify(root, runtime, environment, not args.skip_renderer, source)
-    (runtime / 'installed.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    if not args.verify_only:
+        (runtime / 'installed.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     print(json.dumps(manifest, ensure_ascii=False), flush=True)
 
 

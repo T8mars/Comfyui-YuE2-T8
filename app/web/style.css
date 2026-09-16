@@ -276,7 +276,8 @@ footer { padding: 30px; border-top: 1px solid #e0e5ed; color: #8a94a5; text-alig
 }
 
 @media (max-width: 720px) {
-  body:not([data-active-tab="project"]) > header > div:first-child > :not(.header-project-context) { display: none; }
+  body:not([data-active-tab="project"]) > header > div:first-child > :not(.header-project-context):not(h1) { display: none; }
+  body:not([data-active-tab="project"]) > header h1 { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
   body:not([data-active-tab="project"]) > header .header-project-context { margin-top: 0; }
   body:not([data-active-tab="project"]) > header { padding: 10px 12px; }
 }

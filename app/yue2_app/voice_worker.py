@@ -312,7 +312,7 @@ def main(argv=None) -> int:
             "reference_path": raw.get("reference_path"),
             "diffusion_steps": int(_number(raw, "diffusion_steps", 30, 4, 50)),
             "cfg_rate": _number(raw, "cfg_rate", 0.7, 0.0, 1.5),
-            "auto_f0_adjust": bool(raw.get("auto_f0_adjust", False)),
+            "auto_f0_adjust": raw.get("auto_f0_adjust", False),
             "semi_tone_shift": int(_number(raw, "semi_tone_shift", 0, -12, 12)),
             "vocal_gain_db": _number(raw, "vocal_gain_db", 0, -18, 12),
             "accompaniment_gain_db": _number(raw, "accompaniment_gain_db", 0, -18, 12),

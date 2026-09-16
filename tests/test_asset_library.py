@@ -208,6 +208,22 @@ class AssetLibraryTest(unittest.TestCase):
         self.assertNotIn(project["id"], {item["id"] for item in self.library.list_projects()})
         self.assertIn(project["id"], {item["id"] for item in self.library.list_projects(status="archived")})
 
+    def test_project_asset_paging_deduplicates_multiple_roles(self):
+        project = self.library.create_project("多角色项目")
+        first = self.library.import_file(self.source, kind="song", title="歌曲 A")
+        other_source = self.root / "other.wav"
+        sf.write(other_source, .1 * np.cos(np.arange(288000, dtype=np.float32) * .03), 48000,
+                 subtype="FLOAT")
+        second = self.library.import_file(other_source, kind="song", title="歌曲 B")
+        self.library.add_to_project(project["id"], first["id"], role="source")
+        self.library.add_to_project(project["id"], first["id"], role="song")
+        self.library.add_to_project(project["id"], second["id"], role="source")
+
+        listed = self.library.list_assets(project_id=project["id"], limit=2, offset=0)
+        self.assertEqual(self.library.count_assets(project_id=project["id"]), 2)
+        self.assertEqual(len(listed), 2)
+        self.assertEqual({item["id"] for item in listed}, {first["id"], second["id"]})
+
     def test_project_master_export_and_checkpoint_listing(self):
         project = self.library.create_project("夜航：最终版")
         asset = self.library.import_file(self.source, kind="work", title="母带")

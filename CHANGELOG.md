@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.8 - 2026-09-16
+
+- Fix project asset pagination when one revision has multiple project roles, reject ambiguous voice booleans and empty pitch controls, and localize malformed request errors.
+- Keep invalid ABC recovery guidance visible, add copy confirmation, remove late assistant initialization overwrites, and make mobile asset pagination, keyboard entry and repeated control names accessible.
+- Exit the Windows launcher after a successful start so in-app updates can replace it; publish Registry packages only from immutable version tags whose complete Quality workflow passed.
+- Exclude development-only CI/tests from code update ZIPs, keep runtime verification read-only, and pin all release actions to reviewed commit SHAs.
+
 ## 1.5.7 - 2026-09-16
 
 - Replace blocking browser alerts, confirmations and text prompts with accessible in-studio dialogs for project, model, cleanup and update actions.

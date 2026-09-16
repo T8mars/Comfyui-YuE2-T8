@@ -36,12 +36,14 @@ def build(output):
     prefix = f"Comfyui-YuE2-T8-{tag}/"
     output.mkdir(parents=True, exist_ok=True)
     asset = output / f"Comfyui-YuE2-T8-{tag}-code.zip"
-    git("archive", "--format=zip", f"--prefix={prefix}", f"--output={asset}", commit)
+    git("archive", "--format=zip", f"--prefix={prefix}", f"--output={asset}", commit,
+        "--", ".", ":(exclude).github", ":(exclude)tests")
     preserve = ["models/", "runtime/", "downloads/", "outputs/", "uploads/", "exports/", "logs/", "cache/", "userdata/",
                 "settings.json", "retention.json", "server.json", "service.lock", "yue2_home.txt", "roadmap.md"]
     with zipfile.ZipFile(asset) as archive:
         assert archive.testzip() is None
         names = [name.removeprefix(prefix) for name in archive.namelist()]
+        assert not any(name.startswith((".github/", "tests/")) for name in names)
         for name in names:
             path = safe_archive_path(name)
             lower_name = name.lower()

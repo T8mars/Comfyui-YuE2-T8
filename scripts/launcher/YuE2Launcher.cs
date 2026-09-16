@@ -66,7 +66,10 @@ internal static class YuE2Launcher
         Console.WriteLine("[启动成功] 本地工作室地址：http://127.0.0.1:" + port);
         Console.ResetColor();
         Console.WriteLine("关闭此窗口不会停止后台服务；需要停止时请运行“停止本地服务.ps1”。");
-        return Finish(0, null, noPause);
+        // The service keeps running in its own process.  Exit immediately after a
+        // successful launch so Windows does not keep YuE2-T8.exe locked while the
+        // browser installs a code update.  Failures still pause for readability.
+        return Finish(0, null, true);
     }
 
     private static bool HasArgument(string[] args, string expected)
