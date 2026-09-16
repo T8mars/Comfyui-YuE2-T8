@@ -14,7 +14,7 @@ from pathlib import Path
 from .assistant_data import endpoint, llm_directory, local_model_identity, normalize_request, read
 from .assistant_rules import engine
 from .assistant_rules.provider_capabilities import apply_chat_request_options
-from .io import atomic_json, within
+from .io import atomic_json, json_file_lock, within
 from .worker_common import Cancelled, JobContext
 
 
@@ -271,9 +271,11 @@ def main(argv=None):
         message = str(exc) if isinstance(exc, (engine.YuE2PromptError, ValueError, Cancelled)) else f"助手任务失败（{type(exc).__name__}）"
         message = engine.API_KEY_PATTERN.sub("[已隐藏]", message)
         message = re.sub(r"https?://\S+", "[渠道地址]", message)[:1400]
-        status = read(ctx.status_path, {})
-        status.update(status="cancelled" if cancelled else "failed", failed_stage=status.get("stage"), stage="cancelled" if cancelled else "failed", error=message, finished_at=time.time())
-        atomic_json(ctx.status_path, status)
+        with json_file_lock(ctx.status_path):
+            status = read(ctx.status_path, {})
+            if status.get("status") not in {"complete", "failed", "cancelled", "paused"}:
+                status.update(status="cancelled" if cancelled else "failed", failed_stage=status.get("stage"), stage="cancelled" if cancelled else "failed", error=message, finished_at=time.time())
+                atomic_json(ctx.status_path, status)
         print(message, file=sys.stderr)
         return 1
 

@@ -211,10 +211,20 @@ def get(handler, parsed, library: AssetLibrary, *, head: bool = False) -> bool:
             handler._json(200, library.get_project(pieces[4]))
             return True
     if path == "/api/workbench/snapshots":
-        handler._json(200, {"snapshots": library.list_snapshots(query.get("training_kind", [""])[0])})
+        kind = query.get("training_kind", [""])[0]
+        limit, offset = int(query.get("limit", ["200"])[0]), int(query.get("offset", ["0"])[0])
+        handler._json(200, {"snapshots": library.list_snapshots(kind, limit=limit, offset=offset),
+                            "total": library.count_snapshots(kind), "limit": min(500, max(1, limit)),
+                            "offset": max(0, offset)})
         return True
     if path == "/api/workbench/training-runs":
-        handler._json(200, {"runs": library.list_training_runs(query.get("training_kind", [""])[0])})
+        kind = query.get("training_kind", [""])[0]
+        limit, offset = int(query.get("limit", ["200"])[0]), int(query.get("offset", ["0"])[0])
+        models_only = query.get("models_only", ["0"])[0] == "1"
+        handler._json(200, {"runs": library.list_training_runs(kind, limit=limit, offset=offset,
+                                                                 models_only=models_only),
+                            "total": library.count_training_runs(kind, models_only=models_only),
+                            "limit": min(500, max(1, limit)), "offset": max(0, offset)})
         return True
     if path.startswith("/api/workbench/training-runs/"):
         pieces = path.split("/")

@@ -111,6 +111,30 @@ class AssetLibraryTest(unittest.TestCase):
         self.assertEqual(updated["state"], "queued")
         self.assertEqual(self.library.list_training_runs("yue2_style")[0]["id"], run["id"])
 
+    def test_training_run_and_snapshot_pagination_reaches_old_records(self):
+        asset = self.library.import_file(self.source, kind="song", title="分页歌曲")
+        first_snapshot = self.library.create_snapshot(
+            title="快照 000", training_kind="yue2_style",
+            items=[{"asset_id": asset["id"], "revision_id": asset["current_revision_id"],
+                    "start": 0, "end": 6, "track_group_id": "song-page", "split": "train",
+                    "instrumental": True}], options={"rights_confirmed": True})
+        with self.library.transaction() as db:
+            for index in range(1, 205):
+                snapshot_id = f"{index:032x}"
+                db.execute("INSERT INTO dataset_snapshots(id,title,training_kind,manifest_json,manifest_sha256,created_at) VALUES(?,?,?,?,?,?)",
+                           (snapshot_id, f"快照 {index:03d}", "yue2_style", '{"schema":1,"items":[]}', f"{index:064x}", index + 1))
+                db.execute("INSERT INTO training_runs(id,title,training_kind,snapshot_id,state,config_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",
+                           (f"{index+1000:032x}", f"训练 {index:03d}", "yue2_style", snapshot_id,
+                            "draft", '{}', index + 1, index + 1))
+            db.execute("INSERT INTO training_runs(id,title,training_kind,snapshot_id,state,config_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",
+                       ("f" * 32, "最早训练", "yue2_style", first_snapshot["id"], "draft", '{}', 1, 1))
+        self.assertEqual(self.library.count_snapshots("yue2_style"), 205)
+        self.assertEqual(self.library.count_training_runs("yue2_style"), 205)
+        self.assertEqual(len(self.library.list_snapshots("yue2_style", limit=5, offset=200)), 5)
+        old = self.library.list_training_runs("yue2_style", limit=5, offset=200)
+        self.assertEqual(len(old), 5)
+        self.assertIn("最早训练", {item["title"] for item in old})
+
     def test_snapshot_rejects_duplicate_blob_with_different_asset_ids(self):
         first = self.library.import_file(self.source, kind="song", title="歌曲 A")
         second = self.library.import_file(self.source, kind="song", title="歌曲 A 的重复导入")

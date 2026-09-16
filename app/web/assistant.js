@@ -110,7 +110,7 @@ async function switchAssistantProject(projectId) {
   assistant.polling = false;
   assistant.pollingJobId = '';
   assistant.pollingProjectId = '';
-  $('#assistant-generate').disabled = false; $('#assistant-test').disabled = false; $('#assistant-retry').disabled = false; $('#assistant-compose-abc').disabled = false;
+  applyAssistantActionState();
   const panels=['create','plan','cover','assistant'],elements=panels.map(panel=>$(`#${panel}`));
   elements.forEach(element=>element.inert=true);
   try {
@@ -202,12 +202,27 @@ function openAssistantSettings(focus = true) {
   settings.scrollIntoView({behavior: 'smooth', block: 'start'});
   if (focus) requestAnimationFrame(() => ($('#assistant-provider').value === 'local' ? $('#assistant-model-choice') : $('#assistant-key')).focus());
 }
+function assistantChannelReady() {
+  const provider=$('#assistant-provider').value||assistant.config?.provider||'seedance';
+  if(provider==='local')return Boolean($('#assistant-model').value.trim());
+  return Boolean($('#assistant-key').value.trim()||assistant.providerCredentials[provider]);
+}
+function applyAssistantActionState() {
+  const ready=assistantChannelReady(),disabled=assistant.polling||!ready;
+  for(const selector of ['#assistant-generate','#assistant-test','#assistant-retry','#assistant-compose-abc']){
+    const button=$(selector);if(!button)continue;button.disabled=disabled;
+    button.title=!ready?'请先设置当前渠道的 API Key 或本地 GGUF 模型':assistant.polling?'当前创作任务结束后可再次操作':'';
+  }
+  const remove=$('#assistant-delete-key'),provider=$('#assistant-provider').value;
+  if(remove)remove.disabled=!assistant.providerCredentials[provider]||assistant.polling;
+}
 function renderAssistantChannelStatus() {
   const provider = $('#assistant-provider').value || assistant.config?.provider || 'seedance';
   const details = assistant.providers[provider] || {};
   const savedProvider = assistant.config?.provider === provider;
   const isLocal = provider === 'local';
-  const ready = isLocal ? Boolean($('#assistant-model').value.trim()) : Boolean(savedProvider && assistant.credential?.available);
+  const pendingKey=Boolean($('#assistant-key').value.trim());
+  const ready = isLocal ? Boolean($('#assistant-model').value.trim()) : Boolean(pendingKey||assistant.providerCredentials[provider]||(savedProvider&&assistant.credential?.available));
   const card = $('#assistant-channel-status'), signup = $('#assistant-status-signup');
   card.dataset.state = ready ? 'ready' : 'missing';
   if (isLocal) {
@@ -216,7 +231,7 @@ function renderAssistantChannelStatus() {
     $('#assistant-open-settings').textContent = ready ? '更改本地模型' : '设置本地 GGUF';
   } else {
     assistantText('#assistant-channel-title', ready ? 'AI 创作渠道已配置' : '开始创作前，请先设置 API Key');
-    assistantText('#assistant-channel-detail', ready ? `${details.label || '当前渠道'} · ${$('#assistant-model').value || details.default_model || '模型待选择'}；凭据已就绪。` : `当前渠道：${details.label || 'API'}。填写 API Key 后才能生成歌词、曲风或 ABC。`);
+    assistantText('#assistant-channel-detail', ready ? `${details.label || '当前渠道'} · ${$('#assistant-model').value || details.default_model || '模型待选择'}；${pendingKey?'API Key 待随本次操作保存':'凭据已就绪'}。` : `当前渠道：${details.label || 'API'}。填写 API Key 后才能生成歌词、曲风或 ABC。`);
     $('#assistant-open-settings').textContent = ready ? '更改渠道 / API Key' : '设置 API Key';
   }
   signup.classList.toggle('hidden', isLocal || !details.signup_url);
@@ -224,6 +239,7 @@ function renderAssistantChannelStatus() {
   signup.textContent = details.signup_url ? `获取${details.label || ''} API Key` : '';
   assistantText('#assistant-capability', ready ? (isLocal ? '本地模型待连接测试' : 'API 凭据已就绪') : (isLocal ? '尚未选择 GGUF' : '尚未配置 API Key'));
   if (!ready && !isLocal && savedProvider) $('#assistant-settings').open = true;
+  applyAssistantActionState();
 }
 function appendAssistantError(target, message) {
   const box = document.createElement('div'); box.className = assistantCredentialError(message) ? 'assistant-credential-error' : 'assistant-inline-note';
@@ -361,7 +377,7 @@ async function pollAssistant(id, startingRevision, projectId = assistant.project
   assistant.polling = true;
   assistant.pollingJobId = id;
   assistant.pollingProjectId = projectId;
-  $('#assistant-generate').disabled = true; $('#assistant-test').disabled = true; $('#assistant-retry').disabled = true; $('#assistant-compose-abc').disabled = true;
+  applyAssistantActionState();
   try {
     let lastResult = '';
     while (true) {
@@ -397,10 +413,11 @@ async function pollAssistant(id, startingRevision, projectId = assistant.project
       if (pollToken !== assistant.pollToken) return;
     }
   } catch (error) { if(pollToken===assistant.pollToken)assistantText('#assistant-progress', `连接中断：${error.message}。任务可能仍在运行，刷新后可恢复查看。`); }
-  finally { if(pollToken===assistant.pollToken){assistant.polling=false;assistant.pollingJobId='';assistant.pollingProjectId='';$('#assistant-generate').disabled=false;$('#assistant-test').disabled=false;$('#assistant-retry').disabled=false;$('#assistant-compose-abc').disabled=false;} }
+  finally { if(pollToken===assistant.pollToken){assistant.polling=false;assistant.pollingJobId='';assistant.pollingProjectId='';applyAssistantActionState();} }
 }
 async function latestAssistantJobForScope(projectId = assistant.projectId) {
-  const recent = await api('/api/jobs?limit=100&kind=assistant');
+  const scope=projectId||'__global__';
+  const recent = await api(`/api/jobs?limit=20&kind=assistant&project_id=${encodeURIComponent(scope)}`);
   return recent.jobs.find(job => job.kind === 'assistant' && !job.result?.connection && job.summary !== '测试 LLM 连接'
     && String(job.project_id || job.request?.project_id || '') === String(projectId || '')) || null;
 }
@@ -604,6 +621,7 @@ $('#assistant-config-form').onsubmit = event => { event.preventDefault(); saveAs
 $('#assistant-provider').onchange = providerChanged;
 $('#assistant-model-choice').onchange = () => assistantModelChoiceChanged(true);
 $('#assistant-model').oninput = () => { $('#assistant-model-choice').value = CUSTOM_MODEL; assistant.providerSelections[$('#assistant-provider').value] = $('#assistant-model').value; renderAssistantChannelStatus(); };
+$('#assistant-key').oninput = renderAssistantChannelStatus;
 $('#assistant-open-settings').onclick = () => openAssistantSettings(true);
 $('#assistant-refresh-models').onclick = refreshAssistantModels;
 $('#assistant-delete-key').onclick = async () => { try { const provider = $('#assistant-provider').value, credential = assistant.providerCredentials[provider] || ''; await assistantPost('/api/assistant/credentials', {delete: true, credential_id: credential}); assistant.providerCredentials[provider] = ''; if (assistant.config?.provider === provider) assistant.config.credential_id = ''; await saveAssistantConfig(); } catch (error) { assistantText('#assistant-config-status', error.message); } };

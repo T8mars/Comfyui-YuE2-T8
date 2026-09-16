@@ -1,10 +1,12 @@
 (() => {
   const kindNames = {song:'歌曲',work:'作品',vocal:'人声',instrumental:'伴奏',reference_voice:'参考音色',lyrics:'歌词',style:'曲风',score:'乐谱',midi:'MIDI',model:'模型',other:'其他'};
   const kindIcons = {song:'bi-disc',work:'bi-music-note-beamed',vocal:'bi-mic',instrumental:'bi-soundwave',reference_voice:'bi-person-bounding-box',lyrics:'bi-file-text',style:'bi-tags',score:'bi-music-note-list',midi:'bi-file-music',model:'bi-gpu-card',other:'bi-file-earmark'};
+  const roleNames = {asset:'项目素材',source:'源素材',song:'歌曲',work:'作品',vocal:'人声',instrumental:'伴奏',reference_voice:'参考音色',lyrics:'歌词',style:'曲风',score:'乐谱',midi:'MIDI',model:'模型'};
   let projects = [], archivedProjects = [], assets = [], trainingAssets = [], lyricsAssets = [], styleAssets = [], trainingAssetGuidance = false;
   let currentProjectAssetRefs = new Set();
   let assetOffset = 0, assetTotal = 0, assetLoadRevision = 0; const assetPageSize = 24;
   let currentProjectId = savedValue('workbench-project') || '';
+  let projectTimelinePage=0,projectAssetPage=0;const projectTimelinePageSize=8,projectAssetPageSize=10;
   let currentRun = null, trainingRuns = [], trainingJobId = savedValue('training-job') || '';
   let renderedTrainingProjectId = '';
   let trainingModelPage = 0, trainingModelRenderRevision = 0, trainingRunsLoadRevision = 0; const trainingModelPageSize = 3;
@@ -48,7 +50,7 @@
     if (nextProjectId && !projects.some(project => project.id === nextProjectId)) nextProjectId = '';
     if (!nextProjectId && projects.length) nextProjectId = projects[0].id;
     const projectChanged = nextProjectId !== currentProjectId;
-    if (projectChanged) { window.mulacoverSaveDraft?.(); saveTrainingDraft(); }
+    if (projectChanged) { window.mulacoverSaveDraft?.(); saveTrainingDraft(); projectTimelinePage=0; projectAssetPage=0; }
     await window.assistantSwitchProject?.(nextProjectId);
     currentProjectId = nextProjectId;
     if (projectChanged) { window.mulacoverRestoreDraft?.(); restoreTrainingFormDraft(); }
@@ -97,9 +99,13 @@
       const masterRevision = String(project.metadata?.master_revision_id || '');
       const masterItem = audio.find(item => exportAudioKinds.has(item.kind) && item.id===configuredMaster && (!masterRevision || item.revision_id===masterRevision));
       const master = masterItem ? `${masterItem.id}:${masterItem.revision_id}` : '';
+      const audioPages=Math.max(1,Math.ceil(audio.length/projectTimelinePageSize));projectTimelinePage=Math.min(projectTimelinePage,audioPages-1);const pageAudio=audio.slice(projectTimelinePage*projectTimelinePageSize,(projectTimelinePage+1)*projectTimelinePageSize);
+      const assetPages=Math.max(1,Math.ceil(project.assets.length/projectAssetPageSize));projectAssetPage=Math.min(projectAssetPage,assetPages-1);const pageAssets=project.assets.slice(projectAssetPage*projectAssetPageSize,(projectAssetPage+1)*projectAssetPageSize);
+      const pageNav=(target,page,pages,total)=>pages>1?`<nav class="asset-pagination project-pagination" aria-label="项目内容分页"><button class="ghost compact" type="button" data-project-page="${target}" data-page="${page-1}" ${page===0?'disabled':''}>上一页</button><span class="meta">第 ${page+1} / ${pages} 页 · ${total} 项</span><button class="ghost compact" type="button" data-project-page="${target}" data-page="${page+1}" ${page+1>=pages?'disabled':''}>下一页</button></nav>`:'';
       timeline.className = 'project-timeline' + (audio.length ? '' : ' empty-state');
-      timeline.innerHTML = audio.length ? audio.map(item => {const selected=master===`${item.id}:${item.revision_id}`,masterButton=exportAudioKinds.has(item.kind)?`<button class="${selected?'primary':'ghost'} compact" data-master-project="${item.id}" data-revision="${item.revision_id}">${selected?'已选主版本':'设为主版本'}</button>`:'';return `<article class="project-track"><span class="track-icon"><i class="bi ${kindIcons[item.kind]}"></i></span><div><b>${escapeHtml(item.title)}</b><small>${escapeHtml(kindNames[item.kind] || item.kind)} · ${(Number(item.metadata?.duration)||0).toFixed(1)} 秒 · 固定版本${selected?' · 主版本':''}</small></div><div class="toolbar"><button class="ghost compact" data-play-project="${item.id}" data-revision="${item.revision_id}"><i class="bi bi-play-fill"></i> 试听</button>${masterButton}</div></article>`;}).join('') : '<i class="bi bi-music-note-beamed"></i><b>这个项目还没有音乐版本</b><p>生成、音色转换和从资产库加入的内容会显示在这里。</p>';
-      inspector.innerHTML = project.assets.length ? project.assets.map(item => `<div class="inspector-asset"><b>${escapeHtml(item.title)}</b><small>${escapeHtml(kindNames[item.kind] || item.kind)} · ${escapeHtml(item.role)}</small><button class="ghost compact" type="button" data-remove-project-asset="${item.id}" data-revision="${item.revision_id}" data-role="${escapeHtml(item.role)}">移出</button></div>`).join('') : '<p class="meta">还没有关联内容。</p>';
+      timeline.innerHTML = audio.length ? pageAudio.map(item => {const selected=master===`${item.id}:${item.revision_id}`,masterButton=exportAudioKinds.has(item.kind)?`<button class="${selected?'primary':'ghost'} compact" data-master-project="${item.id}" data-revision="${item.revision_id}">${selected?'已选主版本':'设为主版本'}</button>`:'';return `<article class="project-track"><span class="track-icon"><i class="bi ${kindIcons[item.kind]}"></i></span><div><b>${escapeHtml(item.title)}</b><small>${escapeHtml(kindNames[item.kind] || item.kind)} · ${(Number(item.metadata?.duration)||0).toFixed(1)} 秒 · 固定版本${selected?' · 主版本':''}</small></div><div class="toolbar"><button class="ghost compact" data-play-project="${item.id}" data-revision="${item.revision_id}"><i class="bi bi-play-fill"></i> 试听</button>${masterButton}</div></article>`;}).join('')+pageNav('timeline',projectTimelinePage,audioPages,audio.length) : '<i class="bi bi-music-note-beamed"></i><b>这个项目还没有音乐版本</b><p>生成、音色转换和从资产库加入的内容会显示在这里。</p>';
+      inspector.innerHTML = project.assets.length ? pageAssets.map(item => `<div class="inspector-asset"><b>${escapeHtml(item.title)}</b><small>${escapeHtml(kindNames[item.kind] || item.kind)} · ${escapeHtml(roleNames[item.role] || item.role || '项目素材')}</small><button class="ghost compact" type="button" data-remove-project-asset="${item.id}" data-revision="${item.revision_id}" data-role="${escapeHtml(item.role)}">移出</button></div>`).join('')+pageNav('assets',projectAssetPage,assetPages,project.assets.length) : '<p class="meta">还没有关联内容。</p>';
+      [...timeline.querySelectorAll('[data-project-page]'),...inspector.querySelectorAll('[data-project-page]')].forEach(button=>button.onclick=()=>{const page=Math.max(0,Number(button.dataset.page)||0);if(button.dataset.projectPage==='timeline')projectTimelinePage=page;else projectAssetPage=page;renderProject();});
       inspector.querySelectorAll('[data-remove-project-asset]').forEach(button => button.onclick = async () => {
         await api(`/api/workbench/projects/${projectId}/remove-asset`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({asset_id:button.dataset.removeProjectAsset,revision_id:button.dataset.revision,role:button.dataset.role})});
         await loadProjects();
@@ -122,7 +128,7 @@
   }
   $('#workbench-project-select').onchange = async event => {
     const next = event.target.value;
-    try { window.mulacoverSaveDraft?.(); saveTrainingDraft(); await window.assistantSwitchProject?.(next); currentProjectId = next; window.mulacoverRestoreDraft?.(); restoreTrainingFormDraft(); await loadProjects(); await refreshWorkspace(); }
+    try { window.mulacoverSaveDraft?.(); saveTrainingDraft(); await window.assistantSwitchProject?.(next); currentProjectId = next; projectTimelinePage=0; projectAssetPage=0; window.mulacoverRestoreDraft?.(); restoreTrainingFormDraft(); await loadProjects(); await refreshWorkspace(); }
     catch (error) { event.target.value = currentProjectId; alert(`切换项目前无法保存独立草稿：${error.message}`); }
   };
   $('#refresh-project').onclick = loadProjects;
@@ -266,11 +272,35 @@
     catch(error){ alert(error.message); }
   };
 
+  async function allAssets(kind,projectId='') {
+    const values=[],seen=new Set();let offset=0,total=0;
+    do{
+      const scope=projectId?`&project_id=${encodeURIComponent(projectId)}`:'';
+      const result=await api(`/api/workbench/assets?kind=${encodeURIComponent(kind)}${scope}&limit=500&offset=${offset}`);
+      total=Number(result.total||0);
+      for(const asset of result.assets||[]){const key=`${asset.id}:${asset.current_revision_id}`;if(!seen.has(key)){seen.add(key);values.push(asset);}}
+      offset+=Number(result.assets?.length||0);
+      if(!result.assets?.length)break;
+    }while(offset<total);
+    return values;
+  }
+
+  async function allTrainingRuns(trainingKind) {
+    const values=[];let offset=0,total=0;
+    do{
+      const result=await api(`/api/workbench/training-runs?training_kind=${encodeURIComponent(trainingKind)}&limit=500&offset=${offset}`);
+      total=Number(result.total||0);values.push(...(result.runs||[]));offset+=Number(result.runs?.length||0);
+      if(!result.runs?.length)break;
+    }while(offset<total);
+    return values;
+  }
+
   async function loadStyleModels() {
     let models = [];
-    try { models = (await api('/api/workbench/assets?kind=model&limit=500')).assets.filter(asset=>asset.metadata?.model_type==='yue2_ar_lora'); } catch {}
+    try { models = (await allAssets('model')).filter(asset=>asset.metadata?.model_type==='yue2_ar_lora'); }
+    catch(error){showError($('#create-result'),new Error(`歌曲风格模型读取失败：${error.message}`));}
     $$('[data-style-model]').forEach(select => {
-      const previous=select.value; select.innerHTML='<option value="">使用原版 YuE2</option>'+models.map(model=>`<option value="${model.id}">${escapeHtml(model.title)} · ${Number(model.metadata?.completed_training_steps)||'?'} 步 · ${new Date(Number(model.created_at)*1000).toLocaleDateString('zh-CN')} · 仅直接生成</option>`).join(''); select.value=previous;
+      const previous=select.value; select.innerHTML='<option value="">使用原版 YuE2</option>'+models.map(model=>`<option value="${model.id}">${escapeHtml(model.title)} · ${Number(model.metadata?.completed_training_steps)||'?'} 步 · ${new Date(Number(model.created_at)*1000).toLocaleDateString('zh-CN')} · ${String(model.id).slice(0,6)} · 仅直接生成</option>`).join(''); select.value=previous;
       select.onchange=()=>{ if(select.value){ const mode=select.closest('form')?.querySelector('[name=cot]'); if(mode) mode.value='off'; } };
     });
   }
@@ -297,7 +327,7 @@
     list.querySelector('[data-open-training-assets]')?.addEventListener('click',()=>currentProjectId?openTrainingAssetLibrary(false):($('.tab[data-tab="project"]').click(),$('#workbench-project-select').focus()));
     list.querySelector('[data-import-training-song]')?.addEventListener('click',()=>openTrainingAssetLibrary(true));
   }
-  async function loadTrainingInputs(){try{if(!currentProjectId){trainingAssets=[];lyricsAssets=[];styleAssets=[];renderTrainingAssets();return;}const query=kind=>`/api/workbench/assets?kind=${kind}&project_id=${encodeURIComponent(currentProjectId)}&limit=500`,[songs,works,lyrics,styles]=await Promise.all(['song','work','lyrics','style'].map(kind=>api(query(kind))));trainingAssets=[...songs.assets,...works.assets].filter(asset=>Number(asset.metadata?.duration)>=5);lyricsAssets=lyrics.assets;styleAssets=styles.assets;renderTrainingAssets();}catch(error){showError($('#training-assets'),error);}}
+  async function loadTrainingInputs(){try{if(!currentProjectId){trainingAssets=[];lyricsAssets=[];styleAssets=[];renderTrainingAssets();return;}const [songs,works,lyrics,styles]=await Promise.all(['song','work','lyrics','style'].map(kind=>allAssets(kind,currentProjectId)));trainingAssets=[...songs,...works].filter(asset=>Number(asset.metadata?.duration)>=5);lyricsAssets=lyrics;styleAssets=styles;renderTrainingAssets();}catch(error){showError($('#training-assets'),error);}}
   function openTrainingAssetLibrary(importNow=false){
     if(!currentProjectId){$('.tab[data-tab="project"]').click();$('#workbench-project-select').focus();return;}
     trainingAssetGuidance=true;$('#asset-training-guidance').classList.remove('hidden');
@@ -402,7 +432,7 @@
     const form=$('#training-form');if(!form.elements.style.value&&currentRun.config?.default_style)form.elements.style.value=currentRun.config.default_style;if(!form.elements.lyrics.value&&currentRun.config?.default_lyrics)form.elements.lyrics.value=currentRun.config.default_lyrics;
     const history=currentRun.config?.history||[],last=history.at(-1),metric=value=>value!==null&&value!==undefined&&Number.isFinite(Number(value))?Number(value).toFixed(3):'—';$('#training-step').textContent=`${Number(last?.step||0)} / ${Number(currentRun.config?.steps||0)} 步`;$('#training-progress-bar').style.width=`${currentRun.config?.steps?Math.min(100,Number(last?.step||0)/Number(currentRun.config.steps)*100):0}%`;$('#training-loss').textContent=metric(last?.train_loss);$('#training-val-loss').textContent=metric(last?.validation_loss);setTrainingStage(currentRun.state==='complete'?4:currentRun.config?.prepared?3:currentRun.state==='preparing'?2:1);$('#training-preview-checkpoint').classList.toggle('hidden',!currentRun.model_asset_id&&!currentRun.config?.last_checkpoint);const mappedJob=trainingJobsByRun.get(currentRun.id)||'',linkedJob=mappedJob||(['preparing','running','paused'].includes(currentRun.state)?currentRun.current_job_id||'':'');if(linkedJob)trainingJobsByRun.set(currentRun.id,linkedJob);trainingJobId=linkedJob;savedValue('training-job',linkedJob);$('#training-pause').classList.toggle('hidden',currentRun.state!=='running');$('#training-resume').classList.toggle('hidden',currentRun.state!=='paused');drawChart(history);loadRunCheckpoints(currentRun.id);
   }
-  async function loadRuns(){const revision=++trainingRunsLoadRevision;try{const result=await api('/api/workbench/training-runs?training_kind=yue2_style');if(revision!==trainingRunsLoadRevision)return;trainingRuns=result.runs;const saved=savedValue('training-run');currentRun=trainingRuns.find(run=>run.id===saved)||trainingRuns[0]||null;renderRun();await renderTrainingModels();}catch(error){if(revision===trainingRunsLoadRevision)showError($('#training-result'),error);}}
+  async function loadRuns(){const revision=++trainingRunsLoadRevision;try{const runs=await allTrainingRuns('yue2_style');if(revision!==trainingRunsLoadRevision)return;trainingRuns=runs;const saved=savedValue('training-run');currentRun=trainingRuns.find(run=>run.id===saved)||trainingRuns[0]||null;renderRun();await renderTrainingModels();}catch(error){if(revision===trainingRunsLoadRevision)showError($('#training-result'),error);}}
   $('#training-model-prev').onclick=()=>{if(trainingModelPage>0){trainingModelPage--;renderTrainingModels();}};
   $('#training-model-next').onclick=()=>{if((trainingModelPage+1)*trainingModelPageSize<trainingRuns.filter(run=>run.model_asset_id).length){trainingModelPage++;renderTrainingModels();}};
   $('#training-run-select').onchange=event=>{currentRun=trainingRuns.find(run=>run.id===event.target.value)||null;renderRun();};

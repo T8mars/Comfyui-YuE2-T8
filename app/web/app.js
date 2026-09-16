@@ -219,7 +219,8 @@ function submittedAt(job) { return new Date(job.created_at * 1000).toLocaleTimeS
 
 function publicErrorSummary(value) {
   const detail = String(value || '').trim();
-  const technical = /Traceback|\b(?:NameError|KeyError|AttributeError|RuntimeError|FileNotFoundError|OSError)\b|^['"][^'"]+['"]$|name ['"].+['"] is not defined|object has no attribute|File ['"]|Path is outside allowed directory|[A-Za-z]:\\|\/(?:home|tmp|var)\//i.test(detail);
+  if (/numpy(?:\._core)?[^\n]*multiarray/i.test(detail)) return '音频组件加载失败。请重启整合包后重试；若仍失败，请运行完整自检。';
+  const technical = /Traceback|\b(?:NameError|KeyError|AttributeError|RuntimeError|FileNotFoundError|ModuleNotFoundError|OSError)\b|^['"][^'"]+['"]$|name ['"].+['"] is not defined|(?:object|module .+?) has no attribute|No module named|File ['"]|Path is outside allowed directory|[A-Za-z]:\\|\/(?:home|tmp|var)\//i.test(detail);
   return technical ? '任务运行时出现技术错误，请查看任务日志了解详情。' : (detail.split(/\r?\n/, 1)[0] || '未知错误');
 }
 
@@ -401,14 +402,16 @@ function renderRunningJob(job) {
   return `<article class="running-job"><div class="task-card-head"><div><span class="task-type">当前正在执行 · ${escapeHtml(kindLabel(job.kind))}</span><b>${escapeHtml(stageLabel(job.stage))}</b></div><button class="danger compact" type="button" data-cancel-job="${escapeHtml(job.id)}" ${job.status === 'cancelling' ? 'disabled' : ''}>${job.status === 'cancelling' ? '正在取消…' : '取消本任务'}</button></div><p class="task-hint">${escapeHtml(stageHint(job))}</p>${summary}${stepsFor(job)}<div class="task-meta"><span>${escapeHtml(sourceLabel(job.source))}</span><span>已运行 ${elapsed(job)}</span><span title="${escapeHtml(job.id)}">任务 ${escapeHtml(shortId(job.id))}</span></div></article>`;
 }
 
-function renderQueuedJob(job, index) {
-  return `<li class="queue-job"><div class="queue-position"><b>第 ${index + 1} 位</b><span>等待开始</span></div><div class="queue-copy"><b>${escapeHtml(kindLabel(job.kind))}</b><p>${escapeHtml(job.summary || '等待前面的任务完成')}</p><small>${escapeHtml(sourceLabel(job.source))} · ${submittedAt(job)} 提交 · ${escapeHtml(shortId(job.id))}</small></div><button class="danger compact" type="button" data-cancel-job="${escapeHtml(job.id)}">取消排队</button></li>`;
+function renderQueuedJob(job, position) {
+  return `<li class="queue-job"><div class="queue-position"><b>第 ${position + 1} 位</b><span>等待开始</span></div><div class="queue-copy"><b>${escapeHtml(kindLabel(job.kind))}</b><p>${escapeHtml(job.summary || '等待前面的任务完成')}</p><small>${escapeHtml(sourceLabel(job.source))} · ${submittedAt(job)} 提交 · ${escapeHtml(shortId(job.id))}</small></div><button class="danger compact" type="button" data-cancel-job="${escapeHtml(job.id)}">取消排队</button></li>`;
 }
 
 function renderTaskCenter(healthData, jobs) {
   const active = jobs.filter(job => !TERMINAL.has(job.status));
   const current = jobs.find(job => job.id === healthData.current_job) || active.find(job => job.status !== 'queued');
   const queued = active.filter(job => job.id !== current?.id && job.status === 'queued').sort((a, b) => a.created_at - b.created_at);
+  const queuedTotal = Math.max(queued.length, Number(healthData.queued || 0));
+  const hiddenQueued = Math.max(0, queuedTotal - queued.length);
   currentJobId = current?.id || null;
   const cancelActive = $('#cancel-active');
   cancelActive.disabled = !currentJobId;
@@ -417,13 +420,13 @@ function renderTaskCenter(healthData, jobs) {
   $('#running-section').classList.toggle('hidden', !current);
   $('#queue-section').classList.toggle('hidden', !queued.length);
   $('#running-job').innerHTML = current ? renderRunningJob(current) : '';
-  $('#queue-title').textContent = `接下来 · ${queued.length} 个等待任务`;
-  $('#queue-list').innerHTML = queued.map(renderQueuedJob).join('');
+  $('#queue-title').textContent = `接下来 · ${queuedTotal} 个等待任务${hiddenQueued ? `（显示最近 ${queued.length} 个）` : ''}`;
+  $('#queue-list').innerHTML = queued.map((job,index)=>renderQueuedJob(job,hiddenQueued+index)).join('');
   const workload = $('#task-center-jump');
   workload.classList.toggle('hidden', !current && !queued.length);
   const progress = current ? taskProgress(current) : null;
   $('#background-progress-title').textContent = current ? `${kindLabel(current.kind)} · ${stageLabel(current.stage)}` : '后台任务正在排队';
-  $('#background-progress-detail').textContent = current ? `${progress?.label || '处理中'}${queued.length ? ` · ${queued.length} 个等待` : ''}` : `${queued.length} 个任务等待开始`;
+  $('#background-progress-detail').textContent = current ? `${progress?.label || '处理中'}${queuedTotal ? ` · ${queuedTotal} 个等待` : ''}` : `${queuedTotal} 个任务等待开始`;
   $('#background-progress-track').classList.toggle('hidden', !progress);
   $('#background-progress-bar').style.width = `${progress?.value || 0}%`;
   workload.setAttribute('aria-label', `打开后台任务进度：${$('#background-progress-title').textContent}，${$('#background-progress-detail').textContent}`);
@@ -456,7 +459,12 @@ async function refreshWorkspace() {
   try {
     const projectId=String(window.workbenchProjectId?.()||''),projectScope=projectId||'__global__';
     const [healthData, listData, panelData] = await Promise.all([api('/api/health'),api('/api/jobs?limit=100&compact=1'),api(`/api/jobs?limit=20&compact=1&latest_by_panel=1&project_id=${encodeURIComponent(projectScope)}`)]);
-    renderHealth(healthData); renderTaskCenter(healthData, listData.jobs); renderPanelResults(panelData.jobs);
+    const jobs=[...listData.jobs];
+    if(healthData.current_job&&!jobs.some(job=>job.id===healthData.current_job)){
+      const current=await api(`/api/jobs/${encodeURIComponent(healthData.current_job)}`).catch(()=>null);
+      if(current)jobs.unshift(current);
+    }
+    renderHealth(healthData); renderTaskCenter(healthData, jobs); renderPanelResults(panelData.jobs);
     const assetJob = listData.jobs.find(job => job.asset_ids?.length);
     const assetSignature = assetJob ? `${assetJob.id}:${assetJob.asset_ids.length}` : '';
     if (assetSignature && assetSignature !== projectAssetSignature) { projectAssetSignature = assetSignature; window.refreshWorkbenchProject?.(); }
@@ -928,7 +936,7 @@ async function loadHistory() {
     const historyHasFilters=Boolean($('#history-status').value||$('#history-kind').value||$('#history-project').value||$('#history-query').value.trim());
     $('#history-list').innerHTML = jobs.map(job => {
       const result = job.result || {}; const audio = relativeAudio(job, result.audio || result.candidates?.[0]?.audio);
-      const internalKinds=new Set(['assistant','doctor','yue2_training_assets','yue2_prepare','workbench_migrate']);
+      const internalKinds=new Set(['assistant','doctor','yue2_training_assets','yue2_prepare','workbench_migrate','rvc_import','rvc_storage_move']);
       const canExport=(job.status === 'complete' || (TERMINAL.has(job.status) && result.comparison && result.candidates?.length)) && job.result && !internalKinds.has(job.kind);
       const exportButton = canExport ? `<button class="ghost" onclick="exportJob('${job.id}')">${job.kind==='yue2_train'?'导出模型包':'导出'}</button>` : '';
       const retryButton = ['failed', 'cancelled'].includes(job.status) && ['generate', 'reference_cover', 'voice_convert', 'render_plan', 'mulacover_remix', 'rvc_train', 'rvc_import', 'rvc_separate', 'rvc_storage_move'].includes(job.kind) ? `<button class="ghost compact" data-kind="${job.kind}" onclick="resumeJob('${job.id}', this)">${job.resumable || ['rvc_train','rvc_storage_move'].includes(job.kind) ? '从已保存阶段继续' : '重新运行'}</button>` : '';

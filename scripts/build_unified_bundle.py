@@ -158,7 +158,7 @@ def main():
                 continue
             if (item.external_attr>>16)&0o170000==0o120000:
                 raise ValueError('Code ZIP contains a symbolic link')
-            if relative.parts[0] in {'.github','tests'} or relative.name in {'.gitignore','.gitattributes','.comfyignore'}:
+            if relative.parts[0] in {'.github','tests'} or relative.name in {'.gitignore','.gitattributes','.comfyignore','整合包启动.bat'}:
                 continue
             entries.append((item,relative))
         if installed['runtime_lock_sha256']!=hashlib.sha256(code.read(manifest['archive_root']+'/requirements-unified.lock.txt')).hexdigest():
@@ -174,7 +174,7 @@ def main():
         def record(value):
             state.write_text(json.dumps(value,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
         report = {'state':'building','version':manifest['version'],'source_commit':manifest['source_commit'],
-                  'target':'.','bytes':total,'published':False}
+                  'target':'.','planned_copy_bytes':total,'publication':'external'}
         record(report)
         for item,relative in entries:
             path = target/relative
@@ -219,6 +219,11 @@ def main():
     verification.write_text(scrub_paths(verification.read_text(encoding='utf-8',errors='replace'),
                                         target,args.runtime,args.models,args.flash_build,args.launcher),encoding='utf-8')
     runtime_files(target/'runtime')
+    for cache in sorted(target.rglob('__pycache__'), key=lambda path: len(path.parts), reverse=True):
+        if cache.is_dir():
+            shutil.rmtree(cache)
+    for bytecode in target.rglob('*.py[co]'):
+        bytecode.unlink()
     report.update(state='verified',runtime='runtime/python.exe',models_included=True,llm_weights_included=False,
                   mulacover_models_included=True,community_examples_included=True,
                   native_mulacover_node_included=True,

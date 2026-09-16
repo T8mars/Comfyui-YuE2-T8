@@ -10,6 +10,14 @@
 
 Windows / NVIDIA 完整包，包含运行环境与模型。完整解压后，双击 `YuE2-T8.exe` 即可启动；首次启动可通过页面“检查更新”安装最新的小型代码补丁。
 
+如果 Windows 拦截 EXE，可双击 `启动本地整合包.bat`。下载后可在 PowerShell 校验完整包：
+
+```powershell
+Get-FileHash .\Yue2-T8-Onekey-v1.5.4-Windows-NVIDIA.rar -Algorithm SHA256
+```
+
+正确 SHA-256 为 `dec9319a2bed3a810e4f810524537e94920142d13d0c9b688353ddfa0e372d9b`。
+
 [GitHub Release](https://github.com/T8mars/Comfyui-YuE2-T8/releases) 仅提供代码与自动更新附件，不包含 Python 或模型。完整整合包从上方夸克网盘获取；模型和可选 GGUF 权重也可通过下方网盘单独下载。旧版升级涉及统一运行环境迁移时，更新器会按需另外下载依赖。
 
 ## 模型网盘
@@ -37,9 +45,16 @@ YuE2 Music T8 把 YuE2-3B 完整歌曲生成接入 ComfyUI，并提供一个可�
 - 使用 SheetSage2 + MERT 把 WAV、FLAC、MP3、M4A、OGG、AAC 转为 ABC/MIDI，并生成翻唱。
 - 输入 1–30 秒参考干声，把新生成歌曲的人声转换为参考音色，再与 Demucs 分离的伴奏混合为 48 kHz 双声道 FLAC。
 - Seed-VC 与 RVC 翻唱区直接提供低八度、原调和高八度：女声原曲换男声音色通常先选 −12，男声原曲换女声音色通常先选 +12；也可输入 −12 到 +12 的整数半音。
-- 共享单 GPU 队列、任务中心、逐项取消、任务历史与导出；任务中心会区分当前任务和完整等待列表，并显示来源、阶段、风格摘要与排队顺序。
+- 共享单 GPU 队列、任务中心、逐项取消、任务历史与导出；任务中心会区分当前任务，显示真实等待总数、最近 100 项的来源、阶段、风格摘要与实际排队顺序。
 - 自动清理过期或超出容量的任务、上传和日志；`exports` 中的重要成品永久保留，服务重启时会把中断任务明确标为失败。
 - MuLaCover 重新编曲可从完整歌曲自动提取旋律、和弦与鼓组，或直接读取 MIDI；支持新歌词、结构化曲风、移调、固定种子、试听、MIDI 导出，并把成品继续发送到 Seed-VC/RVC 音色转换。
+
+### v1.5.6：十轮交叉检查与大数据量稳定性
+
+- 修复任务刚完成时点击取消可能覆盖成品的并发竞态；完成状态和已提交结果不会再被旧状态回写。
+- 任务中心可恢复最近 100 条之外的当前任务，并显示真实排队总数；AI 助手按当前项目恢复任务，未配置 API Key 或 GGUF 时直接禁用付费操作并给出入口。
+- 训练记录、模型与训练素材不再受 200/500 条静默截断；项目音乐版本每页 8 项、项目素材每页 10 项，训练模型继续每页 3 项。
+- 新增键盘“跳到主要内容”、更清楚的手机菜单与精确乐谱说明；启动器现在写入真实版本信息并由 Windows CI 验证。
 
 ### v1.5.5：长 ABC 输出预算
 
@@ -282,7 +297,7 @@ Install it with `comfy node install yue2-t8`, then run `install_runtime.bat` onc
 
 The node pack supports Chinese and English lyrics, editable ABC plans, multi-candidate generation, SheetSage2 transcription, melody remake, MuLaCover audio/MIDI remixing, Seed-VC and RVC voice conversion, YuE2 style LoRA and RVC training, staged inference, per-task cancellation, history, and artifact export. Training datasets and rights review are prepared in the local studio; native ComfyUI nodes run the checked project and can connect the resulting model directly to generation or voice conversion. MuLaCover results include playable audio and extracted melody, chord and drum MIDI, and can be sent directly to voice conversion. A separate native, in-process node package is available at [Comfyui-Mulacover-T8](https://github.com/T8mars/Comfyui-Mulacover-T8).
 
-The standalone v1.4 studio uses one CPython 3.12.10 runtime for music, transcription, Seed-VC, RVC, YuE2 style training and optional GGUF. Its project workspace and content-addressed asset library connect source songs, stems, lyrics, scores, generated versions, voices and trained models. YuE2 AR LoRA training uses immutable train/validation snapshots, pinned Mothersuperior v4 companion resources, loss tracking, resumable checkpoints and an in-page audio preview. Version 1.4.11 samples reproducible 768-token semantic windows (about 30 seconds) from complete songs, while validation checks fixed start, middle and end windows with song-disjoint groups. Trained adapters are currently enabled only for the validated direct-generation mode. The updater migrates legacy runtimes and rolls back a failed startup.
+The standalone v1.5 studio uses one CPython 3.12.10 runtime for music, transcription, Seed-VC, RVC, YuE2 style training and optional GGUF. Its project workspace and content-addressed asset library connect source songs, stems, lyrics, scores, generated versions, voices and trained models. YuE2 AR LoRA training uses immutable train/validation snapshots, pinned Mothersuperior v4 companion resources, loss tracking, resumable checkpoints and an in-page audio preview. Version 1.4.11 samples reproducible 768-token semantic windows (about 30 seconds) from complete songs, while validation checks fixed start, middle and end windows with song-disjoint groups. Trained adapters are currently enabled only for the validated direct-generation mode. The updater migrates legacy runtimes and rolls back a failed startup.
 
 The [CSD Korean Female v1 examples](https://huggingface.co/t8star/YuE2-Comfy/tree/main/Community-Models/CSD-Korean-Female-v1) include an importable RVC singing voice, a YuE2 AR style LoRA, its pinned NAR companion and three audio demos. The matching complete local bundle has both trained examples preinstalled. The source is one unnamed professional Korean female singer documented by CSD, not Go Youn-jung. CSD derivatives are non-commercial CC BY-NC-SA 4.0; the unchanged NAR companion remains CC BY-NC 4.0 and the RVC package also retains its upstream agreement.
 

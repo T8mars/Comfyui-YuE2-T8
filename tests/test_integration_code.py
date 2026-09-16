@@ -4,6 +4,7 @@ import os
 import queue
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -158,6 +159,35 @@ class IntegrationCodeTests(unittest.TestCase):
             with self.assertRaises(Cancelled):
                 JobContext(job).finish(result={"ok": True})
             self.assertNotEqual(json.loads((job / "status.json").read_text())["status"], "complete")
+
+    def test_committed_finish_cannot_be_lost_to_concurrent_cancel(self):
+        with tempfile.TemporaryDirectory(dir=ROOT) as directory:
+            outputs = Path(directory) / "jobs"
+            outputs.mkdir()
+            store = object.__new__(JobStore)
+            store.storage_lock = threading.RLock(); store.lock = threading.RLock()
+            store.current_process = None; store.jobs = {}
+            errors = []
+            with mock.patch.object(service, "OUTPUTS", outputs):
+                for index in range(20):
+                    job_id = f"20260916-1200{index:02d}-{index:08x}"
+                    job = outputs / job_id; job.mkdir()
+                    status = {"id": job_id, "kind": "rvc_storage_move", "status": "running",
+                              "stage": "commit", "created_at": time.time()}
+                    atomic_json(job / "status.json", status)
+                    store.jobs[job_id] = status; store.current_id = job_id
+                    barrier = threading.Barrier(2)
+                    def finish():
+                        try: barrier.wait(); JobContext(job).finish(committed=True, result={"ok": True})
+                        except BaseException as exc: errors.append(exc)
+                    def cancel():
+                        try: barrier.wait(); store.cancel(job_id)
+                        except BaseException as exc: errors.append(exc)
+                    threads = [threading.Thread(target=finish), threading.Thread(target=cancel)]
+                    for thread in threads: thread.start()
+                    for thread in threads: thread.join()
+                    self.assertEqual(json.loads((job / "status.json").read_text())["status"], "complete")
+            self.assertEqual(errors, [])
 
     def test_public_status_hides_command(self):
         self.assertNotIn("command", public_job({"id": "x", "command": ["secret"]}))
@@ -696,6 +726,10 @@ class IntegrationCodeTests(unittest.TestCase):
         self.assertIn('id="training-model-prev"', html)
         self.assertIn('id="training-model-next"', html)
         self.assertNotIn('class="ghost compact" type="button" data-copy-trained-model-path', javascript)
+        self.assertIn("const projectTimelinePageSize=8,projectAssetPageSize=10", javascript)
+        self.assertIn("allTrainingRuns('yue2_style')", javascript)
+        self.assertIn("project_id=${encodeURIComponent(scope)}", (web / "assistant.js").read_text(encoding="utf-8"))
+        self.assertIn('class="skip-link"', html)
 
     def test_visible_project_and_creator_links_use_expected_destinations(self):
         web = Path(__file__).resolve().parents[1] / "app" / "web"

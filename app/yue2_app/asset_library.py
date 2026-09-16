@@ -619,12 +619,15 @@ class AssetLibrary:
         return {"id": ident, "title": str(title).strip()[:160] or "训练素材集", **manifest,
                 "manifest_sha256": hashlib.sha256(encoded).hexdigest(), "created_at": now}
 
-    def list_snapshots(self, training_kind: str = "") -> list[dict]:
+    def list_snapshots(self, training_kind: str = "", *, limit: int = 200,
+                       offset: int = 0) -> list[dict]:
         sql, values = "SELECT * FROM dataset_snapshots", []
         if training_kind:
             sql += " WHERE training_kind=?"
             values.append(training_kind)
-        sql += " ORDER BY created_at DESC LIMIT 200"
+        limit, offset = min(500, max(1, int(limit))), max(0, int(offset))
+        sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        values.extend((limit, offset))
         with self.reading() as db:
             rows = db.execute(sql, values).fetchall()
         result = []
@@ -633,6 +636,14 @@ class AssetLibrary:
             manifest = _decoded(item.pop("manifest_json"), {})
             result.append({**item, **manifest, "item_count": len(manifest.get("items", []))})
         return result
+
+    def count_snapshots(self, training_kind: str = "") -> int:
+        sql, values = "SELECT COUNT(*) FROM dataset_snapshots", []
+        if training_kind:
+            sql += " WHERE training_kind=?"
+            values.append(training_kind)
+        with self.reading() as db:
+            return int(db.execute(sql, values).fetchone()[0])
 
     def create_training_run(self, *, title: str, training_kind: str, snapshot_id: str,
                             config: dict | None = None) -> dict:
@@ -671,16 +682,24 @@ class AssetLibrary:
         result["config"] = _decoded(result.pop("config_json"), {})
         return result
 
-    def list_training_runs(self, training_kind: str = "") -> list[dict]:
+    def list_training_runs(self, training_kind: str = "", *, limit: int = 200,
+                           offset: int = 0, models_only: bool = False) -> list[dict]:
         values = []
         sql = ("SELECT tr.*,ds.title AS snapshot_title,ds.manifest_sha256 FROM training_runs tr "
                "JOIN dataset_snapshots ds ON ds.id=tr.snapshot_id")
+        clauses = []
         if training_kind:
             if training_kind not in {"yue2_style", "rvc_voice"}:
                 raise ValueError("训练类型无效")
-            sql += " WHERE tr.training_kind=?"
+            clauses.append("tr.training_kind=?")
             values.append(training_kind)
-        sql += " ORDER BY tr.updated_at DESC LIMIT 200"
+        if models_only:
+            clauses.append("tr.model_asset_id IS NOT NULL")
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        limit, offset = min(500, max(1, int(limit))), max(0, int(offset))
+        sql += " ORDER BY tr.updated_at DESC LIMIT ? OFFSET ?"
+        values.extend((limit, offset))
         with self.reading() as db:
             rows = db.execute(sql, values).fetchall()
         result = []
@@ -689,6 +708,19 @@ class AssetLibrary:
             item["config"] = _decoded(item.pop("config_json"), {})
             result.append(item)
         return result
+
+    def count_training_runs(self, training_kind: str = "", *, models_only: bool = False) -> int:
+        values, clauses = [], []
+        if training_kind:
+            if training_kind not in {"yue2_style", "rvc_voice"}:
+                raise ValueError("训练类型无效")
+            clauses.append("training_kind=?")
+            values.append(training_kind)
+        if models_only:
+            clauses.append("model_asset_id IS NOT NULL")
+        sql = "SELECT COUNT(*) FROM training_runs" + ((" WHERE " + " AND ".join(clauses)) if clauses else "")
+        with self.reading() as db:
+            return int(db.execute(sql, values).fetchone()[0])
 
     def update_training_run(self, run_id: str, *, state: str | None = None,
                             config: dict | None = None, current_job_id: str | None = None,

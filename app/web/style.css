@@ -16,6 +16,8 @@
   --sans: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
 }
 * { box-sizing: border-box; }
+.skip-link { position: fixed; z-index: 100; top: 8px; left: 8px; padding: 10px 14px; transform: translateY(-140%); border-radius: 8px; color: #fff; background: var(--text); font-weight: 700; text-decoration: none; }
+.skip-link:focus { transform: translateY(0); }
 body {
   margin: 0;
   min-height: 100vh;
@@ -255,6 +257,12 @@ footer { padding: 30px; border-top: 1px solid #e0e5ed; color: #8a94a5; text-alig
   .queue-job .danger { grid-column: 1 / -1; width: 100%; }
   .task-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   h1 { font-size: 42px; }
+}
+
+@media (max-width: 720px) {
+  body:not([data-active-tab="project"]) > header > div:first-child > :not(.header-project-context) { display: none; }
+  body:not([data-active-tab="project"]) > header .header-project-context { margin-top: 0; }
+  body:not([data-active-tab="project"]) > header { padding: 10px 12px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

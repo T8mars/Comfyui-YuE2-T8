@@ -62,3 +62,28 @@ jobs:
             }
           }
           if ($failed) { exit 1 }
+  windows-launcher:
+    name: Windows launcher and updater checks
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Build versioned launcher
+        shell: pwsh
+        run: |
+          ./scripts/launcher/build_launcher.ps1 -OutputPath "$env:RUNNER_TEMP\YuE2-T8.exe"
+          $info = (Get-Item -LiteralPath "$env:RUNNER_TEMP\YuE2-T8.exe").VersionInfo
+          if ($info.ProductName -ne 'YuE2-T8 本地音乐工作室') { throw "Unexpected ProductName: $($info.ProductName)" }
+          $project = Get-Content -LiteralPath pyproject.toml -Raw
+          $expected = ([regex]::Match($project, '(?m)^version\s*=\s*"(\d+\.\d+\.\d+)"$').Groups[1].Value + '.0')
+          if ($info.FileVersion -ne $expected) { throw "Unexpected FileVersion: $($info.FileVersion), expected $expected" }
+          & "$env:RUNNER_TEMP\YuE2-T8.exe" --port 80 --no-pause
+          if ($LASTEXITCODE -ne 5) { throw "Invalid port should return 5, got $LASTEXITCODE" }
+      - name: Run Windows update and bundle tests
+        run: |
+          python -m unittest discover -s tests -p "test_unified_update.py" -v
+          python -m unittest discover -s tests -p "test_update_install.py" -v
+          python -m unittest discover -s tests -p "test_unified_bundle.py" -v

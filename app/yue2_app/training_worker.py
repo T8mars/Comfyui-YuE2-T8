@@ -11,6 +11,21 @@ from .io import within
 from .worker_common import JobContext, configure_environment
 
 
+def _existing_checkpoint_asset(library: AssetLibrary, run_id: str, step: int) -> dict | None:
+    offset = 0
+    while True:
+        page = library.list_assets(kind="model", limit=500, offset=offset)
+        for item in page:
+            metadata, provenance = item.get("metadata", {}), item.get("provenance", {})
+            if (metadata.get("model_type") == "yue2_ar_lora"
+                    and (metadata.get("training_run_id") == run_id or provenance.get("training_run_id") == run_id)
+                    and int(metadata.get("checkpoint_step") or -1) == step):
+                return item
+        if len(page) < 500:
+            return None
+        offset += len(page)
+
+
 def install_assets(root: Path, ctx: JobContext, _request: dict) -> dict:
     from .training_resources import install
     return install(root, ctx)
@@ -77,11 +92,7 @@ def preview(root: Path, ctx: JobContext, request: dict) -> dict:
         inspected = inspected_checkpoint["adapter"]
         resources = resource_manifest()
         step = int(checkpoint.name.removeprefix("step-") or 0)
-        existing = next((item for item in library.list_assets(kind="model", limit=500)
-                         if item.get("metadata", {}).get("model_type") == "yue2_ar_lora"
-                         and (item.get("metadata", {}).get("training_run_id") == run["id"]
-                              or item.get("provenance", {}).get("training_run_id") == run["id"])
-                         and int(item.get("metadata", {}).get("checkpoint_step") or -1) == step), None)
+        existing = _existing_checkpoint_asset(library, run["id"], step)
         if existing:
             model_asset_id = existing["id"]
         else:

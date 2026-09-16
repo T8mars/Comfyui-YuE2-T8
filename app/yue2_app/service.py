@@ -32,7 +32,7 @@ from .config import (
     ensure_layout,
     runtime_ready,
 )
-from .io import atomic_json, public_job, within
+from .io import atomic_json, json_file_lock, public_job, within
 from .retention import RetentionManager
 from .settings import model_directory, save_model_directory, settings_info
 from . import assistant_data
@@ -707,14 +707,19 @@ class JobStore:
             return status
         directory = job_directory(job_id)
         (directory / "cancel.requested").touch()
-        with self.lock:
-            is_current = self.current_id == job_id or status.get("status") == "running"
-        if is_current:
-            status.update({"status": "cancelling", "stage": "cancelling", "updated_at": time.time()})
-        else:
-            status.update({"status": "cancelled", "stage": "cancelled", "updated_at": time.time(),
-                           "finished_at": time.time(), "error": "任务在排队阶段被取消"})
-        atomic_json(directory / "status.json", status)
+        status_path = directory / "status.json"
+        with json_file_lock(status_path):
+            status = json.loads(status_path.read_text(encoding="utf-8"))
+            if status.get("status") in TERMINAL:
+                return public_job(status)
+            with self.lock:
+                is_current = self.current_id == job_id or status.get("status") in {"running", "cancelling"}
+            if is_current:
+                status.update({"status": "cancelling", "stage": "cancelling", "updated_at": time.time()})
+            else:
+                status.update({"status": "cancelled", "stage": "cancelled", "updated_at": time.time(),
+                               "finished_at": time.time(), "error": "任务在排队阶段被取消"})
+            atomic_json(status_path, status)
         with self.lock:
             self.jobs[job_id] = status
             process = self.current_process if self.current_id == job_id else None
@@ -731,16 +736,19 @@ class JobStore:
         if status["status"] not in {"queued", "running"}:
             raise ValueError("这个训练当前不能暂停")
         directory = job_directory(job_id)
-        if status["status"] == "queued":
-            status.update(status="paused", stage="paused", updated_at=time.time(),
-                          finished_at=time.time(), resumable=True)
-            atomic_json(directory / "status.json", status)
-            with self.lock:
-                self.jobs[job_id] = status
-            return public_job(status)
-        (directory / "pause.requested").touch()
-        status.update(status="pausing", stage="pausing", updated_at=time.time(), resumable=True)
-        atomic_json(directory / "status.json", status)
+        status_path = directory / "status.json"
+        if status["status"] != "queued":
+            (directory / "pause.requested").touch()
+        with json_file_lock(status_path):
+            status = json.loads(status_path.read_text(encoding="utf-8"))
+            if status.get("status") in TERMINAL:
+                return public_job(status)
+            if status["status"] == "queued":
+                status.update(status="paused", stage="paused", updated_at=time.time(),
+                              finished_at=time.time(), resumable=True)
+            else:
+                status.update(status="pausing", stage="pausing", updated_at=time.time(), resumable=True)
+            atomic_json(status_path, status)
         with self.lock:
             self.jobs[job_id] = status
         return public_job(status)
@@ -970,9 +978,15 @@ class JobStore:
 
     def _mark(self, job_id: str, **values) -> None:
         directory = job_directory(job_id)
-        status = self.get(job_id)
-        status.update(values, updated_at=time.time())
-        atomic_json(directory / "status.json", status)
+        status_path = directory / "status.json"
+        with json_file_lock(status_path):
+            status = json.loads(status_path.read_text(encoding="utf-8"))
+            if status.get("status") in TERMINAL:
+                with self.lock:
+                    self.jobs[job_id] = status
+                return
+            status.update(values, updated_at=time.time())
+            atomic_json(status_path, status)
         with self.lock:
             self.jobs[job_id] = status
 

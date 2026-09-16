@@ -18,5 +18,6 @@ node.zip
 vendor/seed-vc/campplus_cn_common.bin
 *.pyc
 __pycache__/
+browser-artifacts-*/
 .pytest_cache/
 .venv/

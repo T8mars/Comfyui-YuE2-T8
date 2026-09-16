@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="/static/workbench.css">
 </head>
 <body data-active-tab="project">
+  <a class="skip-link" href="#main-content">跳到主要内容</a>
   <aside class="studio-sidebar" aria-label="音乐工作台导航">
     <div class="studio-brand"><span class="brand-mark"><i class="bi bi-soundwave"></i></span><span><b>YuE2 Studio</b><small>本地音乐工作台</small></span></div>
     <div class="sidebar-project"><small>当前项目</small><button id="sidebar-project-button" type="button"><span id="sidebar-project-name">未选择项目</span><i class="bi bi-chevron-expand"></i></button></div>
@@ -32,7 +33,7 @@
     </div>
     <button id="sidebar-settings" class="sidebar-settings" type="button"><i class="bi bi-gear"></i>模型与设置</button>
   </aside>
-  <button id="mobile-workspace-menu" class="mobile-workspace-menu" type="button" aria-haspopup="dialog" aria-controls="workspace-menu-dialog"><i class="bi bi-grid-3x3-gap"></i><span>全部</span></button>
+  <button id="mobile-workspace-menu" class="mobile-workspace-menu" type="button" aria-haspopup="dialog" aria-controls="workspace-menu-dialog"><i class="bi bi-grid-3x3-gap"></i><span>全部功能</span></button>
   <dialog id="workspace-menu-dialog" class="workspace-menu-dialog" aria-labelledby="workspace-menu-title">
     <form method="dialog">
       <div class="canvas-head"><h3 id="workspace-menu-title">切换工作区</h3><button class="ghost compact" value="cancel" aria-label="关闭全部功能菜单"><i class="bi bi-x-lg"></i></button></div>
@@ -84,7 +85,7 @@
     </div>
   </header>
 
-  <main>
+  <main id="main-content" tabindex="-1">
     <section id="task-center" class="task-center hidden" aria-live="polite" aria-label="任务进度">
       <header class="task-center-head">
         <div><span class="task-center-label">任务进度</span><h2>正在处理你的音乐</h2></div>
@@ -229,7 +230,7 @@ This melody still waits for you</textarea></label>
         <div class="workbench-head"><h3>ABC 文本预览</h3><span id="plan-badge" class="badge">未生成</span></div>
         <textarea id="plan-abc" rows="20" spellcheck="false" aria-label="ABC 乐谱文本"></textarea>
         <div class="toolbar">
-          <label class="check"><input id="plan-exact" type="checkbox" checked>精确恢复原计划（忽略文本框修改）</label>
+          <label class="check"><input id="plan-exact" type="checkbox" checked>精确恢复原计划（忽略文本框修改）</label><small class="meta">如需编辑下方 ABC，请先取消勾选；修改后会作为新版本重新生成。</small>
           <button id="download-abc" class="ghost">下载 ABC</button>
           <button id="render-plan" class="primary" data-idle-label="渲染完整歌曲">渲染完整歌曲</button>
         </div>
@@ -308,7 +309,7 @@ This melody still waits for you</textarea></label>
             <button id="generate-cover" class="ghost full" data-idle-label="生成旋律重制">生成旋律重制</button>
           </article>
           <article class="choice-card accent-card">
-            <span class="choice-step">方案 B · 参考音色</span>
+            <span class="choice-step">参考音色转换</span>
             <h4>用参考声音演唱</h4>
             <p id="cover-voice-hint">先生成歌曲，再分离人声并转换音色，最后与伴奏重新混音。</p>
             <label>音色转换方式<select id="voice-backend"><option value="seed-vc">Seed-VC · 使用短参考声音</option><option value="rvc">RVC · 使用已训练音色</option><option value="compare">Seed-VC / RVC · 同曲对比</option></select></label>

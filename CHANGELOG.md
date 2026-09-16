@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.6 - 2026-09-16
+
+- Serialize job status updates across the service and worker so a last-moment cancel can no longer overwrite a committed result.
+- Recover the active job and project-scoped assistant result beyond the recent-task window; show the real queue total and hide non-exportable housekeeping tasks from export actions.
+- Page through every training run and project asset instead of silently stopping at 200 or 500 records; keep project tracks and linked assets bounded to 8 and 10 items per page.
+- Disable AI actions until the selected API credential or local GGUF is ready, surface model-list failures, disambiguate trained style models, and improve technical audio-component errors.
+- Add keyboard skip navigation, clearer mobile labels and compact non-project headers, plus Windows launcher version metadata and CI coverage.
+
 ## 1.5.5 - 2026-09-16
 
 - AI 创作助手的新安装默认使用 32K 输出预算，云端与兼容接口允许设置到 262,144 Token，覆盖 220K 需求；实际可用值仍由模型和渠道限制。

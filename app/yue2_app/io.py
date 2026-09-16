@@ -6,9 +6,20 @@ import os
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
+from filelock import FileLock
+
 _ATOMIC_WRITE_LOCK = threading.Lock()
+
+
+@contextmanager
+def json_file_lock(path: Path, timeout: float = 30):
+    """Serialize read/modify/write cycles for one JSON file across processes."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with FileLock(str(path) + ".lock", timeout=timeout):
+        yield
 
 
 def atomic_json(path: Path, value: object) -> None:
