@@ -303,13 +303,18 @@ def run_browser(url: str, output: Path) -> dict:
         assert positions["taskBottom"] <= positions["playerTop"] + 1, positions
         page.locator("#global-player").evaluate("element => element.classList.add('hidden')")
         page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        page.evaluate("""() => renderTaskCenter({current_job: 'ui-smoke-running'}, [{
-          id: 'ui-smoke-running', kind: 'generate', status: 'running', stage: 'semantic',
-          progress: .42, created_at: Date.now() / 1000 - 12, source: 'webui', summary: '后台进度回归'
-        }])""")
-        workload.click()
-        page.wait_for_timeout(250)
-        assert section_top(page, "#task-center") < 900
+        task_top = page.evaluate("""() => {
+          renderTaskCenter({current_job: 'ui-smoke-running'}, [{
+            id: 'ui-smoke-running', kind: 'generate', status: 'running', stage: 'semantic',
+            progress: .42, created_at: Date.now() / 1000 - 12, source: 'webui', summary: '后台进度回归'
+          }]);
+          document.querySelector('#task-center-jump').click();
+          // Finish the reduced-motion navigation synchronously so the 1.2 s
+          // workspace poll cannot clear the synthetic job mid-assertion.
+          document.querySelector('#task-center').scrollIntoView({behavior: 'instant', block: 'start'});
+          return document.querySelector('#task-center').getBoundingClientRect().top;
+        }""")
+        assert task_top < 900
         page.evaluate("renderTaskCenter({current_job: null}, []); window.scrollTo(0, 0)")
 
         for panel_id in expected_tabs:
