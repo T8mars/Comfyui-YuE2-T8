@@ -80,8 +80,8 @@ jobs:
           $project = Get-Content -LiteralPath pyproject.toml -Raw
           $expected = ([regex]::Match($project, '(?m)^version\s*=\s*"(\d+\.\d+\.\d+)"$').Groups[1].Value + '.0')
           if ($info.FileVersion -ne $expected) { throw "Unexpected FileVersion: $($info.FileVersion), expected $expected" }
-          & "$env:RUNNER_TEMP\YuE2-T8.exe" --port 80 --no-pause
-          if ($LASTEXITCODE -ne 5) { throw "Invalid port should return 5, got $LASTEXITCODE" }
+          $invalidPort = Start-Process -FilePath "$env:RUNNER_TEMP\YuE2-T8.exe" -ArgumentList '--port', '80', '--no-pause' -Wait -PassThru -NoNewWindow
+          if ($invalidPort.ExitCode -ne 5) { throw "Invalid port should return 5, got $($invalidPort.ExitCode)" }
       - name: Run Windows update and bundle tests
         run: |
           python -m unittest discover -s tests -p "test_unified_update.py" -v
