@@ -224,7 +224,8 @@
     const grid = $('#asset-grid');
     if (!assets.length) {
       const filtered=Boolean($('#asset-kind').value||$('#asset-query').value.trim());
-      grid.innerHTML = `<div class="empty-state"><i class="bi bi-collection-play"></i><b>还没有符合条件的资产</b><p>${filtered?'清除筛选可查看资产库中的全部内容。':'导入音频，或从创作页面生成第一个作品。'}</p>${filtered?'<button id="clear-asset-filters" class="ghost compact" type="button">清除筛选</button>':''}</div>`;
+      const trash=$('#asset-status').value==='trashed';
+      grid.innerHTML = `<div class="empty-state"><i class="bi bi-collection-play"></i><b>${trash&&!filtered?'回收站为空':'还没有符合条件的资产'}</b><p>${filtered?'清除筛选可查看当前列表中的全部内容。':trash?'回到资产库，勾选不用的资产后移入回收站。':'导入音频，或从创作页面生成第一个作品。'}</p>${filtered?'<button id="clear-asset-filters" class="ghost compact" type="button">清除筛选</button>':''}</div>`;
       const clear=$('#clear-asset-filters');if(clear)clear.onclick=()=>{$('#asset-kind').value='';$('#asset-query').value='';assetOffset=0;loadAssets();};
       return;
     }
@@ -236,7 +237,7 @@
       const projectAction=currentProjectId?(linked?`<button class="ghost compact" type="button" data-project-asset-state disabled title="当前版本已在项目中" aria-label="「${title}」已在项目中"><i class="bi bi-check-circle" aria-hidden="true"></i> ${trainingAudio?'已加入项目 · 训练可用':'已在项目'}</button>`:`<button class="ghost compact" type="button" data-add-asset="${asset.id}" aria-label="将「${title}」${trainingAudio?'加入当前项目供训练':'加入项目'}"><i class="bi bi-plus-circle" aria-hidden="true"></i> ${trainingAudio?'加入当前项目供训练':'加入项目'}</button>`):'';
       const trash = asset.status === 'trashed';
       const trashPrimary=asset.kind==='model'?`<a class="ghost compact" href="${contentUrl(asset)}" download>下载</a>`:primary;
-      const actions = trash ? `${trashPrimary}<button class="ghost compact" type="button" data-restore-asset="${asset.id}" aria-label="恢复「${title}」">恢复</button>` : `${primary}<button class="ghost compact" data-use-asset="${asset.id}" aria-label="发送「${title}」到其他工作区">发送到…</button><button class="ghost compact" data-edit-asset="${asset.id}" aria-label="编辑「${title}」">编辑</button>${projectAction}<button class="ghost compact" type="button" data-trash-asset="${asset.id}" aria-label="移入回收站「${title}」"><i class="bi bi-trash" aria-hidden="true"></i> 回收站</button>`;
+      const actions = trash ? `${trashPrimary}<button class="ghost compact" type="button" data-restore-asset="${asset.id}" aria-label="恢复「${title}」">恢复</button>` : `${primary}<button class="ghost compact" data-use-asset="${asset.id}" aria-label="发送「${title}」到其他工作区">发送到…</button><button class="ghost compact" data-edit-asset="${asset.id}" aria-label="编辑「${title}」">编辑</button>${projectAction}<button class="ghost compact" type="button" data-trash-asset="${asset.id}" aria-label="移入回收站「${title}」"><i class="bi bi-trash" aria-hidden="true"></i> 移入回收站</button>`;
       return `<article class="asset-card"><div class="asset-card-head"><input type="checkbox" class="cleanup-select" data-select-asset="${asset.id}" aria-label="选择资产「${title}」" ${selectedAssets.has(asset.id)?'checked':''}><i class="bi ${kindIcons[asset.kind] || kindIcons.other}" aria-hidden="true"></i><div><b title="${title}">${title}</b><small>${escapeHtml(kindNames[asset.kind] || asset.kind)} · ${asset.size ? (asset.size/1048576).toFixed(1)+' MB' : '文本版本'}</small></div></div>${audioKinds.has(asset.kind) ? `<div class="wave-mini" data-wave="${asset.id}"></div>` : '<div class="wave-mini"><span style="height:2px;width:100%"></span></div>'}<div class="toolbar">${actions}</div></article>`;
     }).join('');
     grid.querySelectorAll('[data-play-asset]').forEach(button => button.onclick = () => playAsset(assets.find(item => item.id === button.dataset.playAsset)));
@@ -313,6 +314,7 @@
       if(revision!==previewRevision||!dialog.open)return;
       approvedIds=result.ids;
       message.textContent=`可删除 ${result.deletable.length} 项，约释放 ${(result.bytes/1048576).toFixed(1)} MB；保留 ${result.skipped.length} 项。`+(result.projects.length?`\n将从项目移出：${result.projects.slice(0,5).join('、')}。`:'')+(result.skipped.length?'\n'+result.skipped.slice(0,5).map(item=>`${item.title}：${item.reason}`).join('\n'):'');
+      if(result.titles.length)message.textContent+='\n将删除：'+result.titles.slice(0,6).join('、')+(result.titles.length>6?'等。':'。');
       confirm.disabled=!result.deletable.length&&!result.bytes;
     }catch(error){if(revision===previewRevision)message.textContent=`无法安全清理：${error.message}`;}}
     dialog.querySelector('[name="detach_projects"]').onchange=preview;

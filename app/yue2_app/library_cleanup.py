@@ -69,7 +69,7 @@ class LibraryCleanup:
         for row in db.execute("SELECT manifest_json FROM dataset_snapshots"):
             manifest = json.loads(row[0])  # Corrupt snapshots must block destructive cleanup.
             pinned.update(strings(manifest))
-        deletable, skipped, projects = [], [], {}
+        deletable, titles, skipped, projects = [], [], [], {}
         for asset_id in ids:
             row = db.execute("SELECT title,status FROM assets WHERE id=?", (asset_id,)).fetchone()
             reason = ""
@@ -99,6 +99,7 @@ class LibraryCleanup:
                 skipped.append({"id": asset_id, "title": row["title"] if row else asset_id, "reason": reason})
             else:
                 deletable.append(asset_id)
+                titles.append(row["title"])
                 for link in links:
                     projects[link["id"]] = link["title"]
         blobs = set(tuple(row) for row in db.execute("SELECT blob_sha256,blob_suffix FROM blob_gc WHERE NOT EXISTS "
@@ -116,7 +117,7 @@ class LibraryCleanup:
             if path.is_file():
                 size += path.stat().st_size
         return {"ids": ids, "deletable": deletable, "skipped": skipped,
-                "bytes": size, "projects": list(projects.values())}
+                "bytes": size, "projects": list(projects.values()), "titles": titles}
 
     def preview(self, data, protected=()) -> dict:
         if not isinstance(data.get("detach_projects", False), bool):
