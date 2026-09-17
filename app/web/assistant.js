@@ -248,9 +248,10 @@ function assistantChannelReady() {
 }
 function applyAssistantActionState() {
   const ready=assistantChannelReady(),disabled=assistant.polling||assistant.modelRefreshBusy||!ready;
+  const missingHint=$('#assistant-provider').value==='local'?'请先选择本地 GGUF 模型':'请先设置当前渠道的 API Key，并选择或手动填写模型 ID';
   for(const selector of ['#assistant-generate','#assistant-test','#assistant-retry','#assistant-compose-abc']){
     const button=$(selector);if(!button)continue;button.disabled=disabled;
-    button.title=!ready?'请先设置当前渠道的 API Key，并选择或手动填写模型 ID':assistant.modelRefreshBusy?'正在刷新模型列表，请稍候':assistant.polling?'当前创作任务结束后可再次操作':selector==='#assistant-test'?'测试当前选定模型的聊天连接，可能产生 API 费用；获取列表请点刷新模型':'';
+    button.title=!ready?missingHint:assistant.modelRefreshBusy?'正在刷新模型列表，请稍候':assistant.polling?'当前创作任务结束后可再次操作':selector==='#assistant-test'?'测试当前选定模型的聊天连接，可能产生 API 费用；获取列表请点刷新模型':'';
   }
   const remove=$('#assistant-delete-key'),provider=$('#assistant-provider').value;
   if(remove)remove.disabled=!assistant.providerCredentials[provider]||assistant.polling||assistant.modelRefreshBusy;
