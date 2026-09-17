@@ -928,8 +928,15 @@ class JobStore:
             with self.lock:
                 jobs = dict(self.jobs)
                 current_id = self.current_id
+            finished_jobs = {}
             for job_id, status in jobs.items():
                 if status.get("status") in {"complete", "failed", "cancelled"} and job_id != current_id:
+                    try:
+                        job = json.loads((job_directory(job_id) / "job.json").read_text(encoding="utf-8-sig"))
+                        if job.get("kind") in {"yue2_prepare", "yue2_train"} and self.get(job_id)["status"] in {"complete", "failed", "cancelled"}:
+                            finished_jobs.setdefault(str(job.get("request", {}).get("run_id", "")), set()).add(job_id)
+                    except (KeyError, OSError, ValueError):
+                        pass
                     continue
                 try:
                     job = json.loads((job_directory(job_id) / "job.json").read_text(encoding="utf-8-sig"))
@@ -941,7 +948,11 @@ class JobStore:
                            and job.get("request", {}).get("run_id") in runs)
                 if not discard:
                     references.update(strings(job))
-            cleanup = TrainingCleanup(AssetLibrary(ROOT))
+            library = AssetLibrary(ROOT)
+            with library.reading() as db:
+                verified = {row["id"]:row["current_job_id"] for row in db.execute("SELECT id,current_job_id FROM training_runs")
+                            if row["current_job_id"] in finished_jobs.get(row["id"], ())}
+            cleanup = TrainingCleanup(library, verified)
             if not execute:
                 return cleanup.preview(data, references)
             result = cleanup.purge(data, references)

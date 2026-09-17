@@ -146,6 +146,23 @@ class TrainingCleanupTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, '训练记录或缓存已清理'):
             self.store.resume(job_id)
 
+    def test_stale_running_record_requires_verified_finished_current_job(self):
+        run, directory = self.make_run(state='running')
+        job_id = self.job(run, 'failed')
+        data = {'run_ids':[run['id']]}
+        self.assertFalse(self.store.training_cleanup(data)['run_ids'])
+        self.library.update_training_run(run['id'], current_job_id=job_id)
+        self.assertEqual(self.store.training_cleanup(data)['run_ids'], [run['id']])
+        active_preview = self.job(run, 'queued', 'yue2_preview')
+        self.assertFalse(self.store.training_cleanup(data)['run_ids'])
+        self.store.jobs.pop(active_preview)
+        self.store.current_id = job_id
+        self.assertFalse(self.store.training_cleanup(data)['run_ids'])
+        self.store.current_id = None
+        result = self.store.training_cleanup({**data,'confirmed':True}, execute=True)
+        self.assertEqual(result['deleted_runs'], [run['id']])
+        self.assertFalse(directory.exists())
+
     def test_busy_file_keeps_retryable_record_and_snapshot_and_disallows_updates(self):
         run, directory = self.make_run()
         original = __import__('shutil').rmtree
