@@ -72,7 +72,7 @@ YuE2 Music T8 把 YuE2-3B 完整歌曲生成接入 ComfyUI，并提供一个可�
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:8189/api/health
-Invoke-RestMethod http://127.0.0.1:8189/api/jobs -Method Post -ContentType 'application/json' -Body '{"kind":"generate","request":{"style":"acoustic folk, piano","lyrics":"[Verse]\\nHello again","cot":"off","seed":831001}}'
+Invoke-RestMethod http://127.0.0.1:8189/api/jobs -Method Post -ContentType 'application/json' -Body '{"kind":"generate","request":{"style":"acoustic folk, piano","lyrics":"[Verse]\nHello again","cot":"off","seed":831001}}'
 ```
 
 提交返回任务 ID，生成在后台排队执行。Python 调用示例见仓库的 `client.py`。
