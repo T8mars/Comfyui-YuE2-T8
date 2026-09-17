@@ -195,7 +195,14 @@ def seed_browser_state(root: Path) -> None:
                     "history": [{"step": 200, "train_loss": 4.0, "validation_loss": 4.2}]},
         )
         library.update_training_run(run["id"], state="complete", model_asset_id=model["id"])
+        cache = library.home / 'training' / run['id'] / 'checkpoints/step-00000200'
+        cache.mkdir(parents=True)
+        (cache / 'optimizer.pt').write_bytes(b'browser disposable training cache')
         model_source.unlink()
+
+    for index in range(11):
+        library.create_snapshot(title=f'待清理快照 {index + 1}', training_kind='yue2_style',
+                                items=snapshot['items'], options={'rights_confirmed':True, 'default_style':'browser folk'})
 
     job_id = "20990101-000000-00000001"
     directory = root / "outputs" / "jobs" / job_id
@@ -592,6 +599,63 @@ def assert_audit_races(browser, url: str, output: Path) -> None:
     page.wait_for_function("!assistant.starting&&!assistant.polling")
     assert len(jobs) == 1, jobs
     assert jobs[0]["request"]["project_id"] == new["id"]
+    assert not errors, errors
+    context.close()
+
+
+def assert_training_cleanup(browser, url: str, output: Path) -> None:
+    """Delete only fixtures in the temporary service; verify kept models and paging."""
+    context = browser.new_context(viewport={'width':1366, 'height':900})
+    page = context.new_page()
+    errors = []
+    page.on('pageerror', lambda error: errors.append(str(error)))
+    page.goto(url)
+    page.locator('.studio-sidebar [data-tab="training"]').click()
+    page.locator('#training-cleanup-toggle').click()
+    expect(page.locator('.training-cleanup-row')).to_have_count(4)
+    row = page.locator('.training-cleanup-row').first
+    ident = row.locator('input').get_attribute('data-select-training-cleanup')
+    run = context.request.get(url + '/api/workbench/training-runs/' + ident).json()
+    row.locator('input').check()
+    page.locator('#training-cleanup-selected').click()
+    dialog = page.locator('#training-cleanup-dialog')
+    expect(dialog.locator('[data-confirm]')).to_be_enabled()
+    assert '共享' not in dialog.inner_text() or '保留' in dialog.inner_text()
+    assert '其他训练记录' in dialog.inner_text()
+    dialog.locator('[data-cancel]').click()
+    assert context.request.get(url + '/api/workbench/training-runs/' + ident).ok
+    page.locator('#training-cleanup-selected').click()
+    expect(dialog.locator('[data-confirm]')).to_be_enabled()
+    dialog.locator('[data-confirm]').click()
+    expect(dialog).to_have_count(0)
+    expect(page.locator('.training-cleanup-row')).to_have_count(3)
+    expect(page.locator('#training-cleanup-status')).to_contain_text('已清理 1 项训练')
+    assert context.request.get(url + '/api/workbench/assets/' + run['model_asset_id'] + '/content').ok
+    assert not context.request.get(url + '/api/workbench/training-runs/' + ident).ok
+    assert context.request.get(url + '/api/workbench/snapshots').json()['total'] == 12
+    page.locator('#training-cleanup-kind').select_option('snapshots')
+    expect(page.locator('.training-cleanup-row')).to_have_count(10)
+    expect(page.locator('#training-cleanup-pages')).to_contain_text('12 项')
+    page.locator('#training-cleanup-next').click()
+    expect(page.locator('.training-cleanup-row')).to_have_count(2)
+    page.locator('#training-cleanup-select-page').check()
+    page.locator('#training-cleanup-selected').click()
+    expect(dialog.locator('[data-confirm]')).to_be_enabled()
+    assert '其他训练记录' in dialog.inner_text()
+    dialog.locator('[data-confirm]').click()
+    expect(dialog).to_have_count(0)
+    expect(page.locator('.training-cleanup-row')).to_have_count(1)
+    expect(page.locator('#training-cleanup-status')).to_contain_text('1 个快照')
+    page.locator('#training-cleanup-toggle').scroll_into_view_if_needed()
+    assert_no_page_overflow(page, 'training cleanup desktop')
+    assert_named_controls(page)
+    assert_unique_ids(page)
+    page.screenshot(path=output / 'training-cleanup-desktop.png', full_page=False)
+    page.set_viewport_size({'width':390, 'height':844})
+    page.locator('#training-cleanup-toggle').scroll_into_view_if_needed()
+    assert_no_page_overflow(page, 'training cleanup phone')
+    assert_named_controls(page)
+    page.screenshot(path=output / 'training-cleanup-phone.png', full_page=False)
     assert not errors, errors
     context.close()
 
@@ -1013,6 +1077,7 @@ def run_browser(url: str, output: Path) -> dict:
         page.screenshot(path=output / "phone.png", full_page=False)
         assert_manual_cleanup(browser, url, output)
         assert_audit_races(browser, url, output)
+        assert_training_cleanup(browser, url, output)
         browser.close()
 
     assert not console_errors, f"Browser console/page errors: {console_errors}"
@@ -1036,6 +1101,7 @@ def run_browser(url: str, output: Path) -> dict:
             "all ten workspaces meet WCAG AA contrast for visible normal-size text",
             "asset cross-page selection, trash, restore, protected purge, cancellation and task cleanup work through real HTTP routes on desktop and phone",
             "delayed project and model reads cannot overwrite newer state; deletion remains inside its preview and assistant double submits create one job without paid API calls",
+            "training cleanup paginates ten records, confirms precise deletion, protects shared snapshots and retains model downloads on desktop and phone",
         ],
         "console_errors": console_errors,
     }

@@ -532,6 +532,13 @@
     if(!currentRun){trainingJobId='';savedValue('training-job','');$('#training-run-title').textContent='尚未创建训练';$('#training-run-state').textContent='待设置';$('#start-training').disabled=true;$('#create-training-run').disabled=false;$('#create-training-run').textContent='创建快照并预处理';$('#training-preview-checkpoint').classList.add('hidden');$('#training-pause').classList.add('hidden');$('#training-resume').classList.add('hidden');loadRunCheckpoints('');return;}
     savedValue('training-run',currentRun.id);$('#training-run-title').textContent=currentRun.title;$('#start-training').disabled=!currentRun.config?.prepared;$('#training-run-state').textContent=stageLabel(currentRun.state);const preparing=currentRun.state==='preparing';$('#create-training-run').disabled=preparing;$('#create-training-run').textContent=preparing?'正在后台预处理…':'创建新的快照并预处理';if(preparing){$('#training-form-status').dataset.state='busy';$('#training-form-status').textContent='快照已创建，后台正在预处理；可以在页面顶部查看实时进度。';}
     $('#start-training').disabled=!(currentRun.config?.prepared&&['draft','failed','cancelled'].includes(currentRun.state));if(currentRun.state==='complete')queueMicrotask(()=>setTrainingStage(0));
+    if(currentRun.config?.cleanup_pending){
+      $('#start-training').disabled=true;$('#training-run-state').textContent='待重试清理';
+      $('#training-preview-checkpoint').classList.add('hidden');$('#training-pause').classList.add('hidden');$('#training-resume').classList.add('hidden');
+      $('#training-step').textContent='缓存已部分清理';$('#training-loss').textContent='—';$('#training-val-loss').textContent='—';$('#training-progress-bar').style.width='0%';
+      $('#training-form-status').dataset.state='error';$('#training-form-status').textContent='此记录已禁止继续训练，请在“清理训练记录与快照”中再次清理。';
+      drawChart([]);loadRunCheckpoints('');return;
+    }
     const form=$('#training-form');if(!form.elements.style.value&&currentRun.config?.default_style)form.elements.style.value=currentRun.config.default_style;if(!form.elements.lyrics.value&&currentRun.config?.default_lyrics)form.elements.lyrics.value=currentRun.config.default_lyrics;
     const history=currentRun.config?.history||[],last=history.at(-1),metric=value=>value!==null&&value!==undefined&&Number.isFinite(Number(value))?Number(value).toFixed(3):'—';$('#training-step').textContent=`${Number(last?.step||0)} / ${Number(currentRun.config?.steps||0)} 步`;$('#training-progress-bar').style.width=`${currentRun.config?.steps?Math.min(100,Number(last?.step||0)/Number(currentRun.config.steps)*100):0}%`;$('#training-loss').textContent=metric(last?.train_loss);$('#training-val-loss').textContent=metric(last?.validation_loss);setTrainingStage(currentRun.state==='complete'?4:currentRun.config?.prepared?3:currentRun.state==='preparing'?2:1);$('#training-preview-checkpoint').classList.toggle('hidden',!currentRun.model_asset_id&&!currentRun.config?.last_checkpoint);const mappedJob=trainingJobsByRun.get(currentRun.id)||'',linkedJob=mappedJob||(['preparing','running','paused'].includes(currentRun.state)?currentRun.current_job_id||'':'');if(linkedJob)trainingJobsByRun.set(currentRun.id,linkedJob);trainingJobId=linkedJob;savedValue('training-job',linkedJob);$('#training-pause').classList.toggle('hidden',currentRun.state!=='running');$('#training-resume').classList.toggle('hidden',currentRun.state!=='paused');drawChart(history);loadRunCheckpoints(currentRun.id);
   }
@@ -581,6 +588,12 @@
   $('#training-resume').onclick=async()=>{if(!trainingJobId||!currentRun)return;const runId=currentRun.id,jobId=trainingJobId;try{const job=await api(`/api/jobs/${jobId}/resume`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});trainingJobsByRun.set(runId,job.id);if(currentRun?.id===runId){trainingJobId=job.id;savedValue('training-job',job.id);}updateTrainingJob(job,runId,'training');}catch(error){alert(error.message);}};
   async function pollAllTrainingJobs(){await Promise.all([pollTrainingJob(trainingJobId,currentRun?.id||'','training'),pollTrainingJob(trainingPreviewJobId,trainingPreviewRunId,'preview'),pollTrainingJob(auxiliaryTrainingJobId,'','auxiliary')]);}
   $('#training-refresh').onclick=async()=>{await Promise.all([loadRuns(),loadTrainingInputs(),checkTrainingResources()]);await pollAllTrainingJobs();};
+  window.refreshWorkbenchTrainingCleanup=async removed=>{
+    for(const id of removed)trainingJobsByRun.delete(id);
+    if(removed.includes(currentRun?.id)){trainingJobId='';savedValue('training-job','');savedValue('training-run','');}
+    await Promise.all([loadRuns(),loadAssets(),loadTrainingInputs(),loadStyleModels()]);
+    window.refreshWorkspace?.();
+  };
 
   async function previewTrainingRun(){
     try {

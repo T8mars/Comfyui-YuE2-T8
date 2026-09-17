@@ -230,6 +230,11 @@ def get(handler, parsed, library: AssetLibrary, *, head: bool = False) -> bool:
                             "total": library.count_snapshots(kind), "limit": min(500, max(1, limit)),
                             "offset": max(0, offset)})
         return True
+    if path == "/api/workbench/training-cleanup":
+        from .training_cleanup import TrainingCleanup
+        handler._json(200, TrainingCleanup(library).inventory(kind=query.get("kind", ["runs"])[0],
+                        offset=int(query.get("offset", ["0"])[0]), limit=int(query.get("limit", ["10"])[0])))
+        return True
     if path == "/api/workbench/training-runs":
         kind = query.get("training_kind", [""])[0]
         limit, offset = int(query.get("limit", ["200"])[0]), int(query.get("offset", ["0"])[0])

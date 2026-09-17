@@ -757,6 +757,8 @@ class AssetLibrary:
             if row is None:
                 raise ValueError("训练记录不存在")
             updates, values = [], []
+            if json.loads(row["config_json"]).get("cleanup_pending"):
+                raise ValueError("此训练已部分清理，请完成清理后创建新训练")
             if state is not None:
                 if state not in allowed_states:
                     raise ValueError("训练状态无效")

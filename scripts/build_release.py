@@ -71,6 +71,7 @@ def build(output):
                          "app/yue2_app/yue2_trainer.py", "app/yue2_app/yue2_training_data.py",
                          "app/yue2_app/yue2_training_assets.json", "app/yue2_app/workbench_api.py",
                          "app/web/workbench.js", "app/web/workbench.css",
+                         "app/web/training_cleanup.js", "app/yue2_app/training_cleanup.py",
                          "app/web/vendor/bootstrap-icons.css",
                          "app/web/vendor/fonts/bootstrap-icons.woff2",
                          "app/web/vendor/BOOTSTRAP-ICONS-LICENSE.txt"):

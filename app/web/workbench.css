@@ -276,3 +276,7 @@ body:has(.global-player:not(.hidden)) .workload { bottom: 132px; }
   .workspace-menu-dialog .canvas-head { flex-direction: row; align-items: center; }
 }
 @media (max-width: 480px) { .workspace-menu-grid { grid-template-columns: 1fr; } }
+.training-cleanup-row { border-bottom: 1px solid var(--blue-line); padding: 14px 0; }
+.training-cleanup-row .check { align-items: flex-start; overflow-wrap: anywhere; }
+.training-cleanup-row p { margin: 8px 0; }
+#training-cleanup-dialog [data-preview] { white-space: pre-line; max-height: 45vh; overflow-y: auto; overflow-wrap: anywhere; }

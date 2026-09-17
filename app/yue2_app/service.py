@@ -414,6 +414,8 @@ class JobStore:
             if kind not in {"yue2_training_assets", "workbench_migrate"}:
                 library = AssetLibrary(ROOT)
                 run = library.get_training_run(str(request.get("run_id", "")))
+                if run.get("config", {}).get("cleanup_pending"):
+                    raise ValueError("此训练已部分清理，请完成清理后创建新训练")
                 if run["training_kind"] != "yue2_style":
                     raise ValueError("训练记录类型无效")
             if kind == "yue2_train":
@@ -603,6 +605,8 @@ class JobStore:
             status = self.get(job_id)
             if status.get("cleanup_pending"):
                 raise ValueError("此任务已部分清理，不能继续执行；请完成清理后创建新任务")
+            if status.get("training_deleted"):
+                raise ValueError("此训练记录或缓存已清理，不能继续执行；请创建新训练")
             if status["status"] not in {"failed", "cancelled", "paused"}:
                 raise ValueError("只能恢复失败、取消或暂停的任务")
             directory = job_directory(job_id)
@@ -910,6 +914,55 @@ class JobStore:
             except (OSError, ValueError):
                 return {"*"}
         return references
+
+    def training_cleanup(self, data: dict, *, execute: bool = False) -> dict:
+        from .library_cleanup import strings
+        from .training_cleanup import TrainingCleanup, selected_ids
+        with self.storage_lock:
+            self.assert_writable()
+            runs = selected_ids(data.get("run_ids", []))
+            drafts = assistant_data.all_drafts(ROOT)
+            references = set(strings(drafts))
+            if any(draft.get("error") for scope in drafts.values() for draft in scope.values()):
+                references.add("*")
+            with self.lock:
+                jobs = dict(self.jobs)
+                current_id = self.current_id
+            for job_id, status in jobs.items():
+                if status.get("status") in {"complete", "failed", "cancelled"} and job_id != current_id:
+                    continue
+                try:
+                    job = json.loads((job_directory(job_id) / "job.json").read_text(encoding="utf-8-sig"))
+                except (OSError, ValueError):
+                    references.add("*")
+                    continue
+                discard = (data.get("discard_paused") is True and status.get("status") == "paused"
+                           and job_id != current_id and job.get("kind") == "yue2_train"
+                           and job.get("request", {}).get("run_id") in runs)
+                if not discard:
+                    references.update(strings(job))
+            cleanup = TrainingCleanup(AssetLibrary(ROOT))
+            if not execute:
+                return cleanup.preview(data, references)
+            result = cleanup.purge(data, references)
+            removed = set(result["deleted_runs"] + result["pending_runs"])
+            # Retain completed audio/model results, but forbid resuming discarded caches.
+            for job_id in jobs:
+                try:
+                    directory = job_directory(job_id)
+                    job = json.loads((directory / "job.json").read_text(encoding="utf-8-sig"))
+                    if job.get("kind") not in {"yue2_prepare", "yue2_train", "yue2_preview"} or job.get("request", {}).get("run_id") not in removed:
+                        continue
+                    status = self.get(job_id)
+                    status.update(training_deleted=True, resumable=False)
+                    if status.get("status") == "paused":
+                        status.update(status="cancelled", finished_at=time.time())
+                    atomic_json(directory / "status.json", status)
+                    with self.lock:
+                        self.jobs[job_id] = status
+                except (KeyError, OSError, ValueError):
+                    result["errors"].append({"id": job_id, "reason": "历史任务标记更新失败；已清理训练仍不能恢复"})
+            return result
 
     def job_cleanup(self, data: dict, *, execute: bool = False) -> dict:
         if execute and data.get("confirmed") is not True:
@@ -1455,6 +1508,8 @@ class Handler(BaseHTTPRequestHandler):
                 from . import workbench_api
                 with STORE.storage_lock:
                     STORE.assert_writable()
+                    if path in {"/api/workbench/training-cleanup/preview", "/api/workbench/training-cleanup/delete"}:
+                        return self._json(200, STORE.training_cleanup(self._body_json(128 * 1024), execute=path.endswith("/delete")))
                     protected_assets = STORE.cleanup_asset_references() if path in {"/api/workbench/assets/cleanup-preview", "/api/workbench/assets/purge"} else ()
                     if workbench_api.post(self, parsed, ASSETS, ROOT, protected_assets=protected_assets):
                         return

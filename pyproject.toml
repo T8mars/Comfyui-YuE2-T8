@@ -1,6 +1,6 @@
 [project]
 name = "yue2-t8"
-version = "1.5.12"
+version = "1.5.13"
 description = "Local YuE2 generation, MuLaCover rearrangement, notation, transcription, training, and voice workflows for ComfyUI"
 readme = "README.md"
 requires-python = ">=3.10"
