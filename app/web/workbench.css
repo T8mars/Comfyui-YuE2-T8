@@ -100,6 +100,12 @@ main { max-width: 1380px; padding: 32px 28px 160px; }
 .asset-pagination-top { display: none; margin: 10px 0 14px; }
 .asset-card { min-width: 0; padding: 15px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); box-shadow: 0 5px 14px rgba(31,41,55,.035); }
 .asset-card-head { display: flex; gap: 11px; align-items: center; }
+.cleanup-controls { display:flex; flex-wrap:wrap; gap:12px; align-items:center; padding:14px; margin:16px 0 8px; background:var(--panel); border:1px solid var(--line); border-radius:12px; }
+.cleanup-controls > label:not(.check) { min-width:140px; }
+.cleanup-controls .check { margin:0; }
+.cleanup-select { flex:0 0 auto; width:18px; height:18px; padding:0; accent-color:var(--accent); }
+.cleanup-note, [data-preview] { white-space:pre-line; overflow-wrap:anywhere; }
+.history-card header { justify-content:flex-start; }
 .asset-card-head > i { width: 38px; height: 38px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 8px; color: #5572cf; background: var(--blue-soft); font-size: 17px; }
 .asset-card-head > div { min-width: 0; }
 .asset-card b { display: block; overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }

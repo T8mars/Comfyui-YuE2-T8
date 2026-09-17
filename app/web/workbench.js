@@ -5,6 +5,7 @@
   let projects = [], archivedProjects = [], assets = [], trainingAssets = [], lyricsAssets = [], styleAssets = [], trainingAssetGuidance = false;
   let currentProjectAssetRefs = new Set();
   let assetOffset = 0, assetTotal = 0, assetLoadRevision = 0;
+  const selectedAssets = new Set(); let assetCleanupBusy = false;
   const assetPageSize = () => window.matchMedia('(max-width: 720px)').matches ? 8 : 24;
   let currentProjectId = savedValue('workbench-project') || '';
   let projectTimelinePage=0,projectAssetPage=0;const projectTimelinePageSize=8,projectAssetPageSize=10;
@@ -233,7 +234,10 @@
       const linked=currentProjectId&&currentProjectAssetRefs.has(`${asset.id}:${asset.current_revision_id}`);
       const trainingAudio=trainingAssetGuidance&&['song','work','vocal'].includes(asset.kind);
       const projectAction=currentProjectId?(linked?`<button class="ghost compact" type="button" data-project-asset-state disabled title="当前版本已在项目中" aria-label="「${title}」已在项目中"><i class="bi bi-check-circle" aria-hidden="true"></i> ${trainingAudio?'已加入项目 · 训练可用':'已在项目'}</button>`:`<button class="ghost compact" type="button" data-add-asset="${asset.id}" aria-label="将「${title}」${trainingAudio?'加入当前项目供训练':'加入项目'}"><i class="bi bi-plus-circle" aria-hidden="true"></i> ${trainingAudio?'加入当前项目供训练':'加入项目'}</button>`):'';
-      return `<article class="asset-card"><div class="asset-card-head"><i class="bi ${kindIcons[asset.kind] || kindIcons.other}" aria-hidden="true"></i><div><b title="${title}">${title}</b><small>${escapeHtml(kindNames[asset.kind] || asset.kind)} · ${asset.size ? (asset.size/1048576).toFixed(1)+' MB' : '文本版本'}</small></div></div>${audioKinds.has(asset.kind) ? `<div class="wave-mini" data-wave="${asset.id}"></div>` : '<div class="wave-mini"><span style="height:2px;width:100%"></span></div>'}<div class="toolbar">${primary}<button class="ghost compact" data-use-asset="${asset.id}" aria-label="发送「${title}」到其他工作区">发送到…</button><button class="ghost compact" data-edit-asset="${asset.id}" aria-label="编辑「${title}」">编辑</button>${projectAction}</div></article>`;
+      const trash = asset.status === 'trashed';
+      const trashPrimary=asset.kind==='model'?`<a class="ghost compact" href="${contentUrl(asset)}" download>下载</a>`:primary;
+      const actions = trash ? `${trashPrimary}<button class="ghost compact" type="button" data-restore-asset="${asset.id}" aria-label="恢复「${title}」">恢复</button>` : `${primary}<button class="ghost compact" data-use-asset="${asset.id}" aria-label="发送「${title}」到其他工作区">发送到…</button><button class="ghost compact" data-edit-asset="${asset.id}" aria-label="编辑「${title}」">编辑</button>${projectAction}<button class="ghost compact" type="button" data-trash-asset="${asset.id}" aria-label="移入回收站「${title}」"><i class="bi bi-trash" aria-hidden="true"></i> 回收站</button>`;
+      return `<article class="asset-card"><div class="asset-card-head"><input type="checkbox" class="cleanup-select" data-select-asset="${asset.id}" aria-label="选择资产「${title}」" ${selectedAssets.has(asset.id)?'checked':''}><i class="bi ${kindIcons[asset.kind] || kindIcons.other}" aria-hidden="true"></i><div><b title="${title}">${title}</b><small>${escapeHtml(kindNames[asset.kind] || asset.kind)} · ${asset.size ? (asset.size/1048576).toFixed(1)+' MB' : '文本版本'}</small></div></div>${audioKinds.has(asset.kind) ? `<div class="wave-mini" data-wave="${asset.id}"></div>` : '<div class="wave-mini"><span style="height:2px;width:100%"></span></div>'}<div class="toolbar">${actions}</div></article>`;
     }).join('');
     grid.querySelectorAll('[data-play-asset]').forEach(button => button.onclick = () => playAsset(assets.find(item => item.id === button.dataset.playAsset)));
     grid.querySelectorAll('[data-read-asset]').forEach(button => button.onclick = async () => {const asset=assets.find(item=>item.id===button.dataset.readAsset);try{const text=await(await fetch(contentUrl(asset))).text();const dialog=document.createElement('dialog');dialog.innerHTML=`<form method="dialog"><h3>${escapeHtml(asset.title)}</h3><textarea rows="18" readonly aria-label="素材内容">${escapeHtml(text)}</textarea><div class="toolbar"><button class="ghost">关闭</button></div></form>`;labelDialog(dialog,'asset-read-dialog-title');document.body.append(dialog);dialog.onclose=()=>dialog.remove();dialog.showModal();}catch(error){alert(error.message);}});
@@ -245,6 +249,13 @@
       catch (error) { alert(error.message); }
     });
     grid.querySelectorAll('[data-use-style-model]').forEach(button => button.onclick = () => useStyleModel(button.dataset.useStyleModel));
+    grid.querySelectorAll('[data-select-asset]').forEach(input => input.onchange = () => {
+      if (input.checked && selectedAssets.size >= 500) { input.checked=false; $('#asset-cleanup-status').textContent='每次最多选择 500 项，请先整理所选资产。'; return; }
+      input.checked ? selectedAssets.add(input.dataset.selectAsset) : selectedAssets.delete(input.dataset.selectAsset); updateAssetSelection();
+    });
+    grid.querySelectorAll('[data-trash-asset]').forEach(button => button.onclick=()=>moveAssets([button.dataset.trashAsset],'trashed'));
+    grid.querySelectorAll('[data-restore-asset]').forEach(button => button.onclick=()=>moveAssets([button.dataset.restoreAsset],'active'));
+    updateAssetSelection();
     hydrateWaves();
   }
   async function loadAssets() {
@@ -253,9 +264,76 @@
     if ($('#asset-kind').value) query.set('kind',$('#asset-kind').value);
     if ($('#asset-query').value.trim()) query.set('q',$('#asset-query').value.trim());
     query.set('limit', assetPageSize()); query.set('offset', assetOffset);
-    try { const result=await api('/api/workbench/assets?' + query);if(revision!==assetLoadRevision)return;assets=result.assets;assetTotal=result.total;renderAssets();renderAssetPagination();await loadStyleModels(); }
+    query.set('status',$('#asset-status').value);
+    try { const result=await api('/api/workbench/assets?' + query);if(revision!==assetLoadRevision)return;assets=result.assets;assetTotal=result.total;if(assetOffset>0&&assetOffset>=assetTotal){assetOffset=Math.max(0,Math.floor((assetTotal-1)/assetPageSize())*assetPageSize());return loadAssets();}renderAssets();renderAssetPagination();updateAssetSelection();await loadStyleModels(); }
     catch (error) { if(revision===assetLoadRevision)showError($('#asset-grid'), error); }
   }
+  function updateAssetSelection() {
+    const trash=$('#asset-status').value==='trashed',pageIds=assets.map(item=>item.id),selected=pageIds.filter(id=>selectedAssets.has(id)).length;
+    $('#asset-selection-count').textContent=`已选 ${selectedAssets.size} 项（可跨页）`;
+    $('#asset-clear-selection').disabled=assetCleanupBusy||!selectedAssets.size;
+    $('#asset-status').disabled=assetCleanupBusy;
+    $('#asset-select-page').checked=pageIds.length>0&&selected===pageIds.length;
+    $('#asset-select-page').indeterminate=selected>0&&selected<pageIds.length;
+    $('#asset-select-page').disabled=assetCleanupBusy||!assets.length;
+    for(const id of ['trash-selected-assets','restore-selected-assets','purge-selected-assets']){
+      const button=$('#'+id);button.classList.toggle('hidden',id==='trash-selected-assets'?trash:!trash);button.disabled=assetCleanupBusy||!selectedAssets.size;
+    }
+    $('#empty-asset-trash').classList.toggle('hidden',!trash);$('#empty-asset-trash').disabled=assetCleanupBusy;
+    $$('[data-select-asset],[data-trash-asset],[data-restore-asset]').forEach(input=>input.disabled=assetCleanupBusy);
+  }
+  async function refreshAfterAssetCleanup() {
+    await Promise.all([loadAssets(),loadProjects(),loadTrainingInputs(),loadStyleModels()]);
+    window.refreshWorkspace?.();
+  }
+  async function moveAssets(ids,status) {
+    if(assetCleanupBusy||!ids.length)return;
+    assetCleanupBusy=true;updateAssetSelection();
+    try {
+      const result=await api('/api/workbench/assets/batch-status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids,status})});
+      result.changed.forEach(id=>{selectedAssets.delete(id);if(globalAudio.src.includes(id))$('#global-player-close').click();});
+      $('#asset-cleanup-status').textContent=status==='trashed'?`已移入回收站 ${result.changed.length} 项，可切换“查看 → 回收站”恢复或彻底删除。项目和训练的固定版本仍保留。`:`已恢复 ${result.changed.length} 项，可切换“查看 → 资产库”使用。`;
+      await refreshAfterAssetCleanup();
+    } catch(error){$('#asset-cleanup-status').textContent=error.message;}
+    finally{assetCleanupBusy=false;updateAssetSelection();}
+  }
+  async function purgeAssets(empty=false) {
+    if(assetCleanupBusy)return;
+    const data=empty?{mode:'empty_trash'}:{ids:[...selectedAssets]};
+    if(!empty&&!data.ids.length)return;
+    assetCleanupBusy=true;updateAssetSelection();
+    const dialog=document.createElement('dialog');
+    dialog.innerHTML=`<form><h3>彻底删除资产</h3><p class="meta">${empty?'清理全部回收站，不受当前类型或名称筛选限制；每次最多 500 项。':'清理所选资产的全部版本。'} 删除后不能恢复。原始导入文件、导出文件和其他资产共享的内容会保留。</p><label class="check"><input name="detach_projects" type="checkbox">同时从所有项目移出（会清除被删除素材的主版本选择）</label><p data-preview role="status">正在检查引用与可释放空间…</p><div class="toolbar"><button class="ghost" type="button" data-cancel>取消</button><button class="danger" type="submit" data-confirm disabled>确认彻底删除</button></div></form>`;
+    labelDialog(dialog,'asset-cleanup-dialog-title');document.body.append(dialog);dialog.showModal();
+    let previewRevision=0,approvedIds=[],executing=false;
+    const confirm=dialog.querySelector('[data-confirm]'),message=dialog.querySelector('[data-preview]');
+    async function preview(){const revision=++previewRevision;confirm.disabled=true;message.textContent='正在检查引用与可释放空间…';try{
+      data.detach_projects=dialog.querySelector('[name="detach_projects"]').checked;
+      const result=await api('/api/workbench/assets/cleanup-preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+      if(revision!==previewRevision||!dialog.open)return;
+      approvedIds=result.ids;
+      message.textContent=`可删除 ${result.deletable.length} 项，约释放 ${(result.bytes/1048576).toFixed(1)} MB；保留 ${result.skipped.length} 项。`+(result.projects.length?`\n将从项目移出：${result.projects.slice(0,5).join('、')}。`:'')+(result.skipped.length?'\n'+result.skipped.slice(0,5).map(item=>`${item.title}：${item.reason}`).join('\n'):'');
+      confirm.disabled=!result.deletable.length&&!result.bytes;
+    }catch(error){if(revision===previewRevision)message.textContent=`无法安全清理：${error.message}`;}}
+    dialog.querySelector('[name="detach_projects"]').onchange=preview;
+    dialog.querySelector('[data-cancel]').onclick=()=>dialog.close();
+    dialog.oncancel=event=>{if(executing)event.preventDefault();};
+    dialog.onclose=()=>{previewRevision++;dialog.remove();assetCleanupBusy=false;updateAssetSelection();};
+    dialog.querySelector('form').onsubmit=async event=>{event.preventDefault();if(executing||confirm.disabled)return;executing=true;confirm.disabled=true;dialog.querySelector('[data-cancel]').disabled=true;dialog.querySelector('[name="detach_projects"]').disabled=true;try{
+      const result=await api('/api/workbench/assets/purge',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:approvedIds,detach_projects:data.detach_projects,confirmed:true})});
+      result.deleted.forEach(id=>{selectedAssets.delete(id);if(globalAudio.src.includes(id))$('#global-player-close').click();});
+      $('#asset-cleanup-status').textContent=`已彻底删除 ${result.deleted.length} 项，释放 ${(result.released_bytes/1048576).toFixed(1)} MB；保留 ${result.skipped.length} 项。`+(result.errors.length?' '+result.errors.join('；'):'');
+      dialog.close();await refreshAfterAssetCleanup();
+    }catch(error){executing=false;message.textContent=error.message;confirm.disabled=false;dialog.querySelector('[data-cancel]').disabled=false;dialog.querySelector('[name="detach_projects"]').disabled=false;}};
+    await preview();
+  }
+  $('#asset-status').onchange=()=>{selectedAssets.clear();assetOffset=0;$('#asset-cleanup-status').textContent=$('#asset-status').value==='trashed'?'回收站可恢复素材。彻底删除会检查项目、训练快照、任务和草稿引用；受保护的素材不会删除。':'勾选不用的资产移入回收站，可随时恢复；进入回收站才能释放空间。';loadAssets();};
+  $('#asset-select-page').onchange=event=>{assets.forEach(item=>{if(event.target.checked&&selectedAssets.size<500)selectedAssets.add(item.id);else if(!event.target.checked)selectedAssets.delete(item.id);});renderAssets();};
+  $('#asset-clear-selection').onclick=()=>{selectedAssets.clear();renderAssets();updateAssetSelection();};
+  $('#trash-selected-assets').onclick=()=>moveAssets([...selectedAssets],'trashed');
+  $('#restore-selected-assets').onclick=()=>moveAssets([...selectedAssets],'active');
+  $('#purge-selected-assets').onclick=()=>purgeAssets();
+  $('#empty-asset-trash').onclick=()=>purgeAssets(true);
   $('#asset-kind').onchange = () => { assetOffset=0; loadAssets(); };
   let queryTimer; $('#asset-query').oninput = () => { clearTimeout(queryTimer); assetOffset=0; queryTimer=setTimeout(loadAssets,250); };
   function renderAssetPagination(){const size=assetPageSize(),page=Math.floor(assetOffset/size)+1,pages=Math.max(1,Math.ceil(assetTotal/size)),status=`第 ${page} / ${pages} 页 · ${assetTotal} 项`;for(const id of ['#asset-page-status','#asset-page-status-top'])$(id).textContent=status;for(const id of ['#asset-prev','#asset-prev-top'])$(id).disabled=assetOffset<=0;for(const id of ['#asset-next','#asset-next-top'])$(id).disabled=assetOffset+size>=assetTotal;$('#asset-pagination-top').classList.toggle('hidden',assetTotal<=size);}

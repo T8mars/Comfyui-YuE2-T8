@@ -16,7 +16,7 @@ import wave
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from playwright.sync_api import Page, sync_playwright
+from playwright.sync_api import Page, expect, sync_playwright
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 if str(REPOSITORY_ROOT) not in sys.path:
@@ -234,6 +234,16 @@ def seed_browser_state(root: Path) -> None:
                         "summary": "持久化浏览器回归", "result": assistant_result}
     atomic_json(assistant_directory / "job.json", assistant_job)
     atomic_json(assistant_directory / "status.json", assistant_status)
+    failed_id = "20990101-000002-00000003"
+    failed_directory = root / "outputs" / "jobs" / failed_id
+    failed_job = {"id": failed_id, "kind": "doctor", "request": {}, "source": "webui"}
+    atomic_json(failed_directory / "job.json", failed_job)
+    atomic_json(failed_directory / "status.json", {
+        **failed_job, "status": "failed", "created_at": now + 2, "finished_at": now + 2,
+        "summary": "清理浏览器回归", "error": "回归测试占位失败", "result": {},
+    })
+    (root / "logs").mkdir(exist_ok=True)
+    (root / "logs" / f"{failed_id}.log").write_text("cleanup fixture", encoding="utf-8")
 
 
 def assert_assistant_model_refresh(browser, url: str, output: Path) -> None:
@@ -349,6 +359,111 @@ def assert_assistant_model_refresh(browser, url: str, output: Path) -> None:
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+def assert_manual_cleanup(browser, url: str, output: Path) -> None:
+    """Exercise irreversible controls only against the temporary smoke service."""
+    context = browser.new_context(viewport={"width": 1366, "height": 900})
+    page = context.new_page()
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    prefix = "cleanup-browser-fixture"
+    fixtures = []
+    for index in range(25):
+        response = page.request.post(url + "/api/workbench/assets/text", data={
+            "kind": "lyrics", "title": f"{prefix}-{index}", "text": f"cleanup fixture {index}",
+        })
+        assert response.status == 201, response.text()
+        fixtures.append(response.json())
+    page.goto(url, wait_until="domcontentloaded")
+    wait_for_ui(page)
+    page.locator('.studio-sidebar [data-tab="assets"]').click()
+    page.locator("#asset-query").fill(prefix)
+    expect(page.locator("#asset-grid .asset-card")).to_have_count(24)
+    page.locator("#asset-select-page").check()
+    expect(page.locator("#asset-selection-count")).to_contain_text("已选 24 项")
+    page.locator("#asset-next").click()
+    expect(page.locator("#asset-grid .asset-card")).to_have_count(1)
+    page.locator("#asset-select-page").check()
+    expect(page.locator("#asset-selection-count")).to_contain_text("已选 25 项")
+    page.locator("#asset-clear-selection").click()
+    expect(page.locator("#asset-selection-count")).to_contain_text("已选 0 项")
+    page.locator("#asset-select-page").check()
+    page.locator("#trash-selected-assets").click()
+    expect(page.locator("#asset-grid .asset-card")).to_have_count(24)
+    expect(page.locator("#asset-page-status")).to_contain_text("第 1 / 1 页")
+    page.locator("#asset-status").select_option("trashed")
+    expect(page.locator("#asset-grid .asset-card")).to_have_count(1)
+    page.locator("#asset-select-page").check()
+    page.locator("#restore-selected-assets").click()
+    expect(page.locator("#asset-grid .asset-card")).to_have_count(0)
+    page.locator("#asset-status").select_option("active")
+    expect(page.locator("#asset-grid .asset-card")).to_have_count(24)
+    selected = page.locator("[data-select-asset]").evaluate_all("els => els.slice(0,2).map(el=>el.dataset.selectAsset)")
+    project = page.request.post(url + "/api/workbench/projects", data={"title": "Cleanup protected project"}).json()
+    response = page.request.post(url + f'/api/workbench/projects/{project["id"]}/assets', data={"asset_id": selected[0]})
+    assert response.status == 200, response.text()
+    for asset_id in selected:
+        page.locator(f'[data-select-asset="{asset_id}"]').check()
+    page.locator("#trash-selected-assets").click()
+    expect(page.locator("#asset-cleanup-status")).to_contain_text("已移入回收站 2 项")
+    page.locator("#asset-status").select_option("trashed")
+    expect(page.locator("#asset-grid .asset-card")).to_have_count(2)
+    # Restore one item independently, then verify protected-project confirmation.
+    page.locator(f'[data-restore-asset="{selected[1]}"]').click()
+    expect(page.locator("#asset-grid .asset-card")).to_have_count(1)
+    page.locator("#asset-select-page").check()
+    page.locator("#purge-selected-assets").click()
+    cleanup = page.locator("dialog[open]")
+    expect(cleanup.locator("[data-preview]")).to_contain_text("Cleanup protected project")
+    assert cleanup.locator("[data-confirm]").is_disabled()
+    cleanup.locator('[name="detach_projects"]').check()
+    expect(cleanup.locator("[data-confirm]")).to_be_enabled()
+    cleanup.locator("[data-cancel]").click()
+    assert page.request.get(url + f'/api/workbench/assets/{selected[0]}').status == 200
+    page.locator("#purge-selected-assets").click()
+    cleanup.locator('[name="detach_projects"]').check()
+    expect(cleanup.locator("[data-confirm]")).to_be_enabled()
+    cleanup.locator("[data-confirm]").click()
+    expect(page.locator("#asset-cleanup-status")).to_contain_text("已彻底删除 1 项")
+    assert page.request.get(url + f'/api/workbench/assets/{selected[0]}').status == 404
+    assert page.request.get(url + f'/api/workbench/projects/{project["id"]}').json()["assets"] == []
+    page.locator("#asset-status").select_option("active")
+    expect(page.locator("#asset-grid .asset-card")).to_have_count(24)
+    page.screenshot(path=output / "desktop-cleanup-assets.png", full_page=False)
+
+    page.locator('.studio-sidebar [data-tab="history"]').click()
+    failed_id = "20990101-000002-00000003"
+    page.locator("#history-query").fill(failed_id)
+    expect(page.locator("[data-select-job]")).to_have_count(1)
+    page.locator("#history-select-page").check()
+    page.locator("#cleanup-selected-jobs").click()
+    confirmation = page.locator(".studio-dialog[open]")
+    expect(confirmation).to_contain_text("永久删除 1 项")
+    confirmation.locator('[value="cancel"]').click()
+    expect(page.locator("#history-cleanup-status")).to_contain_text("已取消清理")
+    assert page.request.get(url + f"/api/jobs/{failed_id}").status == 200
+    page.locator("#history-clear-selection").click()
+    assert page.locator("#cleanup-selected-jobs").is_disabled()
+    page.locator("#cleanup-failed-jobs").click()
+    expect(confirmation).to_contain_text(failed_id)
+    confirmation.locator('[value="confirm"]').click()
+    expect(page.locator("#history-cleanup-status")).to_contain_text("已清理 1 项任务")
+    assert page.request.get(url + f"/api/jobs/{failed_id}").status == 404
+    assert page.request.get(url + "/api/jobs/20990101-000000-00000001").status == 200
+    page.screenshot(path=output / "desktop-cleanup-tasks.png", full_page=False)
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert_no_page_overflow(page, "phone task cleanup")
+    page.locator("#mobile-workspace-menu").click()
+    page.locator('#workspace-menu-dialog [data-go-tab="assets"]').click()
+    expect(page.locator("#asset-grid .asset-card")).to_have_count(8)
+    assert_no_page_overflow(page, "phone asset cleanup")
+    assert_named_controls(page)
+    assert_text_contrast(page, "assets")
+    page.locator("#assets .cleanup-controls").scroll_into_view_if_needed()
+    page.screenshot(path=output / "phone-cleanup-assets.png", full_page=False)
+    assert not errors, errors
+    context.close()
 
 
 def run_browser(url: str, output: Path) -> dict:
@@ -766,6 +881,7 @@ def run_browser(url: str, output: Path) -> dict:
         assert_unique_ids(page)
         assert_named_controls(page)
         page.screenshot(path=output / "phone.png", full_page=False)
+        assert_manual_cleanup(browser, url, output)
         browser.close()
 
     assert not console_errors, f"Browser console/page errors: {console_errors}"
@@ -787,6 +903,7 @@ def run_browser(url: str, output: Path) -> dict:
             "Seed-VC and RVC expose independent remembered octave presets in the main cover flow",
             "mobile project maintenance stays collapsed and workspace switching resets long-page scroll position",
             "all ten workspaces meet WCAG AA contrast for visible normal-size text",
+            "asset cross-page selection, trash, restore, protected purge, cancellation and task cleanup work through real HTTP routes on desktop and phone",
         ],
         "console_errors": console_errors,
     }

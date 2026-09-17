@@ -16,9 +16,10 @@ import time
 import uuid
 import wave
 from contextlib import contextmanager
+from functools import wraps
 from pathlib import Path
 
-from .io import sha256, within
+from .io import json_file_lock, sha256, within
 
 IDENTIFIER = re.compile(r"[a-f0-9]{32}")
 AUDIO_SUFFIXES = {".wav", ".flac", ".mp3", ".m4a", ".ogg", ".aac"}
@@ -50,6 +51,14 @@ def _decoded(value: str | None, default):
     except (TypeError, ValueError, json.JSONDecodeError):
         return default
     return result
+
+
+def _blob_locked(method):
+    @wraps(method)
+    def serialized(self, *args, **kwargs):
+        with json_file_lock(self.home / "payload"):
+            return method(self, *args, **kwargs)
+    return serialized
 
 
 class AssetLibrary:
@@ -175,6 +184,11 @@ class AssetLibrary:
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS blob_gc (
+                    blob_sha256 TEXT NOT NULL,
+                    blob_suffix TEXT NOT NULL,
+                    PRIMARY KEY(blob_sha256,blob_suffix)
+                );
             """)
             stored = db.execute("SELECT value FROM meta WHERE key='schema'").fetchone()
             if stored is None:
@@ -240,6 +254,7 @@ class AssetLibrary:
         value["provenance"] = _decoded(value.pop("provenance_json", None), {})
         return value
 
+    @_blob_locked
     def import_file(self, source: Path, *, kind: str, title: str = "", tags=None,
                     rights=None, provenance=None, metadata=None) -> dict:
         kind = str(kind).strip()
@@ -269,6 +284,7 @@ class AssetLibrary:
                         _json(base_metadata), _json(dict(provenance or {})), now))
         return self.get_asset(asset_id)
 
+    @_blob_locked
     def create_text(self, *, kind: str, title: str, text: str, tags=None,
                     rights=None, provenance=None, parent_revision_id: str | None = None,
                     asset_id: str | None = None) -> dict:
@@ -318,8 +334,12 @@ class AssetLibrary:
         return self.get_asset(asset_id)
 
     def _asset_query(self, *, kind: str = "", query: str = "", project_id: str = "",
-                     include_trashed: bool = False) -> tuple[str, list, str]:
+                     include_trashed: bool = False, status: str = "") -> tuple[str, list, str]:
         clauses, values = ([] if include_trashed else ["a.status='active'"]), []
+        if status:
+            if status not in {"active", "trashed"}:
+                raise ValueError("素材状态无效")
+            clauses, values = ["a.status=?"], [status]
         if kind:
             if kind not in ASSET_KINDS:
                 raise ValueError("素材类型无效")
@@ -343,9 +363,9 @@ class AssetLibrary:
 
     def list_assets(self, *, kind: str = "", query: str = "", project_id: str = "",
                     limit: int = 100, offset: int = 0,
-                    include_trashed: bool = False) -> list[dict]:
+                    include_trashed: bool = False, status: str = "") -> list[dict]:
         join, values, where = self._asset_query(kind=kind, query=query, project_id=project_id,
-                                                include_trashed=include_trashed)
+                                                include_trashed=include_trashed, status=status)
         limit = min(500, max(1, int(limit)))
         offset = max(0, int(offset))
         sql = ("SELECT a.*,r.mime,r.size,r.metadata_json,r.provenance_json,r.blob_sha256,r.blob_suffix "
@@ -355,9 +375,9 @@ class AssetLibrary:
             return [self._asset_row(row) for row in db.execute(sql, (*values, limit, offset)).fetchall()]
 
     def count_assets(self, *, kind: str = "", query: str = "", project_id: str = "",
-                     include_trashed: bool = False) -> int:
+                     include_trashed: bool = False, status: str = "") -> int:
         join, values, where = self._asset_query(kind=kind, query=query, project_id=project_id,
-                                                include_trashed=include_trashed)
+                                                include_trashed=include_trashed, status=status)
         with self.reading() as db:
             return int(db.execute("SELECT COUNT(DISTINCT a.id) FROM assets a JOIN revisions r "
                                   "ON r.id=a.current_revision_id" + join + where, values).fetchone()[0])
@@ -530,6 +550,7 @@ class AssetLibrary:
                 db.execute("UPDATE projects SET updated_at=? WHERE id=?", (_now(), project_id))
         return self.get_project(project_id)
 
+    @_blob_locked
     def create_snapshot(self, *, title: str, training_kind: str, items: list[dict], options=None) -> dict:
         if training_kind not in {"yue2_style", "rvc_voice"}:
             raise ValueError("训练类型无效")

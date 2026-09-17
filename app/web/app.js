@@ -8,6 +8,7 @@ let workspaceRefreshing = false;
 let modelSettingsInitialized = false;
 let projectAssetSignature = '';
 let historyOffset = 0, historyTotal = 0, historyLoadRevision = 0; const historyPageSize = 10;
+let historyPageJobs = [], jobCleanupBusy = false; const selectedHistoryJobs = new Set();
 let availableUpdate = null;
 let updateInstalling = false;
 const panelStates = new Map();
@@ -1007,7 +1008,7 @@ async function loadHistory() {
   try {
     const query=new URLSearchParams({limit:historyPageSize,offset:historyOffset});
     if($('#history-status').value)query.set('status',$('#history-status').value);if($('#history-kind').value)query.set('kind',$('#history-kind').value);if($('#history-project').value)query.set('project_id',$('#history-project').value);if($('#history-query').value.trim())query.set('q',$('#history-query').value.trim());
-    const {jobs,total} = await api('/api/jobs?' + query);if(revision!==historyLoadRevision)return;historyTotal=total;
+    const {jobs,total} = await api('/api/jobs?' + query);if(revision!==historyLoadRevision)return;historyTotal=total;historyPageJobs=jobs;if(historyOffset>0&&historyOffset>=total){historyOffset=Math.max(0,Math.floor((total-1)/historyPageSize)*historyPageSize);return loadHistory();}
     const historyHasFilters=Boolean($('#history-status').value||$('#history-kind').value||$('#history-project').value||$('#history-query').value.trim());
     $('#history-list').innerHTML = jobs.map(job => {
       const result = job.result || {}; const audio = relativeAudio(job, result.audio || result.candidates?.[0]?.audio);
@@ -1024,12 +1025,54 @@ async function loadHistory() {
       }).join('') : '';
       const errorDetail=String(job.error||'').trim(),errorSummary=publicErrorSummary(errorDetail);
       const errorBlock=errorDetail?`<div class="history-error"><b>任务未完成</b><span>${escapeHtml(errorSummary)}</span>${errorDetail!==errorSummary?`<details><summary>查看错误详情</summary><pre>${escapeHtml(errorDetail)}</pre></details>`:''}</div>`:'';
-      return `<article class="history-card"><header><div><b>${escapeHtml(kindLabel(job.kind))}</b><div class="meta">${escapeHtml(job.id)} · ${new Date(job.created_at * 1000).toLocaleString()} · ${escapeHtml(sourceLabel(job.source))}</div></div></header><b class="status-${job.status}">${escapeHtml(job.status === 'running' ? stageLabel(job.stage) : stageLabel(job.status))}</b>${errorBlock}${!result.comparison && audio ? `<audio controls preload="none" aria-label="${escapeHtml(kindLabel(job.kind))}历史结果试听" src="${audioUrl(job.id, audio)}"></audio>` : ''}<p class="meta">${voiceDescription(result)}</p>${comparison || stemPlayers(job,result)}<div class="toolbar">${exportButton}${retryButton}${logButtons}</div><pre class="job-log hidden"></pre></article>`;
+      const canClean=['complete','failed','cancelled'].includes(job.status);
+      const select=`<input type="checkbox" class="cleanup-select" data-select-job="${job.id}" aria-label="选择清理：${escapeHtml(jobName)}" ${selectedHistoryJobs.has(job.id)?'checked':''} ${canClean?'':'disabled'} title="${canClean?'可选择清理；执行前检查引用':'正在运行、排队或暂停的任务会保留'}">`;
+      const clean=canClean?`<button class="ghost compact" type="button" data-clean-job="${job.id}" aria-label="清理：${escapeHtml(jobName)}">清理任务</button>`:'';
+      return `<article class="history-card"><header>${select}<div><b>${escapeHtml(kindLabel(job.kind))}</b><div class="meta">${escapeHtml(job.id)} · ${new Date(job.created_at * 1000).toLocaleString()} · ${escapeHtml(sourceLabel(job.source))}</div></div></header><b class="status-${job.status}">${escapeHtml(job.status === 'running' ? stageLabel(job.stage) : stageLabel(job.status))}</b>${errorBlock}${!result.comparison && audio ? `<audio controls preload="none" aria-label="${escapeHtml(kindLabel(job.kind))}历史结果试听" src="${audioUrl(job.id, audio)}"></audio>` : ''}<p class="meta">${voiceDescription(result)}</p>${comparison || stemPlayers(job,result)}<div class="toolbar">${exportButton}${retryButton}${logButtons}${clean}</div><pre class="job-log hidden"></pre></article>`;
     }).join('') || `<div class="empty-state"><i class="bi bi-clock-history"></i><b>还没有符合条件的任务</b><p>${historyHasFilters?'清除筛选可查看全部任务记录。':'完成的任务会显示在这里。'}</p>${historyHasFilters?'<button id="clear-history-filters" class="ghost compact" type="button">清除筛选</button>':''}</div>`;
     const clearHistory=$('#clear-history-filters');if(clearHistory)clearHistory.onclick=()=>{$('#history-status').value='';$('#history-kind').value='';$('#history-project').value='';$('#history-query').value='';historyOffset=0;loadHistory();};
+    $$('[data-select-job]').forEach(input=>input.onchange=()=>{if(input.checked&&selectedHistoryJobs.size>=500){input.checked=false;$('#history-cleanup-status').textContent='每次最多选择 500 项任务。';return;}input.checked?selectedHistoryJobs.add(input.dataset.selectJob):selectedHistoryJobs.delete(input.dataset.selectJob);updateHistorySelection();});
+    $$('[data-clean-job]').forEach(button=>button.onclick=()=>cleanupJobs({ids:[button.dataset.cleanJob]}));
+    updateHistorySelection();
     const page=Math.floor(historyOffset/historyPageSize)+1,pages=Math.max(1,Math.ceil(historyTotal/historyPageSize));$('#history-page-status').textContent=`第 ${page} / ${pages} 页 · ${historyTotal} 项`;$('#history-prev').disabled=historyOffset<=0;$('#history-next').disabled=historyOffset+historyPageSize>=historyTotal;
   } catch (error) { if(revision===historyLoadRevision)$('#history-list').innerHTML = `<p class="status-failed">${escapeHtml(error.message)}</p>`; }
 }
+
+function updateHistorySelection() {
+  const eligible=historyPageJobs.filter(job=>['complete','failed','cancelled'].includes(job.status)).map(job=>job.id),selected=eligible.filter(id=>selectedHistoryJobs.has(id)).length;
+  $('#history-selection-count').textContent=`已选 ${selectedHistoryJobs.size} 项（可跨页）`;
+  $('#history-clear-selection').disabled=jobCleanupBusy||!selectedHistoryJobs.size;
+  $('#history-select-page').checked=eligible.length>0&&selected===eligible.length;
+  $('#history-select-page').indeterminate=selected>0&&selected<eligible.length;
+  $('#history-select-page').disabled=jobCleanupBusy||!eligible.length;
+  $('#cleanup-selected-jobs').disabled=jobCleanupBusy||!selectedHistoryJobs.size;
+  $('#cleanup-failed-jobs').disabled=jobCleanupBusy;
+  $$('[data-select-job]').forEach(input=>input.disabled=jobCleanupBusy||!eligible.includes(input.dataset.selectJob));
+  $$('[data-clean-job]').forEach(button=>button.disabled=jobCleanupBusy);
+}
+async function cleanupJobs(data) {
+  if(jobCleanupBusy)return;
+  jobCleanupBusy=true;updateHistorySelection();
+  const status=$('#history-cleanup-status');
+  try {
+    status.textContent='正在检查可清理任务与文件引用…';
+    const preview=await api('/api/jobs/cleanup-preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    const protection=preview.skipped.slice(0,5).map(item=>`${shortId(item.id)}：${item.reason}`).join('\n');
+    if(!preview.deletable.length){status.textContent='没有可清理的任务。'+(protection?' '+protection:'');return;}
+    const message=`将永久删除 ${preview.deletable.length} 项任务及其结果、日志，约释放 ${(preview.bytes/1048576).toFixed(1)} MB。资产库、模型、训练数据和已导出文件独立保留。\n\n任务：${preview.deletable.slice(0,6).join('、')}${preview.deletable.length>6?'等':''}\n保留 ${preview.skipped.length} 项${protection?'：\n'+protection:'。'}\n\n每次最多 500 项。删除后不能继续这些任务，请先导出需要保留的结果。`;
+    if(!await uiConfirm(message,'清理任务记录','确认清理')){status.textContent='已取消清理，任务和文件未删除。';return;}
+    // Delete precisely the reviewed IDs, then check their current references again.
+    const report=await api('/api/jobs/cleanup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:preview.deletable,confirmed:true})});
+    report.deleted.forEach(id=>{selectedHistoryJobs.delete(id);observedJobs.delete(id);$$('[data-job-id]').filter(element=>element.dataset.jobId===id).forEach(element=>{element.querySelectorAll('audio').forEach(audio=>audio.pause());element.replaceChildren();delete element.dataset.jobId;});});
+    status.textContent=`已清理 ${report.deleted.length} 项任务，释放 ${(report.released_bytes/1048576).toFixed(1)} MB；保留 ${preview.skipped.length+report.skipped.length} 项。`+(report.errors.length?' '+report.errors.map(item=>item.reason).join('；'):'');
+    await Promise.all([loadHistory(),loadRetention(),refreshWorkspace()]);
+  } catch(error){status.textContent=`清理失败：${error.message}`;}
+  finally{jobCleanupBusy=false;updateHistorySelection();}
+}
+$('#history-select-page').onchange=event=>{historyPageJobs.filter(job=>['complete','failed','cancelled'].includes(job.status)).forEach(job=>{if(event.target.checked&&selectedHistoryJobs.size<500)selectedHistoryJobs.add(job.id);else if(!event.target.checked)selectedHistoryJobs.delete(job.id);});$$('[data-select-job]').forEach(input=>input.checked=selectedHistoryJobs.has(input.dataset.selectJob));updateHistorySelection();};
+$('#history-clear-selection').onclick=()=>{selectedHistoryJobs.clear();$$('[data-select-job]').forEach(input=>input.checked=false);updateHistorySelection();};
+$('#cleanup-selected-jobs').onclick=()=>cleanupJobs({ids:[...selectedHistoryJobs]});
+$('#cleanup-failed-jobs').onclick=()=>cleanupJobs({mode:'failed_cancelled',filters:{kind:$('#history-kind').value,project_id:$('#history-project').value,query:$('#history-query').value.trim()}});
 
 async function loadRetention() {
   try {

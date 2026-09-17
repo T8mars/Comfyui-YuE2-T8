@@ -193,7 +193,7 @@ def get(handler, parsed, library: AssetLibrary, *, head: bool = False) -> bool:
     path, query = parsed.path, _query(parsed)
     if path == "/api/workbench/assets":
         filters = {"kind": query.get("kind", [""])[0], "query": query.get("q", [""])[0],
-                   "project_id": query.get("project_id", [""])[0]}
+                   "project_id": query.get("project_id", [""])[0], "status": query.get("status", ["active"])[0]}
         limit = _query_integer(query, "limit", 100, minimum=1, maximum=500)
         offset = _query_integer(query, "offset", 0, minimum=0, maximum=10_000_000)
         handler._json(200, {"assets": library.list_assets(**filters, limit=limit, offset=offset),
@@ -295,8 +295,19 @@ def export_project(library: AssetLibrary, root: Path, project_id: str) -> dict:
     return {"destination": str(final), "audio": str(final / audio.name), "manifest": manifest}
 
 
-def post(handler, parsed, library: AssetLibrary, root: Path) -> bool:
+def post(handler, parsed, library: AssetLibrary, root: Path, *, protected_assets=()) -> bool:
     path = parsed.path
+    if path in {"/api/workbench/assets/batch-status", "/api/workbench/assets/cleanup-preview", "/api/workbench/assets/purge"}:
+        from .library_cleanup import LibraryCleanup
+        cleanup, data = LibraryCleanup(library), handler._body_json(128 * 1024)
+        if path.endswith("/batch-status"):
+            result = cleanup.move(data.get("ids"), data.get("status"))
+        elif path.endswith("/cleanup-preview"):
+            result = cleanup.preview(data, protected_assets)
+        else:
+            result = cleanup.purge(data, protected_assets)
+        handler._json(200, result)
+        return True
     if path == "/api/workbench/assets/import":
         data = handler._body_json(128 * 1024)
         source = _allowed_source(root.resolve(), data.get("source_path"))

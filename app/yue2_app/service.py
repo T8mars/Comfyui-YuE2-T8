@@ -33,7 +33,7 @@ from .config import (
     runtime_ready,
 )
 from .io import atomic_json, json_file_lock, public_job, within
-from .retention import RetentionManager
+from .retention import RetentionManager, _tree_size
 from .settings import model_directory, save_model_directory, settings_info
 from . import assistant_data
 from . import updater
@@ -158,8 +158,12 @@ def retention_references(requests, outputs: Path = OUTPUTS,
     uploads = uploads.resolve()
     protected_jobs: set[str] = set()
     protected_uploads: set[str] = set()
+    from .library_cleanup import strings
     for request in requests:
-        for value in _request_strings(request):
+        for value in strings(request):
+            if JOB_ID_PATTERN.fullmatch(value):
+                protected_jobs.add(value)
+                continue
             try:
                 candidate = Path(value).expanduser().resolve()
             except (OSError, ValueError):
@@ -877,10 +881,102 @@ class JobStore:
         with self.storage_lock:
             return self.retention.status()
 
+    def cleanup_asset_references(self) -> set[str]:
+        from .library_cleanup import strings
+        drafts = assistant_data.all_drafts(ROOT)
+        if any(draft.get("error") for scope in drafts.values() for draft in scope.values()):
+            return {"*"}
+        references = set(strings(drafts))
+        with self.lock:
+            active = [job_id for job_id, status in self.jobs.items()
+                      if status.get("status") not in {"complete", "failed", "cancelled"}]
+            if self.current_id and self.current_id not in active:
+                active.append(self.current_id)
+        for job_id in active:
+            try:
+                request = json.loads((job_directory(job_id) / "job.json").read_text(encoding="utf-8-sig"))
+                references.update(strings(request))
+            except (OSError, ValueError):
+                return {"*"}
+        return references
+
+    def job_cleanup(self, data: dict, *, execute: bool = False) -> dict:
+        if execute and data.get("confirmed") is not True:
+            raise ValueError("删除任务前必须确认清理预览")
+        with self.storage_lock:
+            self.assert_writable()
+            if data.get("mode") == "failed_cancelled":
+                filters = data.get("filters", {})
+                if not isinstance(filters, dict) or set(filters) - {"kind", "query", "project_id"}:
+                    raise ValueError("任务清理筛选无效")
+                ids, offset = [], 0
+                while len(ids) < 500:
+                    page, total = self.list_page(limit=500, offset=offset, **filters)
+                    ids.extend(item["id"] for item in page if item["status"] in {"failed", "cancelled"})
+                    offset += 500
+                    if offset >= total:
+                        break
+                ids = ids[:500]
+            else:
+                ids = data.get("ids")
+                if not isinstance(ids, list) or not 1 <= len(ids) <= 500:
+                    raise ValueError("请选择 1–500 项任务")
+                if any(not isinstance(item, str) or not JOB_ID_PATTERN.fullmatch(item) for item in ids):
+                    raise ValueError("无效的任务 ID")
+                ids = list(dict.fromkeys(ids))
+            protected, _, _ = self._retention_protection()
+            deleted, deletable, skipped, errors, total_bytes, released = [], [], [], [], 0, 0
+            for job_id in ids:
+                with self.lock:
+                    status = self.jobs.get(job_id)
+                reason = ""
+                if status is None:
+                    reason = "任务已不存在"
+                elif status.get("status") not in {"complete", "failed", "cancelled"}:
+                    reason = "任务正在运行、排队或已暂停，可继续执行"
+                elif job_id in protected:
+                    reason = "当前任务或草稿仍在使用，请先更换相关素材或计划"
+                try:
+                    directory = job_directory(job_id)
+                    raw_directory = OUTPUTS / job_id
+                    if raw_directory.is_symlink() or getattr(raw_directory, "is_junction", lambda: False)() or directory != OUTPUTS.resolve() / job_id:
+                        reason = "任务目录是链接，不能自动清理"
+                    raw_log = LOGS / f"{job_id}.log"
+                    log = within(LOGS, raw_log)
+                    if raw_log.is_symlink() or log != LOGS.resolve() / raw_log.name:
+                        reason = "任务日志是链接，不能自动清理"
+                except ValueError:
+                    reason = "任务路径异常，不能自动清理"
+                if reason:
+                    skipped.append({"id": job_id, "reason": reason})
+                    continue
+                size = _tree_size(directory)
+                log_size = log.stat().st_size if log.is_file() and not log.is_symlink() else 0
+                total_bytes += size + log_size
+                deletable.append(job_id)
+                if execute:
+                    try:
+                        if directory.exists():
+                            shutil.rmtree(directory)
+                        with self.lock:
+                            self.jobs.pop(job_id, None)
+                        deleted.append(job_id)
+                        released += size
+                        if log_size:
+                            try:
+                                log.unlink()
+                                released += log_size
+                            except OSError:
+                                errors.append({"id": job_id, "reason": "任务已删除，日志被占用，稍后可按策略清理"})
+                    except OSError:
+                        errors.append({"id": job_id, "reason": "任务文件被占用，未能完成清理，请稍后重试"})
+            return {"ids": ids, "deletable": deletable, "deleted": deleted,
+                    "skipped": skipped, "errors": errors, "bytes": total_bytes, "released_bytes": released}
+
     def _retention_protection(self) -> tuple[set[str], set[str], set[str]]:
         with self.lock:
             active = {job_id for job_id, status in self.jobs.items()
-                      if status.get("status") not in TERMINAL}
+                      if status.get("status") not in {"complete", "failed", "cancelled"}}
             if self.current_id:
                 active.add(self.current_id)
         protected_jobs = set(active)
@@ -898,9 +994,13 @@ class JobStore:
             try:
                 job = json.loads((job_directory(job_id) / "job.json").read_text(encoding="utf-8-sig"))
             except (OSError, ValueError, json.JSONDecodeError):
+                # Cannot safely discover dependencies of a corrupt active task.
+                protected_jobs.update(self.jobs)
+                protected_uploads.update(path.name for path in UPLOADS.iterdir() if path.is_file())
+                protected_logs.update(path.name for path in LOGS.glob("*.log"))
                 continue
             requests.append(job.get("request", {}))
-        referenced_jobs, referenced_uploads = retention_references(requests)
+        referenced_jobs, referenced_uploads = retention_references(requests, OUTPUTS, UPLOADS)
         protected_jobs.update(referenced_jobs)
         protected_uploads.update(referenced_uploads)
         return protected_jobs, protected_uploads, protected_logs
@@ -1340,7 +1440,8 @@ class Handler(BaseHTTPRequestHandler):
                 from . import workbench_api
                 with STORE.storage_lock:
                     STORE.assert_writable()
-                    if workbench_api.post(self, parsed, ASSETS, ROOT):
+                    protected_assets = STORE.cleanup_asset_references() if path in {"/api/workbench/assets/cleanup-preview", "/api/workbench/assets/purge"} else ()
+                    if workbench_api.post(self, parsed, ASSETS, ROOT, protected_assets=protected_assets):
                         return
             if path.startswith("/api/rvc/"):
                 from . import rvc_api
@@ -1357,6 +1458,8 @@ class Handler(BaseHTTPRequestHandler):
                 ))
             if path == "/api/retention/cleanup":
                 return self._json(200, STORE.cleanup_retention(force=True))
+            if path in {"/api/jobs/cleanup-preview", "/api/jobs/cleanup"}:
+                return self._json(200, STORE.job_cleanup(self._body_json(128 * 1024), execute=path.endswith("/cleanup")))
             if path == "/api/update/install":
                 STORE.begin_update()
                 try:
