@@ -203,6 +203,7 @@
 就让这首歌飞过长空
 所有没说完的话
 都留在这一秒的风中</textarea></label>
+        <p class="meta wide">勾选“纯器乐”后将忽略歌词并向模型明确要求无演唱；这是生成提示，仍可能出现类似人声的声音。</p>
         <label>规划模式<select name="cot"><option value="full">旋律 + 和弦</option><option value="melody">仅旋律</option><option value="off">直接生成</option></select></label>
         <label>随机种子<input name="seed" type="number" min="0" max="9007199254740991" step="1" value="831001"></label>
         <label>文本引导 CFG<input name="cfg_scale" type="number" min="0" max="20" step="0.01" value="1.0"></label>
@@ -233,6 +234,7 @@ For every dream we had before
 [Chorus]
 Come home across the midnight blue
 This melody still waits for you</textarea></label>
+        <p class="meta wide">勾选“纯器乐”后将忽略歌词并向模型明确要求无演唱；这是生成提示，仍可能出现类似人声的声音。</p>
         <label>规划模式<select name="cot"><option value="full">旋律 + 和弦</option><option value="melody">仅旋律</option></select></label>
         <label>随机种子<input name="seed" type="number" min="0" max="9007199254740991" step="1" value="831001"></label>
         <label>显存预算 GiB<input name="memory_budget_gib" data-generation-memory type="number" step="any" min="2" required value="23.5"></label>
@@ -269,10 +271,12 @@ This melody still waits for you</textarea></label>
           <label>鼓组 MIDI（可选）<input id="remix-drum-midi" type="file" accept=".mid,.midi,audio/midi"></label>
         </div>
         <label class="wide">新歌词<textarea name="lyrics" rows="12" required placeholder="按 [Verse] / [Chorus] / [Bridge] 分段，每行一句歌词"></textarea></label>
-        <label>主题<input name="topic" dir="ltr" placeholder="例如 Longing / 成长"></label>
-        <label>流派<input name="genre" dir="ltr" required value="Mandarin pop" placeholder="例如 country, soul, rock"></label>
-        <label>乐器<input name="instrument" dir="ltr" value="piano, strings, drums" placeholder="例如 acoustic guitar, strings"></label>
-        <label>情绪<input name="mood" dir="ltr" value="warm, hopeful" placeholder="例如 hopeful, melancholic"></label>
+        <label class="wide">曲风方式<select id="remix-style-mode" name="style_mode"><option value="reference" selected>不主动指定曲风（参考旋律重新生成）</option><option value="custom">指定曲风</option></select></label>
+        <p id="remix-style-hint" class="meta wide">不额外指定流派、乐器或情绪；参考歌曲提供旋律、和弦与鼓点条件，生成结果仍可能改变原编曲和音色。</p>
+        <label data-remix-style class="hidden">主题<input name="topic" dir="ltr" disabled placeholder="例如 Longing / 成长"></label>
+        <label data-remix-style class="hidden">流派<input name="genre" dir="ltr" disabled value="Mandarin pop" placeholder="例如 country, soul, rock"></label>
+        <label data-remix-style class="hidden">乐器<input name="instrument" dir="ltr" disabled value="piano, strings, drums" placeholder="例如 acoustic guitar, strings"></label>
+        <label data-remix-style class="hidden">情绪<input name="mood" dir="ltr" disabled value="warm, hopeful" placeholder="例如 hopeful, melancholic"></label>
         <label>旋律移调（半音）<input name="semitone_shift" type="number" min="-12" max="12" step="1" value="0"></label>
         <label>额外八度<select name="octave_shift"><option value="-2">降低 2 个八度</option><option value="-1">降低 1 个八度</option><option value="0" selected>保持原八度</option><option value="1">升高 1 个八度</option><option value="2">升高 2 个八度</option></select></label>
         <p class="meta wide">跨性别音域可先尝试降低或升高 1 个八度；这里调整的是用于重新演唱的旋律条件。</p>

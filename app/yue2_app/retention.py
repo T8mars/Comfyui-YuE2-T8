@@ -6,7 +6,7 @@ import shutil
 import time
 from pathlib import Path
 
-from .io import atomic_json, within
+from .io import atomic_json, within, remove_job_payload
 
 JOB_ID_PATTERN = re.compile(r"\d{8}-\d{6}-[0-9a-f]{8}")
 TERMINAL = {"complete", "failed", "cancelled"}
@@ -142,7 +142,7 @@ class RetentionManager:
         jobs_root = self.root / "outputs" / "jobs"
         job_items = []
         for directory in (jobs_root.iterdir() if jobs_root.is_dir() else ()):
-            if (directory.is_symlink() or not directory.is_dir() or not JOB_ID_PATTERN.fullmatch(directory.name)
+            if (directory.is_symlink() or getattr(directory, "is_junction", lambda: False)() or not directory.is_dir() or not JOB_ID_PATTERN.fullmatch(directory.name)
                     or directory.name in protected_jobs):
                 continue
             try:
@@ -163,7 +163,7 @@ class RetentionManager:
                 if target.is_symlink():
                     target.unlink()
                 else:
-                    shutil.rmtree(target)
+                    remove_job_payload(target)
                 report["deleted"]["jobs"].append({"id": item["key"], "reason": selected_jobs[item["key"]],
                                                     "bytes": item["bytes"]})
                 job_log = self.root / "logs" / f"{item['key']}.log"

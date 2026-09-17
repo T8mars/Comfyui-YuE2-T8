@@ -93,6 +93,12 @@ def normalize_request(root: Path, request: dict) -> dict:
     if not isinstance(request, dict):
         raise ValueError("request 必须是对象")
     lyrics = _text(request.get("lyrics", ""), "歌词", required=True)
+    # Requests from older versions keep their explicitly supplied style.
+    style_mode = _text(request.get("style_mode", "custom"), "曲风方式", limit=32)
+    if style_mode not in {"reference", "custom"}:
+        raise ValueError("曲风方式必须是 reference 或 custom")
+    tags = ("" if style_mode == "reference" else
+            _text(request["tags"], "曲风标签") if request.get("tags") else style_tags(request))
     source_mode = str(request.get("source_mode", "audio"))
     if source_mode not in {"audio", "midi"}:
         raise ValueError("素材方式必须是 audio 或 midi")
@@ -125,7 +131,8 @@ def normalize_request(root: Path, request: dict) -> dict:
         "source_mode": source_mode,
         "source": source,
         "lyrics": lyrics,
-        "tags": str(request.get("tags") or style_tags(request)),
+        "style_mode": style_mode,
+        "tags": tags,
         "topic": _text(request.get("topic", ""), "主题", limit=1_000),
         "genre": _text(request.get("genre", ""), "流派", limit=1_000),
         "instrument": _text(request.get("instrument", ""), "乐器", limit=1_000),

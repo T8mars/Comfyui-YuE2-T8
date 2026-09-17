@@ -52,7 +52,8 @@ class LibraryCleanup:
 
     def _selection(self, data) -> list[str]:
         if data.get("mode") == "empty_trash":
-            return [item["id"] for item in self.library.list_assets(status="trashed", limit=500)]
+            with self.library.reading() as db:
+                return [row[0] for row in db.execute("SELECT id FROM assets WHERE status='trashed' ORDER BY updated_at DESC,id")]
         if data.get("ids") == []:
             return []  # Retry a previously committed deletion's occupied payload.
         return batch_ids(data.get("ids"))
@@ -64,13 +65,15 @@ class LibraryCleanup:
             raise ValueError("素材存储路径是链接，不能自动清理")
         return path
 
-    def _preview(self, db, ids, protected, detach) -> dict:
+    def _preview(self, db, ids, protected, detach, limit=None) -> dict:
         pinned = set(protected)
         for row in db.execute("SELECT manifest_json FROM dataset_snapshots"):
             manifest = json.loads(row[0])  # Corrupt snapshots must block destructive cleanup.
             pinned.update(strings(manifest))
         deletable, titles, skipped, projects = [], [], [], {}
         for asset_id in ids:
+            if limit is not None and len(deletable) >= limit:
+                break
             row = db.execute("SELECT title,status FROM assets WHERE id=?", (asset_id,)).fetchone()
             reason = ""
             revisions = db.execute("SELECT id,blob_sha256,blob_suffix FROM revisions WHERE asset_id=?", (asset_id,)).fetchall()
@@ -112,19 +115,29 @@ class LibraryCleanup:
                 f"AND other.blob_suffix=revisions.blob_suffix AND other.asset_id NOT IN ({placeholders}))",
                 (*deletable, *deletable)))
         size = 0
+        cached_digests = set()
         for digest, suffix in blobs:
             path = self._blob(digest, suffix)
             if path.is_file():
                 size += path.stat().st_size
-        return {"ids": ids, "deletable": deletable, "skipped": skipped,
-                "bytes": size, "projects": list(projects.values()), "titles": titles}
+            if digest not in cached_digests:
+                cached_digests.add(digest)
+                remaining = db.execute("SELECT asset_id FROM revisions WHERE blob_sha256=?", (digest,)).fetchall()
+                if all(row[0] in deletable for row in remaining):
+                    for cache in self.library.waveforms.glob(f"{digest}-*.json"):
+                        if not cache.is_symlink() and cache.is_file():
+                            size += within(self.library.waveforms, cache).stat().st_size
+        pending_gc = db.execute("SELECT COUNT(*) FROM blob_gc").fetchone()[0]
+        return {"ids": [*deletable, *(item['id'] for item in skipped)], "deletable": deletable, "skipped": skipped,
+                "bytes": size, "pending_gc": pending_gc, "projects": list(projects.values()), "titles": titles}
 
     def preview(self, data, protected=()) -> dict:
         if not isinstance(data.get("detach_projects", False), bool):
             raise ValueError("移出项目选项必须是布尔值")
         ids = self._selection(data)
         with self.library.reading() as db:
-            return self._preview(db, ids, protected, data.get("detach_projects", False))
+            return self._preview(db, ids, protected, data.get("detach_projects", False),
+                                 500 if data.get("mode") == "empty_trash" else None)
 
     @_blob_locked
     def purge(self, data, protected=()) -> dict:
@@ -134,7 +147,8 @@ class LibraryCleanup:
             raise ValueError("移出项目选项必须是布尔值")
         ids = self._selection(data)
         with self.library.transaction() as db:
-            preview = self._preview(db, ids, protected, data.get("detach_projects", False))
+            preview = self._preview(db, ids, protected, data.get("detach_projects", False),
+                                    500 if data.get("mode") == "empty_trash" else None)
             for asset_id in preview["deletable"]:
                 db.execute("INSERT OR IGNORE INTO blob_gc SELECT blob_sha256,blob_suffix FROM revisions WHERE asset_id=?", (asset_id,))
                 if data.get("detach_projects"):

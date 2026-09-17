@@ -148,7 +148,7 @@ class AssetCleanupTest(unittest.TestCase):
         with patch.object(Path, "unlink", busy):
             self.assertTrue(self.purge(asset)["errors"])
         self.assertEqual(self.library.count_assets(status="trashed"), 0)
-        self.assertEqual(self.cleanup.preview({"mode": "empty_trash"})["bytes"], 8)
+        self.assertEqual(self.cleanup.preview({"mode": "empty_trash"})["bytes"], 16)
         retried = self.cleanup.purge({"ids": [], "confirmed": True})
         self.assertFalse(retried["errors"])
         self.assertEqual(retried["released_bytes"], 16)

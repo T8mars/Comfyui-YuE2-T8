@@ -1,5 +1,5 @@
 /* Standalone WebUI only. Drafts are revisioned; credentials never enter them. */
-const assistant = {config: null, defaults: {}, result: null, job: null, polling: false, pollToken: 0, pollingJobId: '', pollingProjectId: '', originalLyrics: '', resultEdited: false, resultJobId: null,
+const assistant = {config: null, defaults: {}, result: null, job: null, starting: false, startingDone: Promise.resolve(), polling: false, pollToken: 0, pollingJobId: '', pollingProjectId: '', originalLyrics: '', resultEdited: false, resultJobId: null,
   drafts: {}, providers: {}, localModels: [], remoteModels: {}, providerSelections: {}, providerBaseUrls: {}, providerCredentials: {}, providerCredentialScopes: {}, providerBudgets: {}, activeProvider: null, credential: null, modelRefreshBusy: false, modelRefreshRevision: 0,
   ticks: {assistant: 0, create: 0, plan: 0, cover: 0}, queues: {}, timers: {}, undo: null, sending: null,
   projectId: '', baselines: {}, switchQueue: Promise.resolve()};
@@ -42,7 +42,7 @@ function readAssistantResult() {
 }
 function captureDraft(panel) {
   if (panel === 'assistant') return {defaults_version: 2, values: assistantValues(), result: readAssistantResult(), job_id: assistant.job?.id || null, result_edited: assistant.resultEdited, result_job_id: assistant.resultJobId};
-  if (panel === 'create') return {form: formFields($('#create-form'))};
+  if (panel === 'create') {const form=formFields($('#create-form')),model=$('#create-form [data-style-model]');if(model?.dataset.pendingModelId)form.style_model_asset_id=model.dataset.pendingModelId;return {form};}
   if (panel === 'plan') return {form: formFields($('#plan-form')), abc: $('#plan-abc').value,
     exact: $('#plan-exact').checked, plan: planState ? {source: planState.source || 'saved_exact', abc_status: planState.abc_status || null, plan_dir: planState.plan_dir || null, request: planState.request || {}} : null};
   return {abc: $('#cover-abc').value, lyrics: $('#cover-lyrics').value, style: $('#cover-style').value,
@@ -57,6 +57,8 @@ function applyDraft(panel, draft) {
     assistant.resultEdited = Boolean(draft.result_edited); assistant.resultJobId = draft.result_job_id || null;
     if (draft.job_id) assistant.job = {id: draft.job_id};
   } else if (panel === 'create') {
+    const model=$('#create-form [data-style-model]'),id=String(draft.form?.style_model_asset_id||'');
+    if(model){delete model.dataset.pendingModelId;if(id&&![...model.options].some(option=>option.value===id))model.dataset.pendingModelId=id;}
     putFields($('#create-form'), draft.form); updateInstrumental('create');
   } else if (panel === 'plan') {
     putFields($('#plan-form'), draft.form);
@@ -114,6 +116,7 @@ function resetDraftPanel(panel) {
   applyDraft(panel, cloneText(assistant.baselines[panel] || {}));
 }
 async function switchAssistantProject(projectId) {
+  await assistant.startingDone;
   projectId = String(projectId || '');
   if (projectId === assistant.projectId) return;
   const previousProjectId=assistant.projectId,previousJobId=assistant.job?.id||'';
@@ -247,15 +250,15 @@ function assistantChannelReady() {
   return Boolean($('#assistant-model').value.trim()) && (provider==='local'||Boolean($('#assistant-key').value.trim()||assistantCurrentCredential()));
 }
 function applyAssistantActionState() {
-  const ready=assistantChannelReady(),disabled=assistant.polling||assistant.modelRefreshBusy||!ready;
+  const ready=assistantChannelReady(),disabled=assistant.starting||assistant.polling||assistant.modelRefreshBusy||!ready;
   const missingHint=$('#assistant-provider').value==='local'?'请先选择本地 GGUF 模型':'请先设置当前渠道的 API Key，并选择或手动填写模型 ID';
   for(const selector of ['#assistant-generate','#assistant-test','#assistant-retry','#assistant-compose-abc']){
     const button=$(selector);if(!button)continue;button.disabled=disabled;
-    button.title=!ready?missingHint:assistant.modelRefreshBusy?'正在刷新模型列表，请稍候':assistant.polling?'当前创作任务结束后可再次操作':selector==='#assistant-test'?'测试当前选定模型的聊天连接，可能产生 API 费用；获取列表请点刷新模型':'';
+    button.title=!ready?missingHint:assistant.starting?'正在提交任务，请稍候':assistant.modelRefreshBusy?'正在刷新模型列表，请稍候':assistant.polling?'当前创作任务结束后可再次操作':selector==='#assistant-test'?'测试当前选定模型的聊天连接，可能产生 API 费用；获取列表请点刷新模型':'';
   }
   const remove=$('#assistant-delete-key'),provider=$('#assistant-provider').value;
-  if(remove)remove.disabled=!assistant.providerCredentials[provider]||assistant.polling||assistant.modelRefreshBusy;
-  for (const selector of ['#assistant-save-config', '#assistant-refresh-models']) $(selector).disabled = assistant.modelRefreshBusy;
+  if(remove)remove.disabled=!assistant.providerCredentials[provider]||assistant.starting||assistant.polling||assistant.modelRefreshBusy;
+  for (const selector of ['#assistant-save-config', '#assistant-refresh-models']) $(selector).disabled = assistant.starting||assistant.modelRefreshBusy;
 }
 function renderAssistantChannelStatus() {
   const provider = $('#assistant-provider').value || assistant.config?.provider || 'seedance';
@@ -513,7 +516,13 @@ async function restoreAssistantJobForCurrentScope() {
 window.assistantRestoreCurrentScope = () => restoreAssistantJobForCurrentScope()
   .catch(error=>assistantText('#assistant-progress',`任务状态读取失败：${error.message}，稍后可刷新恢复。`));
 async function startAssistant(test = false, retry = false) {
-  if (assistant.polling) return;
+  if (assistant.starting || assistant.polling || assistant.modelRefreshBusy) return;
+  assistant.starting=true;
+  let finish;
+  assistant.startingDone=new Promise(resolve=>{finish=resolve;});
+  const projectId=assistant.projectId;
+  $('#assistant-config-form').inert=true;$('#assistant-form').inert=true;
+  applyAssistantActionState();
   try {
     const config = await saveAssistantConfig(), values = assistantValues();
     if (config.provider !== 'local' && !assistant.credential?.available) {
@@ -535,12 +544,13 @@ async function startAssistant(test = false, retry = false) {
       if (stage === 'abc') body.values.quality_mode = assistant.defaults.quality_mode;
       job = await assistantPost(`/api/jobs/${assistant.job.id}/retry-assistant`, body);
     } else job = await assistantPost('/api/jobs', {kind: 'assistant', source: 'webui', result_panel: 'assistant', client_request_id: body.client_request_id,
-      request: {values, config, project_id: assistant.projectId, variant_id: crypto.randomUUID(), test_connection: test}});
+      request: {values, config, project_id: projectId, variant_id: crypto.randomUUID(), test_connection: test}});
     assistant.job = job;
-    await savePanel('assistant');
+    pollAssistant(job.id, assistant.ticks.assistant, projectId);
+    await savePanel('assistant').catch(error=>assistantText('#assistant-draft-status',`任务已提交，草稿未保存：${error.message}`));
     refreshWorkspace();
-    pollAssistant(job.id, assistant.ticks.assistant);
   } catch (error) { showAssistantError(error.message); }
+  finally {assistant.starting=false;finish();$('#assistant-config-form').inert=false;$('#assistant-form').inert=false;applyAssistantActionState();}
 }
 async function validateAssistantAbc(strip = false, cot) {
   const result = readAssistantResult();

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.5.12 - 2026-09-18
+
+- Prevent duplicate paid assistant submissions before configuration/draft saves complete; wait before project changes and continue tracking submitted jobs when draft persistence fails.
+- Constrain asset purge to its approved preview, scan past protected trash batches and expose occupied waveform or zero-byte GC retries.
+- Preserve retryable job control records during partial Windows/manual or policy cleanup; reject directory junctions and mark partially cleaned results unavailable.
+- Discard stale training-project and style-model reads, align resized asset pages, open active training assets and persist model handoffs.
+- Translate the instrumental checkbox into explicit native no-vocal text conditions and the instrumental lyric marker (Issue #12); this remains model guidance.
+- Add optional MuLaCover style conditioning using the upstream empty-tag behavior (Issue #13), preserving legacy drafts and API defaults without promising identical arrangements.
+
 ## 1.5.9 - 2026-09-17
 
 - Shorten atomic checkpoint staging directories and JSON temporary filenames so deeply nested reference-cover jobs fit the legacy Windows path limit without sacrificing complete-checkpoint publication or unique concurrent writes.

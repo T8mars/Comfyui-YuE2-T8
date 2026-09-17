@@ -5,6 +5,7 @@
   let projects = [], archivedProjects = [], assets = [], trainingAssets = [], lyricsAssets = [], styleAssets = [], trainingAssetGuidance = false;
   let currentProjectAssetRefs = new Set();
   let assetOffset = 0, assetTotal = 0, assetLoadRevision = 0;
+  let trainingInputsLoadRevision = 0, styleModelsLoadRevision = 0;
   const selectedAssets = new Set(); let assetCleanupBusy = false;
   const assetPageSize = () => window.matchMedia('(max-width: 720px)').matches ? 8 : 24;
   let currentProjectId = savedValue('workbench-project') || '';
@@ -306,16 +307,16 @@
     const dialog=document.createElement('dialog');
     dialog.innerHTML=`<form><h3>彻底删除资产</h3><p class="meta">${empty?'清理全部回收站，不受当前类型或名称筛选限制；每次最多 500 项。':'清理所选资产的全部版本。'} 删除后不能恢复。原始导入文件、导出文件和其他资产共享的内容会保留。</p><label class="check"><input name="detach_projects" type="checkbox">同时从所有项目移出（会清除被删除素材的主版本选择）</label><p data-preview role="status">正在检查引用与可释放空间…</p><div class="toolbar"><button class="ghost" type="button" data-cancel>取消</button><button class="danger" type="submit" data-confirm disabled>确认彻底删除</button></div></form>`;
     labelDialog(dialog,'asset-cleanup-dialog-title');document.body.append(dialog);dialog.showModal();
-    let previewRevision=0,approvedIds=[],executing=false;
+    let previewRevision=0,approvedIds=[],previewSkipped=0,executing=false;
     const confirm=dialog.querySelector('[data-confirm]'),message=dialog.querySelector('[data-preview]');
     async function preview(){const revision=++previewRevision;confirm.disabled=true;message.textContent='正在检查引用与可释放空间…';try{
       data.detach_projects=dialog.querySelector('[name="detach_projects"]').checked;
       const result=await api('/api/workbench/assets/cleanup-preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
       if(revision!==previewRevision||!dialog.open)return;
-      approvedIds=result.ids;
+      approvedIds=result.deletable;previewSkipped=result.skipped.length;
       message.textContent=`可删除 ${result.deletable.length} 项，约释放 ${(result.bytes/1048576).toFixed(1)} MB；保留 ${result.skipped.length} 项。`+(result.projects.length?`\n将从项目移出：${result.projects.slice(0,5).join('、')}。`:'')+(result.skipped.length?'\n'+result.skipped.slice(0,5).map(item=>`${item.title}：${item.reason}`).join('\n'):'');
       if(result.titles.length)message.textContent+='\n将删除：'+result.titles.slice(0,6).join('、')+(result.titles.length>6?'等。':'。');
-      confirm.disabled=!result.deletable.length&&!result.bytes;
+      confirm.disabled=!result.deletable.length&&!result.bytes&&!result.pending_gc;
     }catch(error){if(revision===previewRevision)message.textContent=`无法安全清理：${error.message}`;}}
     dialog.querySelector('[name="detach_projects"]').onchange=preview;
     dialog.querySelector('[data-cancel]').onclick=()=>dialog.close();
@@ -324,7 +325,7 @@
     dialog.querySelector('form').onsubmit=async event=>{event.preventDefault();if(executing||confirm.disabled)return;executing=true;confirm.disabled=true;dialog.querySelector('[data-cancel]').disabled=true;dialog.querySelector('[name="detach_projects"]').disabled=true;try{
       const result=await api('/api/workbench/assets/purge',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:approvedIds,detach_projects:data.detach_projects,confirmed:true})});
       result.deleted.forEach(id=>{selectedAssets.delete(id);if(globalAudio.src.includes(id))$('#global-player-close').click();});
-      $('#asset-cleanup-status').textContent=`已彻底删除 ${result.deleted.length} 项，释放 ${(result.released_bytes/1048576).toFixed(1)} MB；保留 ${result.skipped.length} 项。`+(result.errors.length?' '+result.errors.join('；'):'');
+      $('#asset-cleanup-status').textContent=`已彻底删除 ${result.deleted.length} 项，释放 ${(result.released_bytes/1048576).toFixed(1)} MB；保留 ${previewSkipped+result.skipped.length} 项。`+(result.errors.length?' '+result.errors.join('；'):'');
       dialog.close();await refreshAfterAssetCleanup();
     }catch(error){executing=false;message.textContent=error.message;confirm.disabled=false;dialog.querySelector('[data-cancel]').disabled=false;dialog.querySelector('[name="detach_projects"]').disabled=false;}};
     await preview();
@@ -343,6 +344,7 @@
   function nextAssetPage(){const size=assetPageSize();if(assetOffset+size<assetTotal){assetOffset+=size;loadAssets();$('#assets').scrollIntoView({block:'start'});}}
   $('#asset-prev').onclick=$('#asset-prev-top').onclick=previousAssetPage;
   $('#asset-next').onclick=$('#asset-next-top').onclick=nextAssetPage;
+  window.matchMedia('(max-width: 720px)').addEventListener('change',()=>{const size=assetPageSize();assetOffset=Math.floor(assetOffset/size)*size;loadAssets();});
   $('#asset-upload').onchange = async event => {
     const files = [...event.target.files], status = $('#asset-import-status'), kind = $('#asset-import-kind').value, targetProjectId=currentProjectId;
     if (!files.length) return;
@@ -391,11 +393,13 @@
   }
 
   async function loadStyleModels() {
+    const revision=++styleModelsLoadRevision;
     let models = [];
     try { models = (await allAssets('model')).filter(asset=>asset.metadata?.model_type==='yue2_ar_lora'); }
-    catch(error){showError($('#create-result'),new Error(`歌曲风格模型读取失败：${error.message}`));}
+    catch(error){if(revision===styleModelsLoadRevision)showError($('#create-result'),new Error(`歌曲风格模型读取失败：${error.message}`));return;}
+    if(revision!==styleModelsLoadRevision)return;
     $$('[data-style-model]').forEach(select => {
-      const previous=select.value; select.innerHTML='<option value="">使用原版 YuE2</option>'+models.map(model=>`<option value="${model.id}">${escapeHtml(model.title)} · ${Number(model.metadata?.completed_training_steps)||'?'} 步 · ${new Date(Number(model.created_at)*1000).toLocaleDateString('zh-CN')} · ${String(model.id).slice(0,6)} · 仅直接生成</option>`).join(''); select.value=previous;
+      const previous=select.dataset.pendingModelId||select.value; select.innerHTML='<option value="">使用原版 YuE2</option>'+models.map(model=>`<option value="${model.id}">${escapeHtml(model.title)} · ${Number(model.metadata?.completed_training_steps)||'?'} 步 · ${new Date(Number(model.created_at)*1000).toLocaleDateString('zh-CN')} · ${String(model.id).slice(0,6)} · 仅直接生成</option>`).join(''); select.value=previous;delete select.dataset.pendingModelId;
       select.onchange=()=>{ if(select.value){ const mode=select.closest('form')?.querySelector('[name=cot]'); if(mode) mode.value='off'; } };
     });
   }
@@ -424,12 +428,12 @@
     list.querySelector('[data-open-training-assets]')?.addEventListener('click',()=>currentProjectId?openTrainingAssetLibrary(false):($('.tab[data-tab="project"]').click(),$('#workbench-project-select').focus()));
     list.querySelector('[data-import-training-song]')?.addEventListener('click',()=>openTrainingAssetLibrary(true));
   }
-  async function loadTrainingInputs(){try{if(!currentProjectId){trainingAssets=[];lyricsAssets=[];styleAssets=[];renderTrainingAssets();return;}const [songs,works,lyrics,styles]=await Promise.all(['song','work','lyrics','style'].map(kind=>allAssets(kind,currentProjectId)));trainingAssets=[...songs,...works].filter(asset=>Number(asset.metadata?.duration)>=5);lyricsAssets=lyrics;styleAssets=styles;renderTrainingAssets();}catch(error){showError($('#training-assets'),error);}}
+  async function loadTrainingInputs(){const revision=++trainingInputsLoadRevision,projectId=currentProjectId;try{if(!projectId){trainingAssets=[];lyricsAssets=[];styleAssets=[];renderTrainingAssets();return;}const [songs,works,lyrics,styles]=await Promise.all(['song','work','lyrics','style'].map(kind=>allAssets(kind,projectId)));if(revision!==trainingInputsLoadRevision||projectId!==currentProjectId)return;trainingAssets=[...songs,...works].filter(asset=>Number(asset.metadata?.duration)>=5);lyricsAssets=lyrics;styleAssets=styles;renderTrainingAssets();}catch(error){if(revision===trainingInputsLoadRevision&&projectId===currentProjectId)showError($('#training-assets'),error);}}
   function openTrainingAssetLibrary(importNow=false){
     if(!currentProjectId){$('.tab[data-tab="project"]').click();$('#workbench-project-select').focus();return;}
     trainingAssetGuidance=true;$('#asset-training-guidance').classList.remove('hidden');
     const project=projects.find(item=>item.id===currentProjectId);$('#asset-training-guidance-copy').textContent=`当前项目：${project?.title||'未命名项目'}。点击歌曲卡片的“加入当前项目供训练”；已加入的歌曲会标为“训练可用”。`;
-    $('#asset-kind').value='';$('#asset-query').value='';assetOffset=0;$('.tab[data-tab="assets"]').click();loadAssets();
+    $('#asset-status').value='active';selectedAssets.clear();$('#asset-kind').value='';$('#asset-query').value='';assetOffset=0;$('.tab[data-tab="assets"]').click();loadAssets();
     if(importNow){$('#asset-import-kind').value='song';$('#asset-upload').click();}
   }
   $('#training-add-songs').onclick=()=>openTrainingAssetLibrary(false);
@@ -593,7 +597,7 @@
   function useStyleModel(assetId){
     const select=$('#create-form [data-style-model]');
     if(!assetId||!select?.querySelector(`option[value="${CSS.escape(assetId)}"]`)){showError($('#training-result'),new Error('歌曲风格模型尚未载入，请刷新资产库后重试'));return;}
-    select.value=assetId;$('#create-form [name=cot]').value='off';$('.tab[data-tab="create"]').click();
+    select.value=assetId;$('#create-form [name=cot]').value='off';window.assistantDraftChanged?.('create');$('.tab[data-tab="create"]').click();
   }
   document.addEventListener('click',async event=>{
     if(event.target.closest('[data-preview-training]'))previewTrainingRun();

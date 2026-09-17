@@ -32,7 +32,7 @@ from .config import (
     ensure_layout,
     runtime_ready,
 )
-from .io import atomic_json, json_file_lock, public_job, within
+from .io import atomic_json, json_file_lock, public_job, within, remove_job_payload
 from .retention import RetentionManager, _tree_size
 from .settings import model_directory, save_model_directory, settings_info
 from . import assistant_data
@@ -601,6 +601,8 @@ class JobStore:
     def resume(self, job_id: str, data: dict | None = None) -> dict:
         with self.storage_lock:
             status = self.get(job_id)
+            if status.get("cleanup_pending"):
+                raise ValueError("此任务已部分清理，不能继续执行；请完成清理后创建新任务")
             if status["status"] not in {"failed", "cancelled", "paused"}:
                 raise ValueError("只能恢复失败、取消或暂停的任务")
             directory = job_directory(job_id)
@@ -631,6 +633,8 @@ class JobStore:
     def retry_assistant(self, job_id: str, data: dict) -> dict:
         with self.storage_lock:
             status = self.get(job_id)
+            if status.get("cleanup_pending"):
+                raise ValueError("此任务已部分清理，不能按阶段重试；请完成清理后创建新任务")
             if status["kind"] != "assistant" or status["status"] not in TERMINAL:
                 raise ValueError("只能重试已结束的助手任务")
             directory = job_directory(job_id)
@@ -875,6 +879,13 @@ class JobStore:
             with self.lock:
                 for job_id in deleted:
                     self.jobs.pop(job_id, None)
+            for error in report.get("errors", []):
+                path = Path(error.get("path", ""))
+                if path.parent.resolve() == OUTPUTS.resolve() and JOB_ID_PATTERN.fullmatch(path.name):
+                    try:
+                        self.get(path.name)
+                    except (KeyError, OSError, ValueError):
+                        pass
         return report
 
     def retention_status(self) -> dict:
@@ -957,7 +968,7 @@ class JobStore:
                 if execute:
                     try:
                         if directory.exists():
-                            shutil.rmtree(directory)
+                            remove_job_payload(directory)
                         with self.lock:
                             self.jobs.pop(job_id, None)
                         deleted.append(job_id)
@@ -968,7 +979,11 @@ class JobStore:
                                 released += log_size
                             except OSError:
                                 errors.append({"id": job_id, "reason": "任务已删除，日志被占用，稍后可按策略清理"})
-                    except OSError:
+                    except (OSError, ValueError):
+                        try:
+                            self.get(job_id)
+                        except (KeyError, OSError, ValueError):
+                            pass
                         errors.append({"id": job_id, "reason": "任务文件被占用，未能完成清理，请稍后重试"})
             return {"ids": ids, "deletable": deletable, "deleted": deleted,
                     "skipped": skipped, "errors": errors, "bytes": total_bytes, "released_bytes": released}

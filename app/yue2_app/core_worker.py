@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 import shutil
@@ -109,6 +110,22 @@ def create_pipe(root: Path, request: dict):
     return pipe
 
 
+def instrumental_style(style: str) -> str:
+    """Translate a UI intent into native text conditions, without a hard no-vocal guarantee."""
+    # Remove common affirmative voice tags, including both shipped form defaults.
+    voice = r"\b(?:(?:warm|female|male|lead|solo|soft|clear|tender|gentle|expressive|breathy|airy|childlike|young|powerful|emotive|intimate)\s+)*(?:vocals?|voice|singing|choir|singer|soprano|alto|tenor|baritone)\b"
+    parts = []
+    for part in re.split(r"[,;\n]", style):
+        # An existing negative voice instruction already agrees with the intent.
+        if not (re.search(r"\b(?:no|without)\s+(?:\w+\s+){0,2}(?:vocals?|voice|singing|choir)\b", part, re.I)
+                or re.search(r"(?:无需?|不要|没有)(?:人声|演唱|歌声|合唱)", part)):
+            part = re.sub(voice, "", part, flags=re.I)
+            part = re.sub(r"(?:温暖|柔和|清晰|男|女|主唱|独唱)*(?:人声|演唱|歌声|合唱)", "", part)
+        if part.strip():
+            parts.append(part.strip())
+    return "Instrumental music only; no singing, no vocals, no spoken voice, no choir. " + ", ".join(parts)
+
+
 def generation_kwargs(request: dict, seed: int | None = None) -> dict:
     result = {
         "style": str(request.get("style", "")),
@@ -116,6 +133,10 @@ def generation_kwargs(request: dict, seed: int | None = None) -> dict:
         "cot": request.get("cot", "full"),
         "seed": int(request.get("seed", 831001) if seed is None else seed),
     }
+    instrumental = request.get("instrumental")
+    if instrumental is True or (isinstance(instrumental, str) and instrumental.strip().lower() in {"on", "true", "1"}):
+        result["style"] = instrumental_style(result["style"])
+        result["lyrics"] = "[instrumental]"
     if request.get("abc"):
         result["abc"] = str(request["abc"])
     if request.get("cfg_scale") is not None:

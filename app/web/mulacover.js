@@ -2,6 +2,7 @@
   const form = $('#remix-form');
   if (!form) return;
   const mode = $('#remix-source-mode'), audioInput = $('#remix-file');
+  const styleMode = $('#remix-style-mode');
   const melodyInput = $('#remix-melody-midi'), chordInput = $('#remix-chord-midi'), drumInput = $('#remix-drum-midi');
   const button = $('#remix-button'), status = $('#remix-model-status');
   const preview = $('#remix-preview'), player = preview.querySelector('audio');
@@ -17,16 +18,28 @@
     let values = {};
     try { values = JSON.parse(savedValue(draftKey()) || '{}'); } catch {}
     for (const field of form.elements) if (field.name && field.type !== 'file' && values[field.name] !== undefined) field.value = values[field.name];
+    if (values.style_mode === undefined && ['topic','genre','instrument','mood'].some(key=>values[key])) styleMode.value = 'custom';
   }
   function switchProjectDraft() {
     for (const input of [audioInput, melodyInput, chordInput, drumInput]) clearLocalInputReference(input);
     form.reset();
     restoreDraft();
+    updateStyleMode();
     updateSourceMode();
     updatePreview();
   }
   function sourceReady() {
     return mode.value === 'audio' ? inputHasSource(audioInput) : inputHasSource(melodyInput) && inputHasSource(chordInput);
+  }
+  function updateStyleMode() {
+    const custom = styleMode.value === 'custom';
+    for (const label of form.querySelectorAll('[data-remix-style]')) {
+      label.classList.toggle('hidden', !custom);
+      label.querySelector('input').disabled = !custom;
+    }
+    $('#remix-style-hint').textContent = custom
+      ? '填写至少一项主题、流派、乐器或情绪；这些条件会影响新版本的编曲。'
+      : '不额外指定流派、乐器或情绪；参考歌曲提供旋律、和弦与鼓点条件，生成结果仍可能改变原编曲和音色。';
   }
   function updateButtonState() {
     if (!button.dataset.jobId) button.disabled = !modelsReady || !sourceReady();
@@ -63,10 +76,11 @@
     updateButtonState();
   }
 
-  restoreDraft(); updateSourceMode(); updatePreview(); refreshModelState();
+  restoreDraft(); updateStyleMode(); updateSourceMode(); updatePreview(); refreshModelState();
   window.mulacoverSaveDraft = saveDraft;
   window.mulacoverRestoreDraft = switchProjectDraft;
   mode.onchange = updateSourceMode;
+  styleMode.onchange = () => { updateStyleMode(); saveDraft(); };
   audioInput.onchange = () => { clearLocalInputReference(audioInput); updatePreview(); };
   audioInput.addEventListener('local-source-change', updatePreview);
   for (const input of [melodyInput, chordInput, drumInput]) {

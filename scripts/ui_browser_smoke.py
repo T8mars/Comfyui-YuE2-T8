@@ -462,6 +462,136 @@ def assert_manual_cleanup(browser, url: str, output: Path) -> None:
     assert_text_contrast(page, "assets")
     page.locator("#assets .cleanup-controls").scroll_into_view_if_needed()
     page.screenshot(path=output / "phone-cleanup-assets.png", full_page=False)
+    page.locator("#asset-next").click()
+    expect(page.locator("#asset-page-status")).to_contain_text("第 2")
+    page.set_viewport_size({"width": 1366, "height": 900})
+    expect(page.locator("#asset-grid .asset-card")).to_have_count(24)
+    expect(page.locator("#asset-page-status")).to_contain_text("第 1")
+    assert not errors, errors
+    context.close()
+
+
+def assert_audit_races(browser, url: str, output: Path) -> None:
+    """Delay real HTTP reads; all writes remain isolated in the smoke service."""
+    context = browser.new_context(viewport={"width": 1366, "height": 900})
+    page = context.new_page()
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    page.goto(url, wait_until="domcontentloaded")
+    wait_for_ui(page)
+    projects = page.request.get(url + "/api/workbench/projects").json()["projects"]
+    old = next(item for item in projects if item["title"] == "浏览器回归项目")
+    new = next(item for item in projects if item["title"] == "空项目")
+    page.locator('.studio-sidebar [data-tab="project"]').click()
+    page.locator("#workbench-project-select").select_option(old["id"])
+    page.wait_for_function("id=>window.workbenchProjectId()===id", arg=old["id"])
+    page.evaluate("""() => {
+      const fetchOriginal=window.fetch;
+      window.auditReleases=[];window.auditHold='';window.auditScope='';
+      window.fetch=async(...args)=>{
+        const response=await fetchOriginal(...args),u=new URL(String(args[0]),location.href);
+        const hold=window.auditHold==='project'?u.searchParams.get('project_id')===window.auditScope:
+          window.auditHold==='model'&&u.searchParams.get('kind')==='model';
+        if(u.pathname==='/api/workbench/assets'&&hold)
+          await new Promise(resolve=>window.auditReleases.push(resolve));
+        return response;
+      };
+    }""")
+    page.evaluate("id=>{window.auditHold='project';window.auditScope=id;}", old["id"])
+    page.locator('.studio-sidebar [data-tab="training"]').click()
+    page.wait_for_function("window.auditReleases.length>=4")
+    page.locator('.studio-sidebar [data-tab="project"]').click()
+    page.locator("#workbench-project-select").select_option(new["id"])
+    page.wait_for_function("id=>window.workbenchProjectId()===id", arg=new["id"])
+    page.locator('.studio-sidebar [data-tab="training"]').click()
+    expect(page.locator("#training-assets")).to_contain_text("当前项目还没有可训练的歌曲")
+    page.evaluate("window.auditHold='';window.auditReleases.splice(0).forEach(resolve=>resolve())")
+    page.wait_for_timeout(300)
+    expect(page.locator("[data-training-asset]")).to_have_count(0)
+    page.screenshot(path=output / "desktop-training-project-race.png", full_page=False)
+
+    model = next(item for item in page.request.get(url + "/api/workbench/assets?kind=model").json()["assets"]
+                 if item["metadata"].get("model_type") == "yue2_ar_lora")
+    page.evaluate("window.auditHold='model'")
+    page.locator('.studio-sidebar [data-tab="assets"]').click()
+    page.wait_for_function("window.auditReleases.length>=1")
+    page.evaluate("window.auditHold=''")
+    assert page.request.post(url + "/api/workbench/assets/batch-status", data={"ids": [model["id"]], "status": "trashed"}).ok
+    page.locator('.studio-sidebar [data-tab="assets"]').click()
+    selector = f'#create-form [data-style-model] option[value="{model["id"]}"]'
+    expect(page.locator(selector)).to_have_count(0)
+    page.evaluate("window.auditReleases.splice(0).forEach(resolve=>resolve())")
+    page.wait_for_timeout(300)
+    expect(page.locator(selector)).to_have_count(0)
+    assert page.request.post(url + "/api/workbench/assets/batch-status", data={"ids": [model["id"]], "status": "active"}).ok
+
+    fixtures = [page.request.post(url + "/api/workbench/assets/text", data={"kind": "lyrics", "title": f"audit-scope-{i}", "text": str(i)}).json() for i in range(2)]
+    project = page.request.post(url + "/api/workbench/projects", data={"title": "audit-scope-project"}).json()
+    protected = fixtures[1]
+    assert page.request.post(url + f'/api/workbench/projects/{project["id"]}/assets', data={"asset_id": protected["id"], "role": "lyrics"}).ok
+    assert page.request.post(url + "/api/workbench/assets/batch-status", data={"ids": [item["id"] for item in fixtures], "status": "trashed"}).ok
+    page.locator("#asset-query").fill("audit-scope-")
+    page.locator("#asset-status").select_option("trashed")
+    expect(page.locator("#asset-grid .asset-card")).to_have_count(2)
+    page.locator("#asset-select-page").check()
+    page.locator("#purge-selected-assets").click()
+    dialog = page.locator("dialog[open]").filter(has=page.locator("[data-preview]"))
+    expect(dialog).to_contain_text("可删除 1 项")
+    assert page.request.post(url + f'/api/workbench/projects/{project["id"]}/remove-asset', data={"asset_id": protected["id"], "revision_id": protected["current_revision_id"], "role": "lyrics"}).ok
+    dialog.locator("[data-confirm]").click()
+    expect(page.locator("#asset-cleanup-status")).to_contain_text("已彻底删除 1 项")
+    assert page.request.get(url + f'/api/workbench/assets/{protected["id"]}').status == 200
+    page.locator('.studio-sidebar [data-tab="training"]').click()
+    page.locator("#training-add-songs").click()
+    assert page.locator("#asset-status").input_value() == "active"
+
+    page.locator('.studio-sidebar [data-tab="remix"]').click()
+    page.locator("#remix-style-mode").select_option("reference")
+    assert page.evaluate("new FormData(document.querySelector('#remix-form')).has('genre')") is False
+    page.locator("#remix-style-mode").select_option("custom")
+    page.locator('#remix-form [name="genre"]').fill("audit jazz")
+    assert page.evaluate("new FormData(document.querySelector('#remix-form')).get('genre')") == "audit jazz"
+    page.locator("#remix-style-mode").select_option("reference")
+    assert page.evaluate("new FormData(document.querySelector('#remix-form')).has('genre')") is False
+    page.screenshot(path=output / "desktop-remix-reference-style.png", full_page=False)
+
+    page.locator('.studio-sidebar [data-tab="training"]').click()
+    model_button = page.locator('[data-use-trained-model]').first
+    expect(model_button).to_be_visible()
+    selected_model = model_button.get_attribute("data-use-trained-model")
+    model_button.click()
+    expect(page.locator('#create-form [data-style-model]')).to_have_value(selected_model)
+    page.wait_for_timeout(1000)
+    page.reload(wait_until="domcontentloaded")
+    wait_for_ui(page)
+    expect(page.locator('#create-form [data-style-model]')).to_have_value(selected_model)
+    expect(page.locator('#create-form [name="cot"]')).to_have_value("off")
+
+    # The config save is deliberately held before a second submit can occur.
+    # Paid chat endpoints are never contacted; only the browser's job POST is mocked.
+    jobs = []
+    fixture_id = "20990101-000099-00000099"
+    def job_route(route):
+        if route.request.method == "POST":
+            jobs.append(route.request.post_data_json)
+        route.fulfill(json={"id": fixture_id, "kind": "assistant", "status": "complete", "stage": "complete",
+                            "project_id": new["id"], "created_at": time.time(), "result": {"connection": {"ok": True}}})
+    page.route("**/api/jobs", job_route)
+    page.route("**/api/jobs/" + fixture_id, job_route)
+    page.locator('.studio-sidebar [data-tab="assistant"]').click()
+    page.evaluate("""() => {
+      document.querySelector('#assistant-provider').value='local';
+      document.querySelector('#assistant-model').value='audit-model';
+      saveAssistantConfig=()=>new Promise(resolve=>window.auditSubmitRelease=()=>resolve({provider:'local',model:'audit-model'}));
+      startAssistant();startAssistant(true);
+    }""")
+    assert page.evaluate("assistant.starting")
+    assert page.locator("#assistant-generate").is_disabled()
+    assert page.locator("#assistant-test").is_disabled()
+    page.evaluate("window.auditSubmitRelease()")
+    page.wait_for_function("!assistant.starting&&!assistant.polling")
+    assert len(jobs) == 1, jobs
+    assert jobs[0]["request"]["project_id"] == new["id"]
     assert not errors, errors
     context.close()
 
@@ -882,6 +1012,7 @@ def run_browser(url: str, output: Path) -> dict:
         assert_named_controls(page)
         page.screenshot(path=output / "phone.png", full_page=False)
         assert_manual_cleanup(browser, url, output)
+        assert_audit_races(browser, url, output)
         browser.close()
 
     assert not console_errors, f"Browser console/page errors: {console_errors}"
@@ -904,6 +1035,7 @@ def run_browser(url: str, output: Path) -> dict:
             "mobile project maintenance stays collapsed and workspace switching resets long-page scroll position",
             "all ten workspaces meet WCAG AA contrast for visible normal-size text",
             "asset cross-page selection, trash, restore, protected purge, cancellation and task cleanup work through real HTTP routes on desktop and phone",
+            "delayed project and model reads cannot overwrite newer state; deletion remains inside its preview and assistant double submits create one job without paid API calls",
         ],
         "console_errors": console_errors,
     }
