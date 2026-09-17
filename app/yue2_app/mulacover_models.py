@@ -8,6 +8,20 @@ from .settings import model_directory
 
 
 UPSTREAM_COMMIT = "a2ddf7ff655b2a2bbe11795a07f5ab293e383786"
+SOURCE_FILES = (
+    "src/mulacover/pipeline.py", "src/mulacover/modeling.py",
+    "src/mulacover/_codec/models/__init__.py",
+    "src/mulacover/_codec/models/flow_matching.py",
+    "src/mulacover/_codec/models/sq_codec.py",
+    "src/mulacover/_codec/models/transformer.py",
+    "compat/torchtune/models/__init__.py",
+    "compat/torchtune/models/llama3_2/__init__.py",
+    "compat/torchtune/models/llama3_2/_component_builders.py",
+    "compat/torchtune/models/llama3_2/_model_builders.py",
+    "compat/torchtune/models/llama3/_component_builders.py",
+    "compat/torchtune/modules/transformer.py",
+    "compat/vector_quantize_pytorch/__init__.py",
+)
 MODEL_REPOSITORIES = {
     "MuLaCover": {
         "repo": "HeartMuLa/MuLaCover",
@@ -106,12 +120,11 @@ def readiness(root: Path) -> dict:
         "files": files,
     }
     core = root / "vendor" / "mulacover"
-    source_ready = all((core / relative).is_file() for relative in (
-        "src/mulacover/pipeline.py", "src/mulacover/modeling.py",
-        "compat/torchtune/modules/transformer.py", "compat/vector_quantize_pytorch/__init__.py",
-    ))
+    source_missing = [relative for relative in SOURCE_FILES if not (core / relative).is_file()]
+    source_ready = not source_missing
     return {"ready": bool(source_ready and all(item["ready"] for item in components.values())),
-            "source_ready": source_ready, "upstream_commit": UPSTREAM_COMMIT,
+            "source_ready": source_ready, "source_missing": source_missing,
+            "upstream_commit": UPSTREAM_COMMIT,
             "components": components}
 
 

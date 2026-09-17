@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 from app.yue2_app import service
 from app.yue2_app.mulacover_core import normalize_request, style_tags
+from app.yue2_app.mulacover_models import SOURCE_FILES, readiness
 
 
 class MuLaCoverRequestTests(unittest.TestCase):
@@ -76,6 +77,26 @@ class MuLaCoverServiceTests(unittest.TestCase):
 
 
 class MuLaCoverUiAndNodeTests(unittest.TestCase):
+    def test_vendored_model_source_is_complete(self):
+        root = Path(__file__).resolve().parents[1]
+        self.assertTrue(readiness(root)["source_ready"], readiness(root)["source_missing"])
+
+    def test_missing_codec_or_torchtune_source_is_not_ready(self):
+        for missing in ("src/mulacover/_codec/models/flow_matching.py",
+                        "src/mulacover/_codec/models/sq_codec.py",
+                        "compat/torchtune/models/llama3_2/__init__.py"):
+            with self.subTest(missing=missing), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                for relative in SOURCE_FILES:
+                    if relative != missing:
+                        path = root / "vendor/mulacover" / relative
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        path.touch()
+                state = readiness(root)
+                self.assertFalse(state["source_ready"])
+                self.assertFalse(state["ready"])
+                self.assertEqual(state["source_missing"], [missing])
+
     def test_workbench_exposes_remix_and_persistence(self):
         root = Path(__file__).resolve().parents[1]
         html = (root / "app" / "web" / "index.html").read_text(encoding="utf-8")

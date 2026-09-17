@@ -1,5 +1,6 @@
 """Build the stable updater assets from an immutable, clean Git HEAD."""
 import argparse
+import ast
 import hashlib
 import json
 import re
@@ -43,6 +44,13 @@ def build(output):
     with zipfile.ZipFile(asset) as archive:
         assert archive.testzip() is None
         names = [name.removeprefix(prefix) for name in archive.namelist()]
+        source_tree = ast.parse(git("show", "HEAD:app/yue2_app/mulacover_models.py").decode())
+        source_files = next(ast.literal_eval(node.value) for node in source_tree.body
+                            if isinstance(node, ast.Assign) and any(
+                                isinstance(target, ast.Name) and target.id == "SOURCE_FILES"
+                                for target in node.targets))
+        for relative in source_files:
+            assert f"vendor/mulacover/{relative}" in names, f"Missing MuLaCover source: {relative}"
         assert not any(name.startswith((".github/", "tests/")) for name in names)
         for name in names:
             path = safe_archive_path(name)

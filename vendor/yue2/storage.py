@@ -5,7 +5,12 @@ import json
 import os
 import re
 import shutil
+import tempfile
+import threading
+import time
 from pathlib import Path
+
+_JSON_WRITE_LOCK = threading.Lock()
 
 
 def sha256_file(path):
@@ -24,10 +29,22 @@ def identity(value):
 def write_json(path, value):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + f".{os.getpid()}.tmp")
-    temporary.write_text(json.dumps(value, indent=2, ensure_ascii=False, allow_nan=False) + "\n",
-                         encoding="utf-8")
-    os.replace(temporary, path)
+    descriptor, name = tempfile.mkstemp(prefix="j-", suffix=".tmp", dir=path.parent)
+    temporary = Path(name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(json.dumps(value, indent=2, ensure_ascii=False, allow_nan=False) + "\n")
+        with _JSON_WRITE_LOCK:
+            for attempt in range(20):
+                try:
+                    os.replace(temporary, path)
+                    break
+                except PermissionError:
+                    if attempt == 19:
+                        raise
+                    time.sleep(0.01)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 # Explicit public model files. Extra reports, caches and arbitrary code are not exported.

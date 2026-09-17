@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.9 - 2026-09-17
+
+- Shorten atomic checkpoint staging directories and JSON temporary filenames so deeply nested reference-cover jobs fit the legacy Windows path limit without sacrificing complete-checkpoint publication or unique concurrent writes.
+- Keep final checkpoint names and manifests compatible with existing jobs; clean temporary JSON files when serialization or replacement fails.
+- Add storage regressions for the reported 262-character path, near-limit directories, cancellation and concurrent JSON writers, including the Windows CI job.
+- Fix the unanchored model-data ignore rule that omitted MuLaCover codec and torchtune Python sources from GitHub/Registry/code ZIPs; validate required sources in readiness and release archives (Issue #9).
+
 ## 1.5.8 - 2026-09-16
 
 - Fix project asset pagination when one revision has multiple project roles, reject ambiguous voice booleans and empty pitch controls, and localize malformed request errors.

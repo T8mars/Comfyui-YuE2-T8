@@ -1,5 +1,5 @@
 runtime/
-models/
+/models/
 cache/
 outputs/
 uploads/

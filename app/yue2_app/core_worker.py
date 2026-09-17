@@ -6,7 +6,7 @@ import os
 import sys
 import time
 import shutil
-import uuid
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -240,8 +240,9 @@ def generate_one(pipe, ctx: JobContext, request: dict, destination: Path, seed: 
 def atomic_stage(destination: Path, writer) -> None:
     """Expose a checkpoint only after all its files and manifests are durable."""
     destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_name(destination.name + ".tmp-" + uuid.uuid4().hex)
-    temporary.mkdir()
+    # Keep staging on the same filesystem for atomic rename, but use a short
+    # reserved name so nested reference-cover jobs do not hit Windows MAX_PATH.
+    temporary = Path(tempfile.mkdtemp(prefix="s-", dir=destination.parent))
     try:
         writer(temporary)
         os.replace(temporary, destination)

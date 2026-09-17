@@ -3,9 +3,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import tempfile
 import threading
 import time
-import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -24,10 +24,14 @@ def json_file_lock(path: Path, timeout: float = 30):
 
 def atomic_json(path: Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + f".{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    # Reserve a unique sibling without repeating the target name, PID and UUID.
+    # Deep workflow paths can otherwise exceed Windows MAX_PATH even when the
+    # final JSON path is well within the limit.  A sibling keeps replace atomic.
+    descriptor, name = tempfile.mkstemp(prefix="j-", suffix=".tmp", dir=path.parent)
+    temporary = Path(name)
     try:
-        temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
-                             encoding="utf-8")
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False) + "\n")
         with _ATOMIC_WRITE_LOCK:
             for attempt in range(20):
                 try:

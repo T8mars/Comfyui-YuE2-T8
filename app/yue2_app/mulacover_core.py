@@ -159,6 +159,9 @@ def run(root: Path, job_dir: Path, request: dict, ctx) -> dict:
     root, job_dir = root.resolve(), job_dir.resolve()
     prepared = normalize_request(root, request)
     state = readiness(root)
+    if not state["source_ready"]:
+        raise RuntimeError("MuLaCover 推理源码不完整，请通过页面检查更新补齐源码：" +
+                           "、".join(state["source_missing"]))
     if not state["ready"]:
         missing = [name for name, item in state["components"].items() if not item["ready"]]
         raise RuntimeError("MuLaCover 模型尚未安装完整：" + "、".join(missing))
