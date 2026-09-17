@@ -105,7 +105,7 @@ class TrainingCleanup:
                 reason = "训练记录已不存在"
             elif "*" in references or referenced:
                 reason = "运行任务、草稿或其他训练仍在使用"
-            elif row["state"] in {"queued", "preparing", "running", "pausing"} and self.finished_jobs.get(run_id, "") != row["current_job_id"]:
+            elif row["state"] in {"queued", "preparing", "running", "pausing"} and (not row["current_job_id"] or self.finished_jobs.get(run_id, "") != row["current_job_id"]):
                 reason = "训练仍在运行，请先暂停或取消并等待任务结束"
             elif row["state"] == "paused" and not data.get("discard_paused"):
                 reason = "训练已暂停；勾选放弃继续训练后才能清理"
