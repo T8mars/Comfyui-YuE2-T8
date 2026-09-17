@@ -111,6 +111,9 @@ class PortableOccupiedJobAudit(unittest.TestCase):
 
         def occupied_unlink(path, *args, **kwargs):
             if path == blocked:
+                # Guarantee a partial payload deletion independently of the
+                # filesystem's arbitrary directory enumeration order.
+                real_unlink(directory / "artifact.txt", missing_ok=True)
                 raise PermissionError("independent occupied-file simulation")
             return real_unlink(path, *args, **kwargs)
 
