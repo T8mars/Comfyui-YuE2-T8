@@ -451,7 +451,7 @@ This melody still waits for you</textarea></label>
           <label class="wide" data-api-config>可选渠道参数 JSON<textarea id="assistant-extra" rows="2" spellcheck="false">{}</textarea></label>
           <p class="meta wide" data-api-config>使用 API 无需下载本地 LLM，也无需设置本地模型目录。输出上限最高可填 262144（含 220K）；实际可用值仍由所选模型和渠道决定，数值越大可能产生更多费用。</p>
           <p class="meta wide" data-local-config><a href="https://pan.quark.cn/s/55eab3bb2d9b" target="_blank" rel="noopener noreferrer">下载本地 LLM 模型（可选）</a>，解压后填写存放 GGUF 的目录，再选择模型文件；无需视觉投影模型。若尚未安装环境，请在整合包运行“安装本地LLM.bat”。本地模型任务与音乐任务串行，结束后释放模型。</p>
-          <div class="toolbar wide"><button class="ghost" type="submit">保存设置 / 刷新模型</button><button class="ghost" type="button" id="assistant-test">测试模型连接</button><span id="assistant-config-status" class="meta" role="status"></span></div>
+          <div class="toolbar wide"><button class="ghost" type="submit" id="assistant-save-config">保存设置 / 刷新模型</button><button class="ghost" type="button" id="assistant-test" title="测试当前选定模型的聊天连接，可能产生 API 费用">测试模型连接</button><span id="assistant-config-status" class="meta" role="status"></span></div>
         </form>
       </details>
       <form id="assistant-form" class="grid-form">

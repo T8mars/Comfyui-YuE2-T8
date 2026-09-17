@@ -1,6 +1,6 @@
 /* Standalone WebUI only. Drafts are revisioned; credentials never enter them. */
 const assistant = {config: null, defaults: {}, result: null, job: null, polling: false, pollToken: 0, pollingJobId: '', pollingProjectId: '', originalLyrics: '', resultEdited: false, resultJobId: null,
-  drafts: {}, providers: {}, localModels: [], remoteModels: {}, providerSelections: {}, providerBaseUrls: {}, providerCredentials: {}, providerBudgets: {}, activeProvider: null, credential: null,
+  drafts: {}, providers: {}, localModels: [], remoteModels: {}, providerSelections: {}, providerBaseUrls: {}, providerCredentials: {}, providerCredentialScopes: {}, providerBudgets: {}, activeProvider: null, credential: null, modelRefreshBusy: false, modelRefreshRevision: 0,
   ticks: {assistant: 0, create: 0, plan: 0, cover: 0}, queues: {}, timers: {}, undo: null, sending: null,
   projectId: '', baselines: {}, switchQueue: Promise.resolve()};
 const assistantPost = (path, value) => api(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(value)});
@@ -200,9 +200,38 @@ function renderAbcState() {
 }
 function configFromForm() {
   const values = formFields($('#assistant-config-form'));
-  values.credential_id = assistant.providerCredentials[values.provider] || '';
+  values.credential_id = assistantCurrentCredential();
   values.extra_parameters = JSON.parse($('#assistant-extra').value || '{}');
   return values;
+}
+function assistantModelScope(config = null) {
+  const provider = config?.provider || $('#assistant-provider').value;
+  if (provider === 'local') return 'local';
+  const base = String(provider === 'compatible' ? config?.base_url ?? $('#assistant-base-url').value : assistant.providers[provider]?.base_url || '').trim().replace(/\/+$/, '');
+  try {
+    const path = new URL(base).pathname;
+    const chat = base.endsWith('/chat/completions') ? base : base + (/\/v\d+$/i.test(path) ? '/chat/completions' : '/v1/chat/completions');
+    return `${provider}:${chat}`;
+  } catch { return `${provider}:${base}`; }
+}
+function assistantCurrentCredential() {
+  const provider = $('#assistant-provider').value;
+  return assistant.providerCredentialScopes[provider] === assistantModelScope() ? assistant.providerCredentials[provider] || '' : '';
+}
+function assistantModelListKey(config = null) {
+  return `${assistantModelScope(config)}:${config?.credential_id ?? assistantCurrentCredential()}`;
+}
+function assistantRemoteModels() {
+  const key = assistantModelListKey();
+  if (assistant.remoteModels[key]) return assistant.remoteModels[key];
+  try {
+    const cached = JSON.parse(savedValue(`assistant-model-list:${assistantModelScope()}`) || 'null');
+    const saved = cached?.models;
+    if (cached?.credential_id === assistantCurrentCredential() && Array.isArray(saved) && saved.length <= 500 && saved.every(id => typeof id === 'string' && id.trim() && id.length <= 512)) {
+      return assistant.remoteModels[key] = saved.map(id => ({id, label: id}));
+    }
+  } catch { /* An unavailable or damaged cache must not prevent manual setup. */ }
+  return null;
 }
 function assistantCredentialError(message) {
   return /API\s*Key|API\s*凭据|凭据不存在|凭据待补|重新填写/.test(String(message || ''));
@@ -211,21 +240,21 @@ function openAssistantSettings(focus = true) {
   const settings = $('#assistant-settings');
   settings.open = true;
   settings.scrollIntoView({behavior: 'smooth', block: 'start'});
-  if (focus) requestAnimationFrame(() => ($('#assistant-provider').value === 'local' ? $('#assistant-model-choice') : $('#assistant-key')).focus());
+  if (focus) requestAnimationFrame(() => ($('#assistant-provider').value === 'local' || (assistantCurrentCredential() || $('#assistant-key').value.trim()) && !$('#assistant-model').value.trim() ? $('#assistant-model-choice') : $('#assistant-key')).focus());
 }
 function assistantChannelReady() {
   const provider=$('#assistant-provider').value||assistant.config?.provider||'seedance';
-  if(provider==='local')return Boolean($('#assistant-model').value.trim());
-  return Boolean($('#assistant-key').value.trim()||assistant.providerCredentials[provider]);
+  return Boolean($('#assistant-model').value.trim()) && (provider==='local'||Boolean($('#assistant-key').value.trim()||assistantCurrentCredential()));
 }
 function applyAssistantActionState() {
-  const ready=assistantChannelReady(),disabled=assistant.polling||!ready;
+  const ready=assistantChannelReady(),disabled=assistant.polling||assistant.modelRefreshBusy||!ready;
   for(const selector of ['#assistant-generate','#assistant-test','#assistant-retry','#assistant-compose-abc']){
     const button=$(selector);if(!button)continue;button.disabled=disabled;
-    button.title=!ready?'请先设置当前渠道的 API Key 或本地 GGUF 模型':assistant.polling?'当前创作任务结束后可再次操作':'';
+    button.title=!ready?'请先设置当前渠道的 API Key，并选择或手动填写模型 ID':assistant.modelRefreshBusy?'正在刷新模型列表，请稍候':assistant.polling?'当前创作任务结束后可再次操作':selector==='#assistant-test'?'测试当前选定模型的聊天连接，可能产生 API 费用；获取列表请点刷新模型':'';
   }
   const remove=$('#assistant-delete-key'),provider=$('#assistant-provider').value;
-  if(remove)remove.disabled=!assistant.providerCredentials[provider]||assistant.polling;
+  if(remove)remove.disabled=!assistant.providerCredentials[provider]||assistant.polling||assistant.modelRefreshBusy;
+  for (const selector of ['#assistant-save-config', '#assistant-refresh-models']) $(selector).disabled = assistant.modelRefreshBusy;
 }
 function renderAssistantChannelStatus() {
   const provider = $('#assistant-provider').value || assistant.config?.provider || 'seedance';
@@ -233,7 +262,8 @@ function renderAssistantChannelStatus() {
   const savedProvider = assistant.config?.provider === provider;
   const isLocal = provider === 'local';
   const pendingKey=Boolean($('#assistant-key').value.trim());
-  const ready = isLocal ? Boolean($('#assistant-model').value.trim()) : Boolean(pendingKey||assistant.providerCredentials[provider]||(savedProvider&&assistant.credential?.available));
+  const hasCredential = pendingKey || Boolean(assistantCurrentCredential());
+  const ready = assistantChannelReady();
   const card = $('#assistant-channel-status'), signup = $('#assistant-status-signup');
   card.dataset.state = ready ? 'ready' : 'missing';
   if (isLocal) {
@@ -241,14 +271,14 @@ function renderAssistantChannelStatus() {
     assistantText('#assistant-channel-detail', ready ? `${$('#assistant-model').value}；保存后可测试模型连接。` : '本地模式无需 API Key，请选择 GGUF 文件并保存设置。');
     $('#assistant-open-settings').textContent = ready ? '更改本地模型' : '设置本地 GGUF';
   } else {
-    assistantText('#assistant-channel-title', ready ? 'AI 创作渠道已配置' : '开始创作前，请先设置 API Key');
-    assistantText('#assistant-channel-detail', ready ? `${details.label || '当前渠道'} · ${$('#assistant-model').value || details.default_model || '模型待选择'}；${pendingKey?'API Key 待随本次操作保存':'凭据已就绪'}。` : `当前渠道：${details.label || 'API'}。填写 API Key 后才能生成歌词、曲风或 ABC。`);
-    $('#assistant-open-settings').textContent = ready ? '更改渠道 / API Key' : '设置 API Key';
+    assistantText('#assistant-channel-title', ready ? 'AI 创作渠道已配置' : hasCredential ? '请先选择或填写模型 ID' : '开始创作前，请先设置 API Key');
+    assistantText('#assistant-channel-detail', ready ? `${details.label || '当前渠道'} · ${$('#assistant-model').value}；${pendingKey?'API Key 待随本次操作保存':'凭据已就绪'}。` : hasCredential ? '点击“保存设置 / 刷新模型”获取模型列表；渠道不提供列表时，选择“自定义输入模型”填写完整 ID。' : `当前渠道：${details.label || 'API'}。填写该地址对应的 API Key 后才能生成歌词、曲风或 ABC。`);
+    $('#assistant-open-settings').textContent = ready ? '更改渠道 / API Key' : hasCredential ? '选择模型' : '设置 API Key';
   }
   signup.classList.toggle('hidden', isLocal || !details.signup_url);
   signup.href = details.signup_url || '#';
   signup.textContent = details.signup_url ? `获取${details.label || ''} API Key` : '';
-  assistantText('#assistant-capability', ready ? (isLocal ? '本地模型待连接测试' : 'API 凭据已就绪') : (isLocal ? '尚未选择 GGUF' : '尚未配置 API Key'));
+  assistantText('#assistant-capability', ready ? (isLocal ? '本地模型待连接测试' : 'API 凭据已就绪') : (isLocal ? '尚未选择 GGUF' : hasCredential ? '尚未选择模型' : '尚未配置 API Key'));
   if (!ready && !isLocal && savedProvider) $('#assistant-settings').open = true;
   applyAssistantActionState();
 }
@@ -269,7 +299,7 @@ function renderAssistantModels() {
   const provider = $('#assistant-provider').value;
   const details = assistant.providers[provider] || {};
   const items = provider === 'local' ? assistant.localModels :
-    (assistant.remoteModels[provider] || (details.models || []).map(id => ({id, label: id})));
+    (assistantRemoteModels() || (details.models || []).map(id => ({id, label: id})));
   const seen = new Set(), options = [];
   for (const item of items) {
     const id = typeof item === 'string' ? item : item.id;
@@ -297,6 +327,7 @@ function assistantModelChoiceChanged(focus = true) {
   renderAssistantChannelStatus();
 }
 function providerChanged() {
+  assistant.modelRefreshRevision++;
   const provider = $('#assistant-provider').value;
   const previous = assistant.activeProvider;
   if (previous) {
@@ -323,7 +354,8 @@ function providerChanged() {
   signup.textContent = provider === 'seedance' ? '获取贞贞平价小屋 API Key' : provider === 'workshop' ? '获取贞贞 AI 工坊 API Key' : '';
   $('#assistant-refresh-models').textContent = provider === 'local' ? '刷新本地 GGUF 模型' : '获取模型列表';
   renderAssistantModels();
-  assistantText('#assistant-model-list-status', details.models?.length && provider !== 'local' ? `已提供 ${details.models.length} 个渠道默认模型` : '');
+  const cached = provider === 'local' ? null : assistantRemoteModels();
+  assistantText('#assistant-model-list-status', cached ? `已恢复 ${cached.length} 个模型；可再次刷新` : details.models?.length && provider !== 'local' ? `已提供 ${details.models.length} 个渠道默认模型` : provider === 'compatible' ? '填写地址和 API Key 后，点击“保存设置 / 刷新模型”获取列表；也可手动填写模型 ID。' : '');
   if (previous && previous !== provider && assistant.config?.provider !== provider) {
     assistantText('#assistant-config-status', provider === 'local' ? '已切换为本地模式，请保存设置' : '已切换渠道，请填写该渠道对应的 API Key');
   }
@@ -331,12 +363,14 @@ function providerChanged() {
 }
 async function saveAssistantConfig() {
   let config = configFromForm();
+  const scope = assistantModelScope(config);
   const key = $('#assistant-key').value;
   if (key) {
     const saved = await assistantPost('/api/assistant/credentials', {api_key: key, config, remember: $('#assistant-remember-key').checked});
     config.credential_id = saved.credential_id;
     assistant.providerCredentials[config.provider] = saved.credential_id;
-    $('#assistant-key').value = '';
+    assistant.providerCredentialScopes[config.provider] = scope;
+    if (assistantModelScope() === scope && $('#assistant-key').value === key) $('#assistant-key').value = '';
   }
   const info = await assistantPost('/api/assistant/config', config);
   assistant.config = info.config;
@@ -344,7 +378,7 @@ async function saveAssistantConfig() {
   updateModelInfo(info);
   renderAssistantChannelStatus();
   assistantText('#assistant-config-status', '设置已保存' + (config.credential_id ? ' · 已关联凭据' : ''));
-  return config;
+  return info.config;
 }
 function updateModelInfo(info) {
   assistant.providers = info.providers || assistant.providers;
@@ -354,26 +388,47 @@ function updateModelInfo(info) {
   assistantText('#assistant-capability', info.local_runtime ? `${info.local_gpu_offload ? '本地 CUDA 环境已就绪' : '本地环境仅通过 CPU 检查'}，需通过模型连接测试` : '本地 GGUF 环境未完成安装 · API 可用');
 }
 async function refreshAssistantModels() {
-  const provider = $('#assistant-provider').value;
-  const button = $('#assistant-refresh-models');
-  button.disabled = true;
+  if (assistant.modelRefreshBusy) return;
+  const scope = assistantModelScope(), revision = assistant.modelRefreshRevision;
+  const isCurrent = () => assistantModelScope() === scope && assistant.modelRefreshRevision === revision;
+  let saved = false;
+  assistant.modelRefreshBusy = true;
+  applyAssistantActionState();
+  assistantText('#assistant-config-status', '正在保存设置…');
   try {
     const config = await saveAssistantConfig();
-    if (provider === 'local') {
+    saved = true;
+    if (!isCurrent()) return;
+    if (config.provider === 'local') {
       assistantText('#assistant-model-list-status', `已扫描到 ${assistant.localModels.length} 个本地 GGUF`);
+      return;
+    }
+    if (!assistant.credential?.available) {
+      assistantText('#assistant-model-list-status', '设置已保存。请填写该地址对应的 API Key 后刷新；也可手动填写模型 ID。');
       return;
     }
     assistantText('#assistant-model-list-status', '正在读取渠道模型 LIST…');
     const result = await assistantPost('/api/assistant/models', {config});
-    assistant.remoteModels[provider] = result.models.map(id => ({id, label: id}));
-    if($('#assistant-provider').value!==provider)return;
-    if (!$('#assistant-model').value.trim()) $('#assistant-model').value = result.models[0];
+    const key = assistantModelListKey(config);
+    assistant.remoteModels[key] = result.models.map(id => ({id, label: id}));
+    savedValue(`assistant-model-list:${assistantModelScope(config)}`, JSON.stringify({credential_id: config.credential_id, models: result.models}));
+    if (!isCurrent()) return;
+    if (!$('#assistant-model').value.trim()) {
+      $('#assistant-model').value = result.models[0];
+      const info = await assistantPost('/api/assistant/config', {...config, model: result.models[0]});
+      assistant.config = info.config;
+      assistant.credential = info.credential;
+      if (!isCurrent()) return;
+    }
     renderAssistantModels();
-    assistant.providerSelections[provider] = $('#assistant-model').value;
+    assistant.providerSelections[config.provider] = $('#assistant-model').value;
     assistantText('#assistant-model-list-status', `已读取 ${result.count} 个模型；仍可手动填写 ID`);
   } catch (error) {
-    assistantText('#assistant-model-list-status', `${error.message}；已保留默认模型和手动填写`);
-  } finally { button.disabled = false; }
+    if (isCurrent()) {
+      if (!saved) assistantText('#assistant-config-status', `设置保存失败：${error.message}`);
+      assistantText('#assistant-model-list-status', `${error.message}；已填写的模型仍保留，可选择“自定义输入模型”手动填写完整 ID。`);
+    }
+  } finally { assistant.modelRefreshBusy = false; renderAssistantChannelStatus(); }
 }
 function updateCostHint() {
   const v = assistantValues(), score = v.abc_source?.includes('Compose') && v.cot !== 'off';
@@ -602,6 +657,8 @@ async function initAssistant() {
     assistant.providerSelections[info.config.provider] = info.config.model;
     assistant.providerBaseUrls[info.config.provider] = info.config.base_url;
     assistant.providerCredentials[info.config.provider] = info.config.credential_id || '';
+    if (!info.credential?.available) assistant.providerCredentials[info.config.provider] = '';
+    assistant.providerCredentialScopes[info.config.provider] = assistantModelScope(info.config);
     assistant.providerBudgets[info.config.provider] = info.config.max_tokens;
     for (const [id, provider] of Object.entries(info.providers)) { const opt = document.createElement('option'); opt.value = id; opt.textContent = provider.label; $('#assistant-provider').append(opt); }
     for (const [selector, values] of [['#assistant-lyrics-mode', info.options.lyrics_modes], ['#assistant-abc-source', info.options.abc_sources]]) {
@@ -641,11 +698,17 @@ async function initAssistant() {
   } catch (error) { assistantText('#assistant-progress', `助手初始化失败：${error.message}`); }
   finally { setAssistantLoading(false); }
 }
-$('#assistant-config-form').onsubmit = event => { event.preventDefault(); saveAssistantConfig().catch(error => assistantText('#assistant-config-status', error.message)); };
+$('#assistant-config-form').onsubmit = event => { event.preventDefault(); refreshAssistantModels(); };
 $('#assistant-provider').onchange = providerChanged;
 $('#assistant-model-choice').onchange = () => assistantModelChoiceChanged(true);
 $('#assistant-model').oninput = () => { $('#assistant-model-choice').value = CUSTOM_MODEL; assistant.providerSelections[$('#assistant-provider').value] = $('#assistant-model').value; renderAssistantChannelStatus(); };
 $('#assistant-key').oninput = renderAssistantChannelStatus;
+$('#assistant-base-url').oninput = () => {
+  assistant.modelRefreshRevision++;
+  renderAssistantModels();
+  assistantText('#assistant-model-list-status', 'API 地址已修改，请填写该地址对应的 API Key 并刷新模型；也可手动填写模型 ID。');
+  renderAssistantChannelStatus();
+};
 $('#assistant-open-settings').onclick = () => openAssistantSettings(true);
 $('#assistant-refresh-models').onclick = refreshAssistantModels;
 $('#assistant-delete-key').onclick = async () => { try { const provider = $('#assistant-provider').value, credential = assistant.providerCredentials[provider] || ''; await assistantPost('/api/assistant/credentials', {delete: true, credential_id: credential}); assistant.providerCredentials[provider] = ''; if (assistant.config?.provider === provider) assistant.config.credential_id = ''; await saveAssistantConfig(); } catch (error) { assistantText('#assistant-config-status', error.message); } };

@@ -9,10 +9,12 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.request
 import wave
 from pathlib import Path
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from playwright.sync_api import Page, sync_playwright
 
@@ -234,10 +236,126 @@ def seed_browser_state(root: Path) -> None:
     atomic_json(assistant_directory / "status.json", assistant_status)
 
 
+def assert_assistant_model_refresh(browser, url: str, output: Path) -> None:
+    """Exercise the actual settings UI and HTTP model-list route, without paid APIs."""
+    requested = []
+    chat_models = []
+    slow_started, slow_release = threading.Event(), threading.Event()
+
+    class ModelProvider(BaseHTTPRequestHandler):
+        def do_GET(self):
+            requested.append((self.path, self.headers.get("Authorization")))
+            if self.path == "/slow/v1/models":
+                slow_started.set()
+                slow_release.wait(10)
+            status = 404 if self.path == "/no-list/v1/models" else 200
+            payload = {"data": [{"id": "fixture/first"}, {"id": "fixture/second"},
+                                {"id": "fixture/first"}]}
+            raw = json.dumps(payload).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+        def log_message(self, *args):
+            pass
+
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            chat_models.append(body["model"])
+            raw = json.dumps({"choices": [{"message": {"content": '{"ok":true}'}}]}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), ModelProvider)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    context = browser.new_context(viewport={"width": 1366, "height": 900})
+    page = context.new_page()
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    original = page.request.get(url + "/api/assistant/config").json()["config"]
+    base = f"http://127.0.0.1:{server.server_port}"
+    try:
+        page.goto(url, wait_until="domcontentloaded")
+        wait_for_ui(page)
+        page.locator('.studio-sidebar [data-tab="assistant"]').click()
+        page.locator("#assistant-settings").evaluate("element => element.open = true")
+        page.locator("#assistant-provider").select_option("compatible")
+        page.locator("#assistant-base-url").fill(base + "/v1/")
+        page.locator("#assistant-key").fill("fixture-model-list-secret")
+        page.locator('#assistant-config-form button[type="submit"]').click()
+        page.wait_for_function("document.querySelector('#assistant-model-choice').options.length === 3", timeout=7000)
+        assert requested == [("/v1/models", "Bearer fixture-model-list-secret")]
+        assert page.locator("#assistant-model-choice").input_value() == "fixture/first"
+        assert "已读取 2 个模型" in page.locator("#assistant-model-list-status").inner_text()
+        assert page.request.get(url + "/api/assistant/config").json()["config"]["model"] == "fixture/first"
+        page.wait_for_function("!document.querySelector('#assistant-test').disabled")
+        assert not chat_models, "Saving settings must not send a paid chat request"
+        page.locator("#assistant-settings").scroll_into_view_if_needed()
+        page.screenshot(path=output / "desktop-assistant-model-list.png", full_page=False)
+
+        page.reload(wait_until="domcontentloaded")
+        wait_for_ui(page)
+        page.locator('.studio-sidebar [data-tab="assistant"]').click()
+        page.locator("#assistant-settings").evaluate("element => element.open = true")
+        assert page.locator("#assistant-model-choice").input_value() == "fixture/first"
+        assert page.locator("#assistant-model-choice option").count() == 3
+        assert len(requested) == 1, "Reload must restore the list without an automatic API request"
+
+        page.locator("#assistant-model-choice").select_option("__custom__")
+        assert page.locator("#assistant-test").is_disabled()
+        page.locator("#assistant-model").fill("fixture/manually-entered")
+        page.locator("#assistant-refresh-models").click()
+        page.wait_for_function("!document.querySelector('#assistant-refresh-models').disabled && document.querySelector('#assistant-model-list-status').textContent.includes('已读取 2 个模型')")
+        assert len(requested) == 2
+        assert page.locator("#assistant-model").input_value() == "fixture/manually-entered"
+
+        page.locator("#assistant-base-url").fill(base + "/no-list/v1")
+        assert page.locator("#assistant-model-choice option").count() == 1
+        assert page.locator("#assistant-test").is_disabled(), "A key must be bound to its API address"
+        page.locator("#assistant-key").fill("fixture-model-list-secret")
+        page.locator('#assistant-config-form button[type="submit"]').click()
+        page.wait_for_function("document.querySelector('#assistant-model-list-status').textContent.includes('HTTP 404')")
+        assert "手动" in page.locator("#assistant-model-list-status").inner_text()
+        assert "设置已保存" in page.locator("#assistant-config-status").inner_text()
+        assert page.locator("#assistant-custom-model-field").is_visible()
+        assert page.locator("#assistant-model").input_value() == "fixture/manually-entered"
+        assert page.locator("#assistant-test").is_enabled()
+        page.locator("#assistant-settings").scroll_into_view_if_needed()
+        page.screenshot(path=output / "desktop-assistant-model-list-unavailable.png", full_page=False)
+
+        page.locator("#assistant-base-url").fill(base + "/slow/v1")
+        page.locator("#assistant-key").fill("fixture-model-list-secret")
+        page.locator('#assistant-config-form button[type="submit"]').click()
+        page.wait_for_function("document.querySelector('#assistant-model-list-status').textContent.includes('正在读取')")
+        assert slow_started.wait(5)
+        assert page.locator('#assistant-config-form button[type="submit"]').is_disabled()
+        page.locator("#assistant-base-url").fill(base + "/different/v1")
+        slow_release.set()
+        page.wait_for_function("!document.querySelector('#assistant-refresh-models').disabled")
+        assert page.locator("#assistant-model-choice option").count() == 1
+        assert "已读取" not in page.locator("#assistant-model-list-status").inner_text()
+        assert not chat_models, "Fetching model lists must not send any paid chat requests"
+        assert not errors, errors
+    finally:
+        slow_release.set()
+        page.request.post(url + "/api/assistant/config", data=original)
+        context.close()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
 def run_browser(url: str, output: Path) -> dict:
     console_errors: list[str] = []
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True, args=["--disable-gpu"])
+        assert_assistant_model_refresh(browser, url, output)
         page = browser.new_page(viewport={"width": 1366, "height": 900})
         page.emulate_media(reduced_motion="reduce")
         page.on("console", lambda message: console_errors.append(message.text) if message.type == "error" else None)
@@ -662,6 +780,7 @@ def run_browser(url: str, output: Path) -> dict:
             "ordinary workspace buttons use current-page semantics without unsupported selected state",
             "creator, source, ComfyUI node and model links stay visible with verified destinations",
             "API credentials, Seedance 2.1 Turbo, explicit Custom model input and one-click ABC completion are visible and reachable",
+            "settings save fetches real HTTP model lists, restores them on reload, preserves manual models and isolates credentials and delayed responses by API address",
             "assistant lyrics, style and ABC recover from the latest project job after tab switches and a browser reload",
             "YuE2 training exposes collapsed per-song settings, eight-song pagination, inline validation and three-model pagination",
             "backend-reported progress stays fixed across workspaces and opens the full task details",
