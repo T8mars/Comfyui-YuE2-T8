@@ -70,6 +70,12 @@ class LibraryCleanup:
         for row in db.execute("SELECT manifest_json FROM dataset_snapshots"):
             manifest = json.loads(row[0])  # Corrupt snapshots must block destructive cleanup.
             pinned.update(strings(manifest))
+        # MIDI source revisions and generation recipes remain immutable references.
+        tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        for table in ('midi_documents', 'midi_versions', 'midi_snapshots'):
+            if table in tables:
+                for row in db.execute(f'SELECT data_json FROM {table}'):
+                    pinned.update(strings(json.loads(row[0])))
         deletable, titles, skipped, projects = [], [], [], {}
         for asset_id in ids:
             if limit is not None and len(deletable) >= limit:

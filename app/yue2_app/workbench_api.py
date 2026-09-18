@@ -75,7 +75,7 @@ def stream_file(handler, path: Path, info: dict, *, head: bool = False) -> None:
                     break
                 handler.wfile.write(block)
                 remaining -= len(block)
-    except (BrokenPipeError, ConnectionResetError):
+    except ConnectionError:
         return
 
 
@@ -190,6 +190,9 @@ def _query_integer(query: dict[str, list[str]], name: str, default: int, *,
 
 
 def get(handler, parsed, library: AssetLibrary, *, head: bool = False) -> bool:
+    if parsed.path.startswith('/api/workbench/midi'):
+        from . import midi_api
+        return midi_api.get(handler, parsed, library, head=head)
     path, query = parsed.path, _query(parsed)
     if path == "/api/workbench/assets":
         filters = {"kind": query.get("kind", [""])[0], "query": query.get("q", [""])[0],
@@ -301,6 +304,9 @@ def export_project(library: AssetLibrary, root: Path, project_id: str) -> dict:
 
 
 def post(handler, parsed, library: AssetLibrary, root: Path, *, protected_assets=()) -> bool:
+    if parsed.path.startswith('/api/workbench/midi'):
+        from . import midi_api
+        return midi_api.post(handler, parsed, library, root)
     path = parsed.path
     if path in {"/api/workbench/assets/batch-status", "/api/workbench/assets/cleanup-preview", "/api/workbench/assets/purge"}:
         from .library_cleanup import LibraryCleanup

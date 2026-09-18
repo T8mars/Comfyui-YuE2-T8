@@ -256,7 +256,7 @@ class AssetLibrary:
 
     @_blob_locked
     def import_file(self, source: Path, *, kind: str, title: str = "", tags=None,
-                    rights=None, provenance=None, metadata=None) -> dict:
+                    rights=None, provenance=None, metadata=None, asset_id: str | None = None) -> dict:
         kind = str(kind).strip()
         if kind not in ASSET_KINDS or kind in TEXT_KINDS:
             raise ValueError("素材类型不支持这个文件")
@@ -267,7 +267,8 @@ class AssetLibrary:
         if (suffix in {".mid", ".midi"}) != (kind == "midi"):
             raise ValueError("MIDI 文件必须导入为 MIDI，MIDI 类型也只能使用 .mid 或 .midi 文件")
         digest, suffix, destination = self._promote_blob(source)
-        now, asset_id, revision_id = _now(), uuid.uuid4().hex, uuid.uuid4().hex
+        now, revision_id = _now(), uuid.uuid4().hex
+        asset_id = _ident(asset_id, '素材 ID') if asset_id else None
         title = str(title or source.name).strip()[:200]
         if not title:
             raise ValueError("素材名称不能为空")
@@ -276,11 +277,19 @@ class AssetLibrary:
             base_metadata.update(self.inspect_audio(destination))
         mime = mimetypes.guess_type(destination.name)[0] or "application/octet-stream"
         with self.transaction() as db:
-            db.execute("INSERT INTO assets(id,kind,title,tags_json,rights_json,created_at,updated_at,current_revision_id) VALUES(?,?,?,?,?,?,?,?)",
-                       (asset_id, kind, title, _json(list(tags or [])), _json(dict(rights or {})),
-                        now, now, revision_id))
-            db.execute("INSERT INTO revisions(id,asset_id,blob_sha256,blob_suffix,mime,size,metadata_json,provenance_json,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
-                       (revision_id, asset_id, digest, suffix, mime, destination.stat().st_size,
+            parent_revision_id = None
+            if asset_id:
+                previous = db.execute("SELECT kind,current_revision_id FROM assets WHERE id=? AND status='active'", (asset_id,)).fetchone()
+                if previous is None or previous['kind'] != kind:
+                    raise ValueError('素材不存在或文件类型不匹配')
+                parent_revision_id = previous['current_revision_id']
+                db.execute("UPDATE assets SET title=?,updated_at=?,current_revision_id=? WHERE id=?", (title, now, revision_id, asset_id))
+            else:
+                asset_id = uuid.uuid4().hex
+                db.execute("INSERT INTO assets(id,kind,title,tags_json,rights_json,created_at,updated_at,current_revision_id) VALUES(?,?,?,?,?,?,?,?)",
+                           (asset_id, kind, title, _json(list(tags or [])), _json(dict(rights or {})), now, now, revision_id))
+            db.execute("INSERT INTO revisions(id,asset_id,parent_revision_id,blob_sha256,blob_suffix,mime,size,metadata_json,provenance_json,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                       (revision_id, asset_id, parent_revision_id, digest, suffix, mime, destination.stat().st_size,
                         _json(base_metadata), _json(dict(provenance or {})), now))
         return self.get_asset(asset_id)
 

@@ -47,12 +47,15 @@ class ChordTranscriber:
 
     @torch.inference_mode()
     def transcribe(
-        self, audio_path: Union[str, Path], bpm: float
+        self, audio_path: Union[str, Path], bpm: float, *, raw_seconds=False, check_cancelled=None, on_progress=None
     ) -> List[Tuple[str, int, int]]:
         """Return complete chord labels and rounded whole-beat intervals."""
         if not np.isfinite(bpm) or bpm <= 0:
             raise ValueError("bpm must be positive and finite")
         import librosa
+
+        if check_cancelled:
+            check_cancelled()
 
         audio, _ = librosa.load(str(audio_path), sr=self.sample_rate, mono=True)
         if audio.size == 0:
@@ -69,7 +72,13 @@ class ChordTranscriber:
         features = torch.from_numpy(np.abs(cqt).astype(np.float32)).to(
             device=self.device, dtype=self.dtype
         )
-        predictions = [model.inference(features) for model in self.models]
+        predictions = []
+        for index, model in enumerate(self.models):
+            if check_cancelled:
+                check_cancelled()
+            predictions.append(model.inference(features))
+            if on_progress:
+                on_progress(index+1, len(self.models))
         probabilities = [
             np.mean([prediction[head] for prediction in predictions], axis=0)
             for head in range(6)
@@ -77,6 +86,10 @@ class ChordTranscriber:
         segments = self.decoder.decode_segments(
             probabilities, self.hop_length / self.sample_rate
         )
+        if check_cancelled:
+            check_cancelled()
+        if raw_seconds:
+            return segments
         seconds_per_beat = 60.0 / bpm
         return [
             (

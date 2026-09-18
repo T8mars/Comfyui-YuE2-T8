@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/static/style.css">
   <link rel="stylesheet" href="/static/assistant.css">
   <link rel="stylesheet" href="/static/workbench.css">
+  <link rel="stylesheet" href="/static/midi_editor.css">
 </head>
 <body data-active-tab="project">
   <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -22,6 +23,7 @@
     <div class="sidebar-group"><small>创作</small>
       <button class="tab" data-tab="create"><i class="bi bi-music-note-beamed"></i>歌曲创作</button>
       <button class="tab" data-tab="plan"><i class="bi bi-music-note-list"></i>乐谱计划</button>
+      <button class="tab" data-tab="midi"><i class="bi bi-keyboard"></i>MIDI 编辑器</button>
       <button class="tab" data-tab="remix"><i class="bi bi-sliders"></i>重新编曲</button>
       <button class="tab" data-tab="cover"><i class="bi bi-mic"></i>旋律与音色</button>
       <button class="tab" data-tab="assistant"><i class="bi bi-stars"></i>AI 创作助手</button>
@@ -42,6 +44,7 @@
         <button class="ghost" type="button" data-go-tab="assets"><i class="bi bi-collection-play"></i>资产库</button>
         <button class="ghost" type="button" data-go-tab="create"><i class="bi bi-music-note-beamed"></i>歌曲创作</button>
         <button class="ghost" type="button" data-go-tab="plan"><i class="bi bi-music-note-list"></i>乐谱计划</button>
+        <button class="ghost" type="button" data-go-tab="midi"><i class="bi bi-keyboard"></i>MIDI 编辑器</button>
         <button class="ghost" type="button" data-go-tab="remix"><i class="bi bi-sliders"></i>重新编曲</button>
         <button class="ghost" type="button" data-go-tab="cover"><i class="bi bi-mic"></i>旋律与音色</button>
         <button class="ghost" type="button" data-go-tab="assistant"><i class="bi bi-stars"></i>AI 创作助手</button>
@@ -127,6 +130,7 @@
       </div>
     </details>
 
+    <section id="midi" class="panel" aria-label="MIDI 编辑器"><div id="midi-editor-root"></div></section>
     <section id="project" class="panel active">
       <div class="workspace-heading"><div><p class="eyebrow">SONG PROJECT</p><h2>歌曲项目</h2><p>把素材、歌词、乐谱、生成版本和音色处理放在同一个作品里。</p></div><button id="new-project" class="primary" type="button"><i class="bi bi-plus-lg"></i> 新建项目</button></div>
       <details id="new-user-guide" class="result-card new-user-guide"><summary>第一次使用：四步完成一首歌</summary><ol><li><b>新建歌曲项目</b><span>每次生成和处理都会自动归档，切换页面也不会丢。</span></li><li><b>准备歌词与曲风</b><span>可以直接去“歌曲创作”，也可以先让“AI 创作助手”生成。</span></li><li><b>生成并试听</b><span>后台任务会持续显示进度，完成后播放器留在当前页面和任务记录。</span></li><li><b>继续编曲或换音色</b><span>把满意版本发送到重新编曲、旋律与音色，再选为主版本导出。</span></li></ol></details>
@@ -153,7 +157,7 @@
       <div class="workspace-heading"><div><p class="eyebrow">ASSET LIBRARY</p><h2>资产库</h2><p>统一整理歌曲、干声、伴奏、参考音色、歌词、ABC 乐谱、MIDI、作品和模型。</p></div><label class="primary file-action"><i class="bi bi-upload"></i> 导入文件<input id="asset-upload" type="file" accept="audio/*,.mid,.midi,audio/midi" multiple></label></div>
       <div id="asset-training-guidance" class="asset-training-guidance hidden" role="status"><div><b>为 YuE2 训练选择歌曲</b><p id="asset-training-guidance-copy">把歌曲加入当前项目，训练页才会显示；至少准备两首不同歌曲。</p></div><button id="asset-training-back" class="ghost compact" type="button">返回训练页</button></div>
       <div class="asset-controls"><label>类型<select id="asset-kind"><option value="">全部类型</option><option value="song">歌曲</option><option value="work">作品</option><option value="vocal">人声</option><option value="instrumental">伴奏</option><option value="reference_voice">参考音色</option><option value="lyrics">歌词</option><option value="style">曲风</option><option value="score">乐谱</option><option value="midi">MIDI</option><option value="model">模型</option></select></label><label class="asset-search"><i class="bi bi-search"></i><input id="asset-query" type="search" placeholder="搜索名称或标签" aria-label="搜索资产名称或标签"></label><button id="migrate-assets" class="ghost" type="button"><i class="bi bi-folder-plus"></i> 整理现有文件</button><button id="new-text-asset" class="ghost" type="button"><i class="bi bi-file-earmark-plus"></i> 新建文本</button></div>
-      <div id="asset-import-options" class="inline-editor"><label>导入为<select id="asset-import-kind"><option value="song">歌曲</option><option value="reference_voice">参考音色</option><option value="vocal">人声</option><option value="instrumental">伴奏</option><option value="midi">MIDI</option></select></label><span id="asset-import-status" class="meta">先选择类型，再点击“导入文件”；音频可立即试听，MIDI 可发送到重新编曲。</span></div>
+      <div id="asset-import-options" class="inline-editor"><label>导入为<select id="asset-import-kind"><option value="song">歌曲</option><option value="reference_voice">参考音色</option><option value="vocal">人声</option><option value="instrumental">伴奏</option><option value="midi">MIDI</option></select></label><span id="asset-import-status" class="meta">先选择类型，再点击“导入文件”；音频可提取 MIDI，MIDI 可直接编辑、试听和生成歌曲。</span></div>
       <div class="cleanup-controls" aria-label="资产整理">
         <label>查看<select id="asset-status"><option value="active">资产库</option><option value="trashed">回收站</option></select></label>
         <label class="check"><input id="asset-select-page" type="checkbox">选择本页</label>
@@ -258,6 +262,7 @@ This melody still waits for you</textarea></label>
 
     <section id="remix" class="panel">
       <div class="section-title"><div><span>MX</span><h2>保留旋律，重新编曲</h2></div><p>从参考歌曲提取旋律与和弦，换歌词、流派、乐器和情绪，生成带演唱与伴奏的新版本。</p></div>
+      <div class="toolbar"><button class="ghost" type="button" onclick="midiOpenRemix()"><i class="bi bi-keyboard"></i> 打开 MIDI 编辑器</button><span class="meta">可先独立提取、试听和编辑，不用先生成歌曲。</span></div>
       <div id="remix-result" class="results" aria-live="polite"></div>
       <form id="remix-form" class="grid-form">
         <label>旋律来源<select id="remix-source-mode" name="source_mode"><option value="audio">参考歌曲（推荐）</option><option value="midi">旋律与和弦 MIDI</option></select></label>
@@ -511,7 +516,7 @@ This melody still waits for you</textarea></label>
 
     <section id="history" class="panel">
       <div class="section-title"><div><span>04</span><h2>任务与版本</h2></div><p>失败、取消和截断结果都会保留，便于定位问题与继续编辑。</p></div>
-      <div class="asset-controls"><label>状态<select id="history-status"><option value="">全部状态</option><option value="complete">已完成</option><option value="failed">失败</option><option value="cancelled">已取消</option><option value="paused">已暂停</option><option value="running">运行中</option><option value="queued">排队中</option></select></label><label>类型<select id="history-kind"><option value="">全部类型</option><option value="generate">歌曲生成</option><option value="plan">乐谱计划</option><option value="render_plan">乐谱渲染</option><option value="mulacover_remix">MuLaCover 重新编曲</option><option value="transcribe">音频转谱</option><option value="reference_cover">参考音色翻唱</option><option value="voice_convert">音色转换</option><option value="assistant">AI 创作助手</option><option value="rvc_train">RVC 训练</option><option value="yue2_train">YuE2 训练</option><option value="yue2_preview">训练试听</option></select></label><label>项目<select id="history-project"><option value="">全部项目</option><option value="__global__">未归档 / 全局</option></select></label><label class="asset-search"><i class="bi bi-search"></i><input id="history-query" type="search" placeholder="搜索任务名称、ID 或错误" aria-label="搜索任务名称、ID 或错误"></label></div>
+      <div class="asset-controls"><label>状态<select id="history-status"><option value="">全部状态</option><option value="complete">已完成</option><option value="failed">失败</option><option value="cancelled">已取消</option><option value="paused">已暂停</option><option value="running">运行中</option><option value="queued">排队中</option></select></label><label>类型<select id="history-kind"><option value="">全部类型</option><option value="generate">歌曲生成</option><option value="plan">乐谱计划</option><option value="render_plan">乐谱渲染</option><option value="mulacover_remix">MuLaCover 重新编曲</option><option value="midi_extract">音乐提取 MIDI</option><option value="transcribe">音频转谱</option><option value="reference_cover">参考音色翻唱</option><option value="voice_convert">音色转换</option><option value="assistant">AI 创作助手</option><option value="rvc_train">RVC 训练</option><option value="yue2_train">YuE2 训练</option><option value="yue2_preview">训练试听</option></select></label><label>项目<select id="history-project"><option value="">全部项目</option><option value="__global__">未归档 / 全局</option></select></label><label class="asset-search"><i class="bi bi-search"></i><input id="history-query" type="search" placeholder="搜索任务名称、ID 或错误" aria-label="搜索任务名称、ID 或错误"></label></div>
       <div class="toolbar"><button id="refresh-history" class="ghost">刷新</button><button class="ghost" type="button" onclick="openDirectory('logs')">打开日志目录</button><button class="ghost" type="button" onclick="openDirectory('outputs')">打开输出目录</button><button id="cleanup-storage" class="ghost">按策略清理</button><span id="storage-usage" class="meta"></span><button id="cancel-active" class="danger" disabled title="当前没有正在执行的任务">取消当前任务</button></div>
       <div class="cleanup-controls" aria-label="任务记录整理">
         <label class="check"><input id="history-select-page" type="checkbox">选择本页已结束任务</label>
@@ -533,6 +538,7 @@ This melody still waits for you</textarea></label>
   <script src="/static/mulacover.js"></script>
   <script src="/static/rvc.js"></script>
   <script src="/static/workbench.js"></script>
+  <script src="/static/midi_editor.js"></script>
   <script src="/static/training_cleanup.js"></script>
   <script src="/static/assistant.js"></script>
 </body>

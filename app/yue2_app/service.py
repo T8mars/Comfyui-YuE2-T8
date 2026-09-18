@@ -49,6 +49,7 @@ VOICE_KINDS = {"voice_convert"}
 RVC_KINDS = {"rvc_import", "rvc_separate", "rvc_train", "rvc_model_import", "rvc_model_export", "rvc_storage_move"}
 TRAINING_KINDS = {"yue2_training_assets", "yue2_prepare", "yue2_train", "yue2_preview", "workbench_migrate"}
 MULACOVER_KINDS = {"mulacover_remix"}
+MIDI_KINDS = {'midi_extract'}
 PREVIEW_KINDS = {"yue2_preview"}
 WORKFLOW_KINDS = {"reference_cover"}
 GENERATION_KINDS = CORE_KINDS - {"doctor"}
@@ -208,7 +209,7 @@ def terminate_recorded_worker(status: dict, job_id: str) -> None:
         return
     script = (
         f"$p=Get-CimInstance Win32_Process -Filter 'ProcessId={pid}' -ErrorAction SilentlyContinue;"
-        f"if($p -and $p.CommandLine -match 'app\\.yue2_app\\.(core_worker|transcribe_worker|voice_worker|workflow_worker|rvc_worker|training_worker|mulacover_worker)' "
+        f"if($p -and $p.CommandLine -match 'app\\.yue2_app\\.(core_worker|transcribe_worker|voice_worker|workflow_worker|rvc_worker|training_worker|mulacover_worker|midi_extract_worker)' "
         f"-and $p.CommandLine -like '*{job_id}*'){{taskkill.exe /PID {pid} /T /F | Out-Null}}"
     )
     subprocess.run(["powershell.exe", "-NoProfile", "-Command", script], check=False,
@@ -262,6 +263,8 @@ class JobStore:
         if kind == "transcribe":
             name = Path(str(request.get("source_path", ""))).name
             return f"转谱 {name}" if name else "从音频提取旋律与乐谱"
+        if kind == 'midi_extract':
+            return f'提取 MIDI · {request.get("title") or Path(str(request.get("source_path", ""))).name}'[:200]
         if kind in {"voice_convert", "reference_cover"}:
             name = Path(str(request.get("reference_path", ""))).name
             return f"参考音色翻唱 · {name}" if name else "参考音色翻唱"
@@ -388,7 +391,7 @@ class JobStore:
             active = [job for job in self.jobs.values() if job.get('status') not in TERMINAL]
             if any(job.get('kind') == 'rvc_storage_move' for job in active) or (kind == 'rvc_storage_move' and active):
                 raise ValueError('目录迁移需要独占任务队列，请等待当前任务结束')
-        if kind not in CORE_KINDS | TRANSCRIBE_KINDS | VOICE_KINDS | WORKFLOW_KINDS | ASSISTANT_KINDS | RVC_KINDS | TRAINING_KINDS | MULACOVER_KINDS:
+        if kind not in CORE_KINDS | TRANSCRIBE_KINDS | VOICE_KINDS | WORKFLOW_KINDS | ASSISTANT_KINDS | RVC_KINDS | TRAINING_KINDS | MULACOVER_KINDS | MIDI_KINDS:
             raise ValueError(f"不支持的任务类型：{kind}")
         if not isinstance(request, dict):
             raise ValueError("request 必须是对象")
@@ -427,12 +430,35 @@ class JobStore:
                     raise ValueError("请先完成训练素材预处理")
             if kind in {"yue2_prepare", "yue2_train"} and not capabilities.get("yue2_training"):
                 raise ValueError("YuE2 训练资源或 MERT 模型尚未安装完整")
+        if kind in MIDI_KINDS:
+            from .midi_extract_worker import normalize_request, readiness
+            if not readiness(ROOT)['ready']:
+                raise ValueError('音乐转 MIDI 的 YourMT3 / 和弦模型或源码尚未安装完整')
+            request = normalize_request(ROOT, request)
+            result_panel = 'midi'
         if kind in MULACOVER_KINDS:
             if not capabilities.get("mulacover"):
                 raise ValueError("MuLaCover 重新编曲模型尚未安装完整，请在模型与设置中检查")
             from .mulacover_core import normalize_request
             request = normalize_request(ROOT, request)
-            result_panel = "remix"
+            if request.get('midi_snapshot_id'):
+                from .midi_document import MidiStore, ident
+                midi_store = MidiStore(AssetLibrary(ROOT))
+                snapshot_id = ident(request['midi_snapshot_id'])
+                with midi_store.library.reading() as db:
+                    row = db.execute('SELECT * FROM midi_snapshots WHERE id=?', (snapshot_id,)).fetchone()
+                if row is None:
+                    raise ValueError('MIDI 生成快照不存在')
+                snapshot = json.loads(row['data_json'])
+                if (row['document_id'] != request['midi_document_id'] or
+                    row['document_version'] != request['midi_document_version'] or
+                    snapshot['project_id'] != request['project_id']):
+                    raise ValueError('MIDI 生成快照版本或项目不匹配')
+                for role, key in (('melody','melody_midi'),('chord','chord_midi'),('drums','drum_midi')):
+                    expected = midi_store.home/'s'/snapshot_id/f'{role}.mid'
+                    if Path(request['source'].get(key, '')).resolve() != expected.resolve():
+                        raise ValueError('MIDI 任务必须使用该快照的固定输入')
+            result_panel = 'midi' if request.get('midi_snapshot_id') else 'remix'
         if kind in GENERATION_KINDS | WORKFLOW_KINDS | PREVIEW_KINDS and not capabilities.get("generation"):
             raise ValueError("歌曲生成组件不完整：缺少 YuE2 推理源码或核心模型，请重新解压完整整合包")
         if kind in TRANSCRIBE_KINDS and not capabilities.get("transcription"):
@@ -528,7 +554,7 @@ class JobStore:
                     raise ValueError("歌曲风格强度必须在 0–2 之间")
                 generation["style_model_scale"] = strength
         source = source if source in {"webui", "comfyui", "api"} else "api"
-        if result_panel not in {"create", "plan", "cover", "remix", "assistant", "voices", "training"}:
+        if result_panel not in {"create", "plan", "cover", "remix", "midi", "assistant", "voices", "training"}:
             result_panel = ("cover" if kind in {"reference_cover", "voice_convert"} or
                             (kind == "generate" and request.get("abc")) else
                             "plan" if kind == "render_plan" else "create")
@@ -610,11 +636,12 @@ class JobStore:
                 raise ValueError("此任务已部分清理，不能继续执行；请完成清理后创建新任务")
             if status.get("training_deleted"):
                 raise ValueError("此训练记录或缓存已清理，不能继续执行；请创建新训练")
-            if status["status"] not in {"failed", "cancelled", "paused"}:
+            partial_midi = status.get('kind') == 'midi_extract' and (status.get('result') or {}).get('partial') is True
+            if status["status"] not in {"failed", "cancelled", "paused"} and not (status['status']=='complete' and partial_midi):
                 raise ValueError("只能恢复失败、取消或暂停的任务")
             directory = job_directory(job_id)
             job = json.loads((directory / "job.json").read_text(encoding="utf-8"))
-            if job["kind"] not in {"generate", "reference_cover", "voice_convert", "render_plan", "rvc_train", "rvc_import", "rvc_separate", "rvc_storage_move", "yue2_train", "mulacover_remix"}:
+            if job["kind"] not in {"generate", "reference_cover", "voice_convert", "render_plan", "rvc_train", "rvc_import", "rvc_separate", "rvc_storage_move", "yue2_train", "mulacover_remix", 'midi_extract'}:
                 raise ValueError("这个任务类型暂不支持阶段恢复")
             request = dict(job["request"])
             overrides = dict(data or {})
@@ -817,7 +844,7 @@ class JobStore:
                     if marker not in seen:
                         seen.add(marker); paths.append((candidate, kind, key))
         visit(result)
-        asset_ids = []
+        asset_ids = list(result.get('asset_ids') or []) if job.get('kind') == 'midi_extract' else []
         generate_request = request.get("generate")
         nested_project_id = generate_request.get("project_id") if isinstance(generate_request, dict) else ""
         project_id = str(request.get("project_id") or nested_project_id or "")
@@ -826,7 +853,10 @@ class JobStore:
                 path, kind=kind, title=(status.get("summary") or kind) + ("" if index == 0 else f" · {role}"),
                 provenance={"job_id": job_id, "job_kind": job.get("kind"), "result_key": role},
                 metadata={"source_job_id": job_id, "track_group_id": f"job:{job_id}",
-                          "result_panel": status.get("result_panel")},
+                          "result_panel": status.get("result_panel"),
+                          "midi_document_id": request.get('midi_document_id', ''),
+                          "document_version": request.get('midi_document_version'),
+                          "midi_snapshot_id": request.get('midi_snapshot_id', '')},
             )
             asset_ids.append(asset["id"])
             if project_id:
@@ -1221,6 +1251,8 @@ class JobStore:
                     python, module = CORE_PYTHON, "app.yue2_app.training_worker"
                 elif kind in MULACOVER_KINDS:
                     python, module = CORE_PYTHON, "app.yue2_app.mulacover_worker"
+                elif kind in MIDI_KINDS:
+                    python, module = CORE_PYTHON, 'app.yue2_app.midi_extract_worker'
                 else:
                     python, module = CORE_PYTHON, "app.yue2_app.core_worker"
                 if not python.is_file():
@@ -1483,6 +1515,8 @@ class Handler(BaseHTTPRequestHandler):
                 file = within(WEB_ROOT, WEB_ROOT / path.removeprefix("/static/"))
                 return self._static(file)
             return self._error(404, "接口不存在")
+        except ConnectionError:
+            return
         except KeyError:
             return self._error(404, "任务不存在")
         except (ValueError, OSError) as exc:
@@ -1501,6 +1535,8 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path.startswith("/api/files/"):
                 return self._job_file(parsed.path, head=True)
             return self._error(404, "接口不存在")
+        except ConnectionError:
+            return
         except (KeyError, ValueError, OSError) as exc:
             return self._error(400, str(exc))
 
@@ -1670,6 +1706,8 @@ class Handler(BaseHTTPRequestHandler):
                     STORE.cancel(state["current_job"], force=bool(data.get("force", False)))
                 return self._json(200, {"ok": True, "message": "worker 按任务隔离，空闲时不占用模型显存", **STORE.state()})
             return self._error(404, "接口不存在")
+        except ConnectionError:
+            return
         except KeyError as exc:
             return self._error(400, f"缺少字段：{exc}")
         except (ValueError, OSError, json.JSONDecodeError, assistant_data.engine.YuE2PromptError) as exc:

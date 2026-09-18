@@ -24,7 +24,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-          python -m pip install av numpy psutil requests scipy soundfile faiss-cpu safetensors accelerate==1.13.0 transformers==4.57.6
+          python -m pip install av numpy psutil requests scipy soundfile mido==1.3.3 faiss-cpu safetensors accelerate==1.13.0 transformers==4.57.6
       - name: Run Python tests
         run: python -m unittest discover -s tests -p "test_*.py" -v
       - name: Parse Python sources
@@ -36,6 +36,8 @@ jobs:
           node --check app/web/rvc.js
           node --check app/web/workbench.js
           node --check app/web/training_cleanup.js
+          node --check app/web/mulacover.js
+          node --check app/web/midi_editor.js
       - name: Install browser for UI smoke checks
         run: |
           python -m pip install playwright==1.62.0

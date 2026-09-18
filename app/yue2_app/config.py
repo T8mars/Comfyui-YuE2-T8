@@ -177,6 +177,10 @@ def runtime_ready(root: Path | None = None) -> dict[str, object]:
     from .mulacover_models import readiness as mulacover_readiness
     mulacover_models = mulacover_readiness(base)
     result["mulacover_models"] = mulacover_models
+    from .midi_extract_worker import readiness as midi_readiness
+    result['midi_transcription'] = midi_readiness(base)
+    result['capabilities']['midi_transcription'] = bool(
+        not configured['error'] and result['core_python'] and result['midi_transcription']['ready'])
     result["capabilities"]["mulacover"] = bool(
         not configured["error"] and result["core_python"] and result["ffmpeg"]
         and mulacover_models["ready"]

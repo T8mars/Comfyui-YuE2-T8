@@ -698,7 +698,7 @@ def run_browser(url: str, output: Path) -> dict:
         assert page.locator(".tool-nav").count() == 0
         sidebar_tabs = page.locator(".studio-sidebar .tab")
         expected_tabs = (
-            "project", "assets", "create", "plan", "remix",
+            "project", "assets", "create", "plan", "midi", "remix",
             "cover", "assistant", "training", "voices", "history",
         )
         assert sidebar_tabs.count() == len(expected_tabs)
@@ -1119,7 +1119,7 @@ def run_browser(url: str, output: Path) -> dict:
             "backend-reported progress stays fixed across workspaces and opens the full task details",
             "Seed-VC and RVC expose independent remembered octave presets in the main cover flow",
             "mobile project maintenance stays collapsed and workspace switching resets long-page scroll position",
-            "all ten workspaces meet WCAG AA contrast for visible normal-size text",
+            "all eleven workspaces meet WCAG AA contrast for visible normal-size text",
             "asset cross-page selection, trash, restore, protected purge, cancellation and task cleanup work through real HTTP routes on desktop and phone",
             "delayed project and model reads cannot overwrite newer state; deletion remains inside its preview and assistant double submits create one job without paid API calls",
             "training cleanup paginates ten records, confirms precise deletion, protects shared snapshots and retains model downloads on desktop and phone",

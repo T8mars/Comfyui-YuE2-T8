@@ -146,6 +146,10 @@ def normalize_request(root: Path, request: dict) -> dict:
         "temperature": _number(request, "temperature", 1.0, 0.1, 2.0),
         "topk": _integer(request, "topk", 250, 1, 8191),
         "project_id": str(request.get("project_id") or "")[:128],
+        "midi_snapshot_id": str(request.get('midi_snapshot_id') or '')[:32],
+        "midi_document_id": str(request.get('midi_document_id') or '')[:32],
+        "midi_document_version": request.get('midi_document_version'),
+        "_local_references": request.get('_local_references', []),
     }
 
 
@@ -190,7 +194,8 @@ def run(root: Path, job_dir: Path, request: dict, ctx) -> dict:
     condition_dir = artifact_dir / "condition"
     audio_path = artifact_dir / "audio.flac"
     artifact_dir.mkdir(parents=True, exist_ok=True)
-    pipe = None
+    pipe = model_inputs = model_outputs = condition = None
+    ctx.memory('mulacover_start')
     try:
         ctx.update("mulacover_loading", message="正在加载重新编曲模型")
         pipe = MuLaCoverGenPipeline.from_pretrained(
@@ -224,6 +229,8 @@ def run(root: Path, job_dir: Path, request: dict, ctx) -> dict:
             message = "正在解码完整歌曲" if mapped == "mulacover_decoding" else "正在生成重新编曲版本"
             ctx.update(mapped, message=message, completed=completed, total=total,
                        progress=completed / max(1, total))
+            if completed == total:
+                ctx.memory(f'mulacover_{stage}')
 
         device_index = device.index if device.index is not None else torch.cuda.current_device()
         with torch.random.fork_rng(devices=[device_index]):
@@ -235,9 +242,11 @@ def run(root: Path, job_dir: Path, request: dict, ctx) -> dict:
                 cfg_scale=prepared["cfg_scale"], disable_progress=True,
                 cancelled=ctx.cancelled, on_progress=progress,
             )
+        import numpy as np
+        np.savez_compressed(artifact_dir/'frames.npz', frames=model_outputs['frames'].detach().cpu().numpy())
         ctx.check_cancelled()
         ctx.update("mulacover_decoding", message="正在解码完整歌曲")
-        pipe.postprocess(
+        decoded = pipe.postprocess(
             model_outputs, save_path=audio_path, disable_progress=True,
             cancelled=ctx.cancelled, on_progress=progress,
             decode_seed=prepared["decode_seed"],
@@ -252,6 +261,8 @@ def run(root: Path, job_dir: Path, request: dict, ctx) -> dict:
             "model_revision": state["components"]["MuLaCover"]["revision"],
             "request": prepared,
             "audio": {"sample_rate": info.samplerate, "channels": info.channels, "seconds": info.duration},
+            'audio_export': {key: decoded[key] for key in ('raw_peak','export_gain') if key in decoded},
+            'frames': str(artifact_dir/'frames.npz'),
         }
         atomic_json(artifact_dir / "metadata.json", metadata)
         return {
@@ -260,6 +271,9 @@ def run(root: Path, job_dir: Path, request: dict, ctx) -> dict:
             "sample_rate": info.samplerate,
             "seed": prepared["seed"],
             "decode_seed": prepared["decode_seed"],
+            "midi_document_id": prepared['midi_document_id'],
+            "midi_document_version": prepared['midi_document_version'],
+            "midi_snapshot_id": prepared['midi_snapshot_id'],
             "style": prepared["tags"],
             "semitone_shift": semitones,
             "condition_dir": str(condition_dir),
@@ -269,10 +283,11 @@ def run(root: Path, job_dir: Path, request: dict, ctx) -> dict:
             "metadata": str(artifact_dir / "metadata.json"),
         }
     finally:
-        pipe = None
+        pipe = model_inputs = model_outputs = condition = None
         gc.collect()
         try:
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+                ctx.memory('mulacover_finished')
         except Exception:
             pass

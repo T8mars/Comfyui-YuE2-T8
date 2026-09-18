@@ -142,8 +142,9 @@ function renderPanelResults(jobs) {
   const projectId = String(window.workbenchProjectId?.() || '');
   const scope = projectId || '__global__';
   const scopedProject = job => String(job.project_id || job.request?.project_id || job.request?.generate?.project_id || '');
-  for (const panel of ['create', 'plan', 'remix', 'cover']) {
-    const target = $(`#${panel}-result`);
+  for (const panel of ['create', 'plan', 'remix', 'cover', 'midi']) {
+    const target = $(panel==='midi'?'#midi-gen-result':`#${panel}-result`);
+    if (!target) continue;
     const job = jobs.find(item => ['generate', 'reference_cover', 'voice_convert', 'render_plan', 'decode', 'mulacover_remix'].includes(item.kind) && resultPanel(item) === panel && scopedProject(item) === projectId);
     if (!job) {
       if (target.dataset.projectScope !== scope) {
@@ -155,6 +156,7 @@ function renderPanelResults(jobs) {
       continue;
     }
     const signature = `${scope}:${job.id}:${job.status}:${job.result?.completed_candidates || 0}`;
+    const olderMidi = panel==='midi' && job.status!=='complete' ? jobs.find(item=>item.id!==job.id&&item.kind==='mulacover_remix'&&resultPanel(item)==='midi'&&scopedProject(item)===projectId&&item.status==='complete'&&item.result?.audio) : null;
     const previous = observedJobs.get(job.id);
     observedJobs.set(job.id, job.status);
     if (panelStates.get(panel) === signature) continue;
@@ -173,6 +175,7 @@ function renderPanelResults(jobs) {
         target.scrollIntoView({behavior: 'smooth', block: 'center'});
       }
     }
+    if(olderMidi){const preserved=document.createElement('section');preserved.className='midi-previous-result';const label=document.createElement('p');label.className='meta';label.textContent='上一次已完成作品（基于当时的 MIDI；本次任务不覆盖它）';preserved.append(label);const result=document.createElement('div');renderJob(olderMidi,result);preserved.append(result);target.append(preserved);}
   }
 }
 
@@ -241,7 +244,7 @@ function kindLabel(kind) {
     generate: '歌曲生成', plan: '乐谱创作', render_plan: '从乐谱生成歌曲',
     transcribe: '音频转谱', semantic: '生成音乐结构', synthesize: '合成人声与伴奏',
     decode: '输出音频', doctor: '环境自检', voice_convert: '参考音色转换', reference_cover: '参考音色翻唱',
-    mulacover_remix: 'MuLaCover 重新编曲'
+    midi_extract: '音乐提取 MIDI', mulacover_remix: 'MuLaCover 重新编曲'
     ,yue2_training_assets: '安装 YuE2 训练资源', yue2_prepare: '准备 YuE2 训练素材',
     yue2_train: '训练 YuE2 歌曲风格', yue2_preview: '试听 YuE2 风格模型'
   })[kind] || kind;
@@ -250,6 +253,8 @@ function kindLabel(kind) {
 function stageLabel(stage) {
   return ({
     queued: '等待开始', starting: '正在加载模型', candidate: '正在准备生成版本',
+    midi_decode: '正在解码音乐', midi_tempo: '正在估计速度', midi_notes: '正在识别旋律与鼓组',
+    midi_chords: '正在识别和弦', midi_export: '正在保存三轨 MIDI',
     rvc_import: '正在导入训练素材', rvc_separate: '正在分离训练人声',
     rvc_model_import: '正在检查并导入音色', rvc_model_export: '正在导出音色包',
     rvc_storage_copy: '正在校验并复制音色数据', rvc_storage_switch: '正在切换音色数据目录',
@@ -268,6 +273,7 @@ function stageLabel(stage) {
     mulacover_loading: '正在加载重新编曲模型', mulacover_transcribing: '正在提取旋律与和弦',
     mulacover_style: '正在编码歌词与曲风', mulacover_generating: '正在生成重新编曲版本',
     mulacover_decoding: '正在解码完整歌曲',
+    midi_decode:'正在解码音乐',midi_tempo:'正在估计速度',midi_notes:'正在识别旋律与鼓组',midi_chords:'正在识别和弦',midi_export:'正在保存 MIDI',
     cancelling: '正在安全停止', complete: '已完成', failed: '任务失败',
     cancelled: '已取消', doctor: '正在验证运行环境', running: '正在执行'
   })[stage] || window.assistantStageLabel?.(stage) || stage;
@@ -291,6 +297,11 @@ function stageHint(job) {
     mulacover_style: '正在编码新歌词、流派、乐器、主题和情绪。',
     mulacover_generating: '正在沿用提取的旋律创作新的完整演唱与伴奏。',
     mulacover_decoding: '正在把音乐 token 解码为可试听的完整歌曲。',
+    midi_decode:'仅处理选中的原曲范围，不按歌曲生成时长截断。',
+    midi_tempo:'估计结果可在编辑器校正；原始识别时间会保留。',
+    midi_notes:'识别主唱、候选乐器与鼓点；完成的轨道会及时保存。',
+    midi_chords:'使用本地和弦模型识别和弦音级；已有旋律和鼓组继续保留。',
+    midi_export:'整理轨道状态，保存可编辑 MIDI 和来源；没有音符与识别失败分开显示。',
     cancelling: '正在保存可用结果并安全释放 GPU。'
   };
   let hint = hints[job.stage] || '任务正在本机 GPU 上运行。';
@@ -323,7 +334,7 @@ function failureMarkup(error) {
   const generatedRel = generatedAudio && id ? relativeAudio(job, generatedAudio) : null;
   const intermediate = generatedRel ? `<p>歌曲已生成，可先试听：</p><audio controls preload="metadata" aria-label="已生成歌曲试听" src="${audioUrl(id, generatedRel)}"></audio>` : '';
   const phase = job.failed_stage ? `<p>失败阶段：${escapeHtml(stageLabel(job.failed_stage))}</p>` : '';
-  const retry = id && ['generate', 'reference_cover', 'voice_convert', 'render_plan', 'mulacover_remix'].includes(job.kind) ? `<button class="primary compact" data-kind="${job.kind}" onclick="resumeJob('${id}', this)">${job.resumable ? '从已保存阶段继续' : '重新运行'}</button>` : '';
+  const retry = id && ['generate', 'reference_cover', 'voice_convert', 'render_plan', 'mulacover_remix', 'midi_extract'].includes(job.kind) ? `<button class="primary compact" data-kind="${job.kind}" onclick="resumeJob('${id}', this)">${job.resumable ? '从已保存阶段继续' : '重新运行'}</button>` : '';
   const actions = id ? `<div class="toolbar failure-actions">${retry}<button class="ghost compact" onclick="toggleJobLog('${id}', this)">查看任务日志</button></div><pre class="job-log hidden"></pre>` : '';
   const retained = document.createElement('div');
   if (job.result?.comparison && job.result?.candidates?.length) renderJob(job, retained);
@@ -409,6 +420,7 @@ function taskSteps(job) {
     render_plan: [['starting', '加载模型'], ['semantic', '生成结构'], ['synthesis', '合成人声与伴奏'], ['decoding', '输出音频']],
     plan: [['starting', '加载模型'], ['planning', '创作乐谱']],
     transcribe: [['starting', '准备音频'], ['loading_transcriber', '加载模型'], ['transcribing', '识别旋律'], ['notation', '整理乐谱']],
+    midi_extract: [['midi_decode','解码音乐'],['midi_tempo','估计速度'],['midi_notes','旋律与鼓组'],['midi_chords','和弦'],['midi_export','保存 MIDI']],
     semantic: [['starting', '加载模型'], ['planning', '检查乐谱'], ['semantic', '生成结构']],
     synthesize: [['starting', '加载模型'], ['synthesis', '合成声音']], decode: [['starting', '加载模型'], ['decoding', '输出音频']],
     doctor: [['starting', '启动检查'], ['doctor', '验证环境']],
@@ -481,6 +493,7 @@ function updateBoundButtons(jobs, queued) {
   const byId = new Map(jobs.map(job => [job.id, job]));
   const positions = new Map(queued.map((job, index) => [job.id, index + 1]));
   for (const [id, button] of buttonBindings) {
+    if(button.dataset.jobId!==id){buttonBindings.delete(id);continue;}
     const job = byId.get(id);
     if (!job) continue;
     if (TERMINAL.has(job.status)) restoreButton(button); else updateButton(button, job, positions.get(id));
@@ -581,7 +594,7 @@ async function submit(kind, request, resultTarget, button = null, projectScope =
     const job = await api('/api/jobs', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({kind, request, source: 'webui', client_request_id: clientRequestId, result_panel: resultTarget?.closest('.panel')?.id})});
     rememberResult(job, resultTarget);
     bindButton(button, job); await refreshWorkspace(); return await waitForJob(job.id, resultTarget);
-  } catch (error) { restoreButton(button); error.projectScope=projectScope; throw error; }
+  } catch (error) { if(String(window.workbenchProjectId?.()||'')===projectScope&&(!error.jobId||button?.dataset.jobId===error.jobId))restoreButton(button); error.projectScope=projectScope; throw error; }
 }
 
 function renderScopedFailure(target, error, projectScope = error?.projectScope) {
@@ -647,11 +660,13 @@ function renderJob(job, target) {
     const playerLabel = `${kindLabel(job.kind)}${candidates.length > 1 ? `版本 ${index + 1}` : '结果'}试听`;
     const player = url ? `<audio controls preload="metadata" aria-label="${escapeHtml(playerLabel)}" src="${url}"></audio>` : '';
     const duration = Number(candidate.audio_seconds || candidate.audio_info?.duration_seconds);
-    const details = [voiceDescription({...result,...candidate}), candidates.length > 1 ? `版本 ${index + 1}` : '', Number.isFinite(duration) && duration > 0 ? `${duration.toFixed(1)} 秒` : '', candidate.seed != null ? `Seed ${escapeHtml(candidate.seed)}` : '', `任务 ${escapeHtml(shortId(job.id))}`].filter(Boolean).join(' · ');
+    const midiVersion=result.midi_document_version?`MIDI v${Number(result.midi_document_version)}（生成时固定版本）`:'';
+    const details = [voiceDescription({...result,...candidate}), midiVersion, candidates.length > 1 ? `版本 ${index + 1}` : '', Number.isFinite(duration) && duration > 0 ? `${duration.toFixed(1)} 秒` : '', candidate.seed != null ? `Seed ${escapeHtml(candidate.seed)}` : '', `任务 ${escapeHtml(shortId(job.id))}`].filter(Boolean).join(' · ');
     const download = url ? `<a class="ghost audio-download" href="${url}" download="YuE2-${job.id}-${index + 1}.flac">下载音频</a>` : '';
     const remixFiles = job.kind === 'mulacover_remix' ? [['melody_midi','旋律 MIDI'],['chord_midi','和弦 MIDI'],['drum_midi','鼓组 MIDI']].map(([key,label]) => { const file = relativeAudio(job,result[key]); return file ? `<a class="ghost compact" href="${audioUrl(job.id,file)}" download>${label}</a>` : ''; }).join('') : '';
     const remixVoice = job.kind === 'mulacover_remix' && rel ? `<button class="primary" type="button" onclick="sendJobAudioToCover('${job.id}','${rel}')">发送到音色转换</button>` : '';
-    return `<article class="result-card"><header><div><b>${escapeHtml(kindLabel(job.kind))}已完成 · 可试听</b><div class="meta">${details}</div></div><span class="badge">${truncated ? '已截断' : '完整'}</span></header>${player}<div class="toolbar">${download}${remixFiles}${remixVoice}${TERMINAL.has(job.status) ? `<button class="ghost" onclick="exportJob('${job.id}')">导出全部文件</button>` : ''}</div>${stemPlayers(job,{...result,...candidate})}</article>`;
+    const midiEdit=job.kind==='mulacover_remix'&&result.melody_midi?`<button class="ghost" type="button" onclick="midiOpenJobCondition('${job.id}')">编辑本次 MIDI 条件</button>`:rel?`<button class="ghost" type="button" onclick="midiOpenJobAudio('${job.id}','${rel}')">提取并编辑 MIDI</button>`:'';
+    return `<article class="result-card"><header><div><b>${escapeHtml(kindLabel(job.kind))}已完成 · 可试听</b><div class="meta">${details}</div></div><span class="badge">${truncated ? '已截断' : '完整'}</span></header>${player}<div class="toolbar">${download}${remixFiles}${remixVoice}${midiEdit}${TERMINAL.has(job.status) ? `<button class="ghost" onclick="exportJob('${job.id}')">导出全部文件</button>` : ''}</div>${stemPlayers(job,{...result,...candidate})}</article>`;
   }).join('');
 }
 
@@ -685,7 +700,7 @@ function activateTab(button, userInitiated = true) {
 }
 $$('.tab').forEach(button => button.onclick = () => activateTab(button, true));
 const restoredTab = savedValue('active-tab');
-const allowedTabs = ['project', 'assets', 'training', 'create', 'plan', 'remix', 'cover', 'history', 'assistant', 'voices'];
+const allowedTabs = ['project', 'assets', 'training', 'create', 'plan', 'remix', 'midi', 'cover', 'history', 'assistant', 'voices'];
 const initialTab = allowedTabs.includes(restoredTab) ? restoredTab : document.body.dataset.activeTab;
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 activateTab($(`.tab[data-tab="${initialTab}"]`), false);
@@ -1032,11 +1047,13 @@ async function loadHistory() {
     const historyHasFilters=Boolean($('#history-status').value||$('#history-kind').value||$('#history-project').value||$('#history-query').value.trim());
     $('#history-list').innerHTML = jobs.map(job => {
       const result = job.result || {}; const audio = relativeAudio(job, result.audio || result.candidates?.[0]?.audio);
-      const internalKinds=new Set(['assistant','doctor','yue2_training_assets','yue2_prepare','workbench_migrate','rvc_import','rvc_storage_move']);
+      const internalKinds=new Set(['assistant','doctor','yue2_training_assets','yue2_prepare','workbench_migrate','rvc_import','rvc_storage_move','midi_extract']);
       const canExport=(job.status === 'complete' || (TERMINAL.has(job.status) && result.comparison && result.candidates?.length)) && job.result && !internalKinds.has(job.kind);
       const jobName=`${kindLabel(job.kind)}任务 ${shortId(job.id)}`;
       const exportButton = canExport ? `<button class="ghost" onclick="exportJob('${job.id}')" aria-label="${job.kind==='yue2_train'?'导出模型包':'导出'}：${escapeHtml(jobName)}">${job.kind==='yue2_train'?'导出模型包':'导出'}</button>` : '';
-      const retryButton = ['failed', 'cancelled'].includes(job.status) && ['generate', 'reference_cover', 'voice_convert', 'render_plan', 'mulacover_remix', 'rvc_train', 'rvc_import', 'rvc_separate', 'rvc_storage_move'].includes(job.kind) ? `<button class="ghost compact" data-kind="${job.kind}" onclick="resumeJob('${job.id}', this)" aria-label="继续：${escapeHtml(jobName)}">${job.resumable || ['rvc_train','rvc_storage_move'].includes(job.kind) ? '从已保存阶段继续' : '重新运行'}</button>` : '';
+      const retryButton = (['failed', 'cancelled'].includes(job.status)||job.kind==='midi_extract'&&result.partial) && ['generate', 'reference_cover', 'voice_convert', 'render_plan', 'mulacover_remix', 'midi_extract', 'rvc_train', 'rvc_import', 'rvc_separate', 'rvc_storage_move'].includes(job.kind) ? `<button class="ghost compact" data-kind="${job.kind}" onclick="resumeJob('${job.id}', this)" aria-label="继续：${escapeHtml(jobName)}">${job.kind==='midi_extract'&&result.partial?'重新识别失败轨':job.resumable || ['rvc_train','rvc_storage_move'].includes(job.kind) ? '从已保存阶段继续' : '重新运行'}</button>` : '';
+      const midiResult=job.kind==='midi_extract'&&result.midi_document_id?`<button class="ghost" type="button" onclick="midiOpenExtractionResult('${job.id}')">编辑 / 下载 MIDI</button>`:'';
+      const partialMidi=job.kind==='midi_extract'&&result.partial?'<div class="history-error"><b>部分完成</b><span>成功识别的轨道已保存，失败轨道可重新识别。</span></div>':'';
       const logButtons = (job.kind === 'assistant' ? `<button class="ghost compact" onclick="openAssistantJob('${job.id}')" aria-label="查看或继续：${escapeHtml(jobName)}">查看 / 继续创作</button>` : '') + (job.status === 'failed' ? `<button class="ghost compact" onclick="toggleJobLog('${job.id}', this)" aria-label="查看日志：${escapeHtml(jobName)}">查看任务日志</button><button class="ghost compact" onclick="openDirectory('logs')">打开日志目录</button>` : '');
       const comparison = result.comparison ? (result.candidates || []).map((candidate,index) => {
         const rel = relativeAudio(job, candidate.audio);
@@ -1048,7 +1065,7 @@ async function loadHistory() {
       const canClean=['complete','failed','cancelled'].includes(job.status);
       const select=`<input type="checkbox" class="cleanup-select" data-select-job="${job.id}" aria-label="选择清理：${escapeHtml(jobName)}" ${selectedHistoryJobs.has(job.id)?'checked':''} ${canClean?'':'disabled'} title="${canClean?'可选择清理；执行前检查引用':'正在运行、排队或暂停的任务会保留'}">`;
       const clean=canClean?`<button class="ghost compact" type="button" data-clean-job="${job.id}" aria-label="清理：${escapeHtml(jobName)}">清理任务</button>`:'';
-      return `<article class="history-card"><header>${select}<div><b>${escapeHtml(kindLabel(job.kind))}</b><div class="meta">${escapeHtml(job.id)} · ${new Date(job.created_at * 1000).toLocaleString()} · ${escapeHtml(sourceLabel(job.source))}</div></div></header><b class="status-${job.status}">${escapeHtml(job.status === 'running' ? stageLabel(job.stage) : stageLabel(job.status))}</b>${errorBlock}${!result.comparison && audio ? `<audio controls preload="none" aria-label="${escapeHtml(kindLabel(job.kind))}历史结果试听" src="${audioUrl(job.id, audio)}"></audio>` : ''}<p class="meta">${voiceDescription(result)}</p>${comparison || stemPlayers(job,result)}<div class="toolbar">${exportButton}${retryButton}${logButtons}${clean}</div><pre class="job-log hidden"></pre></article>`;
+      return `<article class="history-card"><header>${select}<div><b>${escapeHtml(kindLabel(job.kind))}</b><div class="meta">${escapeHtml(job.id)} · ${new Date(job.created_at * 1000).toLocaleString()} · ${escapeHtml(sourceLabel(job.source))}</div></div></header><b class="status-${job.status}">${escapeHtml(job.status === 'running' ? stageLabel(job.stage) : stageLabel(job.status))}</b>${errorBlock}${partialMidi}${!result.comparison && audio ? `<audio controls preload="none" aria-label="${escapeHtml(kindLabel(job.kind))}历史结果试听" src="${audioUrl(job.id, audio)}"></audio>` : ''}<p class="meta">${voiceDescription(result)}</p>${comparison || stemPlayers(job,result)}<div class="toolbar">${midiResult}${exportButton}${retryButton}${logButtons}${clean}</div><pre class="job-log hidden"></pre></article>`;
     }).join('') || `<div class="empty-state"><i class="bi bi-clock-history"></i><b>还没有符合条件的任务</b><p>${historyHasFilters?'清除筛选可查看全部任务记录。':'完成的任务会显示在这里。'}</p>${historyHasFilters?'<button id="clear-history-filters" class="ghost compact" type="button">清除筛选</button>':''}</div>`;
     const clearHistory=$('#clear-history-filters');if(clearHistory)clearHistory.onclick=()=>{$('#history-status').value='';$('#history-kind').value='';$('#history-project').value='';$('#history-query').value='';historyOffset=0;loadHistory();};
     $$('[data-select-job]').forEach(input=>input.onchange=()=>{if(input.checked&&selectedHistoryJobs.size>=500){input.checked=false;$('#history-cleanup-status').textContent='每次最多选择 500 项任务。';return;}input.checked?selectedHistoryJobs.add(input.dataset.selectJob):selectedHistoryJobs.delete(input.dataset.selectJob);updateHistorySelection();});

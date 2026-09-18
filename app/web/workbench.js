@@ -9,6 +9,7 @@
   const selectedAssets = new Set(); let assetCleanupBusy = false;
   const assetPageSize = () => window.matchMedia('(max-width: 720px)').matches ? 8 : 24;
   let currentProjectId = savedValue('workbench-project') || '';
+  let globalDraft = savedValue('workbench-global-draft') === '1';
   let projectTimelinePage=0,projectAssetPage=0;const projectTimelinePageSize=8,projectAssetPageSize=10;
   let trainingAssetPage=0;const trainingAssetPageSize=8;
   let currentRun = null, trainingRuns = [], trainingJobId = savedValue('training-job') || '';
@@ -51,15 +52,15 @@
     projects = activeResult.projects; archivedProjects = archivedResult.projects;
     let nextProjectId = currentProjectId;
     if (nextProjectId && !projects.some(project => project.id === nextProjectId)) nextProjectId = '';
-    if (!nextProjectId && projects.length) nextProjectId = projects[0].id;
+    if (!nextProjectId && projects.length && !globalDraft) nextProjectId = projects[0].id;
     const projectChanged = nextProjectId !== currentProjectId;
     if (projectChanged) { window.mulacoverSaveDraft?.(); saveTrainingDraft(); projectTimelinePage=0; projectAssetPage=0; trainingAssetPage=0; }
     currentProjectId = nextProjectId;
-    if (projectChanged) { window.mulacoverRestoreDraft?.(); restoreTrainingFormDraft(); }
+    if (projectChanged) { window.mulacoverRestoreDraft?.(); restoreTrainingFormDraft(); await window.midiSwitchProject?.(currentProjectId); }
     const select = $('#workbench-project-select');
-    select.innerHTML = '<option value="">选择或新建项目</option>' + projects.map(project =>
+    select.innerHTML = '<option value="__global__">独立草稿（不加入项目）</option>' + projects.map(project =>
       `<option value="${project.id}">${escapeHtml(project.title)} · ${project.asset_count} 项</option>`).join('');
-    select.value = currentProjectId;
+    select.value = currentProjectId || '__global__';
     const historyProject=$('#history-project');
     if(historyProject){const previous=historyProject.value;historyProject.innerHTML='<option value="">全部项目</option><option value="__global__">未归档 / 全局</option>'+projects.map(project=>`<option value="${project.id}">${escapeHtml(project.title)}</option>`).join('');if([...historyProject.options].some(option=>option.value===previous))historyProject.value=previous;}
     const selected = projects.find(project => project.id === currentProjectId);
@@ -78,7 +79,7 @@
     const archived=$('#archived-projects');
     if(archived){
       archived.innerHTML=archivedProjects.length?archivedProjects.map(project=>`<div class="inspector-asset"><span><b>${escapeHtml(project.title)}</b><small>${project.asset_count} 项内容</small></span><button class="ghost compact" type="button" data-restore-project="${project.id}">恢复项目</button></div>`).join(''):'<p class="meta">没有已归档项目。</p>';
-      archived.querySelectorAll('[data-restore-project]').forEach(button=>button.onclick=async()=>{window.mulacoverSaveDraft?.();saveTrainingDraft();await api(`/api/workbench/projects/${button.dataset.restoreProject}/update`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'active'})});currentProjectId=button.dataset.restoreProject;window.mulacoverRestoreDraft?.();restoreTrainingFormDraft();await loadProjects();await refreshWorkspace();});
+      archived.querySelectorAll('[data-restore-project]').forEach(button=>button.onclick=async()=>{window.mulacoverSaveDraft?.();saveTrainingDraft();await api(`/api/workbench/projects/${button.dataset.restoreProject}/update`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'active'})});await window.assistantSwitchProject?.(button.dataset.restoreProject);await window.midiSwitchProject?.(button.dataset.restoreProject);globalDraft=false;savedValue('workbench-global-draft','0');currentProjectId=button.dataset.restoreProject;window.mulacoverRestoreDraft?.();restoreTrainingFormDraft();await loadProjects();await refreshWorkspace();});
     }
     await renderProject();
     if (projectChanged) {
@@ -141,8 +142,9 @@
     } catch (error) { if(projectId===currentProjectId)showError(timeline, error); }
   }
   $('#workbench-project-select').onchange = async event => {
-    const next = event.target.value;
-    try { window.mulacoverSaveDraft?.(); saveTrainingDraft(); await window.assistantSwitchProject?.(next); currentProjectId = next; projectTimelinePage=0; projectAssetPage=0; window.mulacoverRestoreDraft?.(); restoreTrainingFormDraft(); await loadProjects(); await refreshWorkspace(); }
+    const next = event.target.value === '__global__' ? '' : event.target.value;
+    globalDraft = !next; savedValue('workbench-global-draft',globalDraft?'1':'0');
+    try { window.mulacoverSaveDraft?.(); saveTrainingDraft(); await window.assistantSwitchProject?.(next); await window.midiSwitchProject?.(next); currentProjectId = next; projectTimelinePage=0; projectAssetPage=0; window.mulacoverRestoreDraft?.(); restoreTrainingFormDraft(); await loadProjects(); await refreshWorkspace(); }
     catch (error) { event.target.value = currentProjectId; alert(`切换项目前无法保存独立草稿：${error.message}`); }
   };
   $('#refresh-project').onclick = loadProjects;
@@ -156,7 +158,7 @@
     if (!currentProjectId) return alert('请先选择项目');
     const projectId=currentProjectId;
     if (!await uiConfirm('归档这个项目？资产仍会保留在资产库。','归档项目','归档')) return;
-    try { window.mulacoverSaveDraft?.(); saveTrainingDraft(); await api(`/api/workbench/projects/${projectId}/update`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'archived'})}); await window.assistantSwitchProject?.(''); currentProjectId=''; window.mulacoverRestoreDraft?.(); restoreTrainingFormDraft(); await loadProjects(); await refreshWorkspace(); } catch(error) { alert(error.message); }
+    try { window.mulacoverSaveDraft?.(); saveTrainingDraft(); await api(`/api/workbench/projects/${projectId}/update`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'archived'})}); await window.assistantSwitchProject?.(''); await window.midiSwitchProject?.(''); currentProjectId=''; window.mulacoverRestoreDraft?.(); restoreTrainingFormDraft(); await loadProjects(); await refreshWorkspace(); } catch(error) { alert(error.message); }
   };
   $('#export-project').onclick = async () => {
     if (!currentProjectId) return alert('请先选择项目');
@@ -167,7 +169,7 @@
   $('#new-project').onclick = async () => {
     const title = await uiPrompt('新项目名称', '我的歌曲项目');
     if (!title?.trim()) return;
-    try { window.mulacoverSaveDraft?.(); saveTrainingDraft(); const project = await api('/api/workbench/projects', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:title.trim()})}); await window.assistantSwitchProject?.(project.id); currentProjectId = project.id; window.mulacoverRestoreDraft?.(); restoreTrainingFormDraft(); await loadProjects(); await refreshWorkspace(); }
+    try { window.mulacoverSaveDraft?.(); saveTrainingDraft(); const project = await api('/api/workbench/projects', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:title.trim()})}); await window.assistantSwitchProject?.(project.id); await window.midiSwitchProject?.(project.id); globalDraft=false;savedValue('workbench-global-draft','0');currentProjectId = project.id; window.mulacoverRestoreDraft?.(); restoreTrainingFormDraft(); await loadProjects(); await refreshWorkspace(); }
     catch (error) { alert(error.message); }
   };
   $('#sidebar-project-button').onclick = () => { $('.tab[data-tab="project"]').click(); $('#workbench-project-select').focus(); };
@@ -193,6 +195,8 @@
   }
   async function useAsset(asset, action) {
     const projectId=currentProjectId;
+    if(action==='midi-edit') return window.midiOpenAsset(asset.id);
+    if(action==='midi-extract') return window.midiOpenAudio(asset.id);
     if(action==='cover-source') return putAssetInInput(asset,'#cover-file','cover',()=>window.setCoverMode?.('direct'),projectId);
     if(action==='remix-source') return putAssetInInput(asset,'#remix-file','remix',()=>{$('#remix-source-mode').value='audio';$('#remix-source-mode').dispatchEvent(new Event('change',{bubbles:true}));},projectId);
     if(action==='reference') return putAssetInInput(asset,'#reference-file','cover',()=>{},projectId);
@@ -209,11 +213,11 @@
   }
   function openUseDialog(asset) {
     const actions=[];
-    if(audioKinds.has(asset.kind)){actions.push(['remix-source','保留旋律重新编曲'],['cover-source','作为原曲去翻唱'],['reference','作为参考音色'],['rvc','加入 RVC 训练素材']);}
+    if(audioKinds.has(asset.kind)){actions.push(['midi-extract','提取并编辑 MIDI'],['remix-source','保留旋律重新编曲'],['cover-source','作为原曲去翻唱'],['reference','作为参考音色'],['rvc','加入 RVC 训练素材']);}
     if(asset.kind==='lyrics')actions.push(['create_lyrics','填入歌曲创作歌词'],['plan_lyrics','填入乐谱计划歌词']);
     if(asset.kind==='style')actions.push(['create_style','填入歌曲创作曲风'],['plan_style','填入乐谱计划曲风']);
     if(asset.kind==='score')actions.push(['plan_score','填入乐谱计划']);
-    if(asset.kind==='midi')actions.push(['remix-melody','作为重新编曲旋律 MIDI'],['remix-chord','作为重新编曲和弦 MIDI'],['remix-drum','作为重新编曲鼓组 MIDI']);
+    if(asset.kind==='midi')actions.push(['midi-edit','打开 MIDI 编辑器并试听'],['remix-melody','作为重新编曲旋律 MIDI'],['remix-chord','作为重新编曲和弦 MIDI'],['remix-drum','作为重新编曲鼓组 MIDI']);
     if(asset.kind==='model'&&asset.metadata?.model_type==='yue2_ar_lora')actions.push(['model','用于歌曲创作']);
     const dialog=document.createElement('dialog');dialog.innerHTML=`<form method="dialog"><h3>使用“${escapeHtml(asset.title)}”</h3><p class="meta">选择目标后会切换到对应工作区，仍由你确认并开始任务。</p><div class="asset-use-actions">${actions.map(([id,label])=>`<button class="ghost" type="button" data-use-action="${id}">${label}</button>`).join('')||'<p>这个素材暂时没有可用目标。</p>'}</div><div class="toolbar"><button class="ghost">关闭</button></div></form>`;labelDialog(dialog,'asset-use-dialog-title');document.body.append(dialog);dialog.onclose=()=>dialog.remove();dialog.querySelectorAll('[data-use-action]').forEach(button=>button.onclick=async()=>{try{await useAsset(asset,button.dataset.useAction);dialog.close();}catch(error){alert(error.message);}});dialog.showModal();
   }
@@ -233,17 +237,20 @@
     grid.innerHTML = assets.map(asset => {
       const title=escapeHtml(asset.title);
       const primary=audioKinds.has(asset.kind)?`<button class="ghost compact" data-play-asset="${asset.id}" aria-label="试听「${title}」"><i class="bi bi-play-fill" aria-hidden="true"></i> 试听</button>`:asset.kind==='model'&&asset.metadata?.model_type==='yue2_ar_lora'?`<button class="primary compact" data-use-style-model="${asset.id}" aria-label="使用「${title}」创作"><i class="bi bi-music-note-beamed" aria-hidden="true"></i> 用于创作</button>`:asset.kind==='midi'?`<a class="ghost compact" href="${contentUrl(asset)}" download aria-label="下载「${title}」"><i class="bi bi-download" aria-hidden="true"></i> 下载</a>`:`<button class="ghost compact" data-read-asset="${asset.id}" aria-label="查看「${title}」"><i class="bi bi-eye" aria-hidden="true"></i> 查看</button>`;
+      const midiInfo=asset.kind==='midi'&&asset.metadata?.bpm?`<p class="meta">${Number(asset.metadata.bpm).toFixed(1)} BPM · ${Number(asset.metadata.duration||0).toFixed(1)} 秒 · 旋律 ${Number(asset.metadata.note_counts?.melody||0)} / 和弦 ${Number(asset.metadata.note_counts?.chord||0)} / 鼓点 ${Number(asset.metadata.note_counts?.drums||0)}</p>`:'';
       const linked=currentProjectId&&currentProjectAssetRefs.has(`${asset.id}:${asset.current_revision_id}`);
       const trainingAudio=trainingAssetGuidance&&['song','work','vocal'].includes(asset.kind);
       const projectAction=currentProjectId?(linked?`<button class="ghost compact" type="button" data-project-asset-state disabled title="当前版本已在项目中" aria-label="「${title}」已在项目中"><i class="bi bi-check-circle" aria-hidden="true"></i> ${trainingAudio?'已加入项目 · 训练可用':'已在项目'}</button>`:`<button class="ghost compact" type="button" data-add-asset="${asset.id}" aria-label="将「${title}」${trainingAudio?'加入当前项目供训练':'加入项目'}"><i class="bi bi-plus-circle" aria-hidden="true"></i> ${trainingAudio?'加入当前项目供训练':'加入项目'}</button>`):'';
       const trash = asset.status === 'trashed';
       const trashPrimary=asset.kind==='model'?`<a class="ghost compact" href="${contentUrl(asset)}" download>下载</a>`:primary;
-      const actions = trash ? `${trashPrimary}<button class="ghost compact" type="button" data-restore-asset="${asset.id}" aria-label="恢复「${title}」">恢复</button>` : `${primary}<button class="ghost compact" data-use-asset="${asset.id}" aria-label="发送「${title}」到其他工作区">发送到…</button><button class="ghost compact" data-edit-asset="${asset.id}" aria-label="编辑「${title}」">编辑</button>${projectAction}<button class="ghost compact" type="button" data-trash-asset="${asset.id}" aria-label="移入回收站「${title}」"><i class="bi bi-trash" aria-hidden="true"></i> 移入回收站</button>`;
-      return `<article class="asset-card"><div class="asset-card-head"><input type="checkbox" class="cleanup-select" data-select-asset="${asset.id}" aria-label="选择资产「${title}」" ${selectedAssets.has(asset.id)?'checked':''}><i class="bi ${kindIcons[asset.kind] || kindIcons.other}" aria-hidden="true"></i><div><b title="${title}">${title}</b><small>${escapeHtml(kindNames[asset.kind] || asset.kind)} · ${asset.size ? (asset.size/1048576).toFixed(1)+' MB' : '文本版本'}</small></div></div>${audioKinds.has(asset.kind) ? `<div class="wave-mini" data-wave="${asset.id}"></div>` : '<div class="wave-mini"><span style="height:2px;width:100%"></span></div>'}<div class="toolbar">${actions}</div></article>`;
+      const midiAction=asset.kind==='midi'?`<button class="primary compact" type="button" data-open-midi="${asset.id}" aria-label="编辑并试听 MIDI「${title}」">编辑 / 试听 MIDI</button>`:'';
+      const actions = trash ? `${trashPrimary}<button class="ghost compact" type="button" data-restore-asset="${asset.id}" aria-label="恢复「${title}」">恢复</button>` : `${primary}${midiAction}<button class="ghost compact" data-use-asset="${asset.id}" aria-label="发送「${title}」到其他工作区">发送到…</button><button class="ghost compact" data-edit-asset="${asset.id}" aria-label="编辑「${title}」">编辑</button>${projectAction}<button class="ghost compact" type="button" data-trash-asset="${asset.id}" aria-label="移入回收站「${title}」"><i class="bi bi-trash" aria-hidden="true"></i> 移入回收站</button>`;
+      return `<article class="asset-card"><div class="asset-card-head"><input type="checkbox" class="cleanup-select" data-select-asset="${asset.id}" aria-label="选择资产「${title}」" ${selectedAssets.has(asset.id)?'checked':''}><i class="bi ${kindIcons[asset.kind] || kindIcons.other}" aria-hidden="true"></i><div><b title="${title}">${title}</b><small>${escapeHtml(kindNames[asset.kind] || asset.kind)} · ${asset.size ? (asset.size/1048576).toFixed(1)+' MB' : '文本版本'}</small></div></div>${audioKinds.has(asset.kind) ? `<div class="wave-mini" data-wave="${asset.id}"></div>` : '<div class="wave-mini"><span style="height:2px;width:100%"></span></div>'}${midiInfo}<div class="toolbar">${actions}</div></article>`;
     }).join('');
     grid.querySelectorAll('[data-play-asset]').forEach(button => button.onclick = () => playAsset(assets.find(item => item.id === button.dataset.playAsset)));
     grid.querySelectorAll('[data-read-asset]').forEach(button => button.onclick = async () => {const asset=assets.find(item=>item.id===button.dataset.readAsset);try{const text=await(await fetch(contentUrl(asset))).text();const dialog=document.createElement('dialog');dialog.innerHTML=`<form method="dialog"><h3>${escapeHtml(asset.title)}</h3><textarea rows="18" readonly aria-label="素材内容">${escapeHtml(text)}</textarea><div class="toolbar"><button class="ghost">关闭</button></div></form>`;labelDialog(dialog,'asset-read-dialog-title');document.body.append(dialog);dialog.onclose=()=>dialog.remove();dialog.showModal();}catch(error){alert(error.message);}});
     grid.querySelectorAll('[data-use-asset]').forEach(button=>button.onclick=()=>openUseDialog(assets.find(item=>item.id===button.dataset.useAsset)));
+    grid.querySelectorAll('[data-open-midi]').forEach(button=>button.onclick=()=>window.midiOpenAsset(button.dataset.openMidi).catch(error=>alert(error.message)));
     grid.querySelectorAll('[data-edit-asset]').forEach(button=>button.onclick=()=>editAsset(assets.find(item=>item.id===button.dataset.editAsset)).catch(error=>alert(error.message)));
     grid.querySelectorAll('[data-add-asset]').forEach(button => button.onclick = async () => {
       const projectId=currentProjectId;

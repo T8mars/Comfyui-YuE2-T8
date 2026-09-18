@@ -43,7 +43,7 @@ class MelodyTranscriber:
         self.model.to(self.device).eval().requires_grad_(False)
 
     @torch.inference_mode()
-    def transcribe(self, audio_path: Union[str, Path]) -> List[Note]:
+    def transcribe(self, audio_path: Union[str, Path], *, check_cancelled=None, on_progress=None) -> List[Note]:
         """Return all predicted notes without requiring tempo or writing files."""
         import soundfile as sf
         import torchaudio
@@ -68,19 +68,26 @@ class MelodyTranscriber:
             audio = torch.nn.functional.pad(audio, (0, padding))
         segments = audio.reshape(-1, 1, frames)
         predictions = []
-        for batch in segments.split(8):
+        batches = segments.split(8)
+        for index, batch in enumerate(batches):
+            if check_cancelled:
+                check_cancelled()
             with torch.autocast(
                 self.device.type, dtype=self.dtype, enabled=self.dtype != torch.float32
             ):
                 predictions.append(
                     self.model.inference(batch.to(self.device)).cpu().numpy()
                 )
+            if on_progress:
+                on_progress(index + 1, len(batches))
 
         start_times = [
             index * frames / config["sample_rate"] for index in range(len(segments))
         ]
         channel_notes = []
         for channel in range(self.model.task_manager.num_decoding_channels):
+            if check_cancelled:
+                check_cancelled()
             tokens = [batch[:, channel, :] for batch in predictions]
             events, _, _ = self.model.task_manager.detokenize_list_batches(
                 tokens, start_times, return_events=True

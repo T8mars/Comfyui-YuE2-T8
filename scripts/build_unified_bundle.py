@@ -209,6 +209,7 @@ def main():
         [python,'-X','utf8',target/'scripts/verify_voice_models.py','--root',target],
         [python,'-X','utf8',target/'scripts/download_rvc_models.py','--root',target,'--source',target,'--verify-only'],
         [python,'-X','utf8','-c','from pathlib import Path; from app.yue2_app.training_resources import status; value=status(Path.cwd()); assert value["ready"], value; print("YuE2 training resources ready")'],
+        [python,'-X','utf8','-c','from pathlib import Path; from app.yue2_app.midi_extract_worker import readiness; from app.yue2_app.midi_document import example_document,validate_document,generation_check; value=readiness(Path.cwd()); assert value["ready"], value; doc=validate_document(example_document()); assert generation_check(doc)["ready"]; print("MIDI editor and independent transcription ready")'],
     ]
     environment = {**os.environ,'YUE2_HOME':str(target),'YUE2_KIT':str(target)}
     with (target/'logs/bundle-verification.log').open('wb') as log:

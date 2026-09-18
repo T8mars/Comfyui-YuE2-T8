@@ -489,8 +489,16 @@ class MuLaCoverGenPipeline:
             self._release("codec")
         path = Path(save_path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        sf.write(path, waveform.numpy().T, sample_rate)
-        return {"waveform": waveform, "sample_rate": sample_rate, "path": str(path)}
+        if waveform.ndim != 2 or waveform.shape[1] == 0 or not torch.isfinite(waveform).all():
+            raise RuntimeError('HeartCodec returned empty or non-finite audio')
+        raw_peak = float(waveform.abs().max())
+        if raw_peak == 0:
+            raise RuntimeError('HeartCodec returned silent audio')
+        export_gain = min(1.0, 0.98 / raw_peak)
+        waveform = waveform * export_gain
+        sf.write(path, waveform.numpy().T, sample_rate, subtype='PCM_24' if path.suffix.lower()=='.flac' else None)
+        return {"waveform": waveform, "sample_rate": sample_rate, "path": str(path),
+                'raw_peak': raw_peak, 'export_gain': export_gain}
 
     @torch.inference_mode()
     def __call__(self, inputs: Dict[str, Any], **kwargs):
