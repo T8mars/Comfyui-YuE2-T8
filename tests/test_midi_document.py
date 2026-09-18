@@ -85,6 +85,17 @@ class MidiDocumentTest(unittest.TestCase):
         self.assertEqual(target.read_bytes(),original)
         self.assertEqual(list(self.root.glob('m-*.tmp')),[])
 
+    def test_single_role_export_ignores_unrelated_nested_voice_limit(self):
+        data = blank_document()
+        data['tracks'][0]['notes'] = [note()]
+        data['tracks'][1]['notes'] = [note(i, 64, 2000 - 2 * i) for i in range(128)]
+        output = export_midi(data, self.root / 'melody-only.mid', 'melody')
+        messages = [message for track in mido.MidiFile(output).tracks for message in track]
+        self.assertEqual([message.note for message in messages
+                          if message.type == 'note_on' and message.velocity], [60])
+        with self.assertRaisesRegex(ValueError, '128'):
+            export_midi(data, self.root / 'combined.mid')
+
     def test_odd_ppq_source_retained_and_generation_grid_is_exact(self):
         data=blank_document()
         data['ppq']=7

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.6.2 - 2026-09-19
+
+- Keep the most recent audio selection when earlier uploads or asset reads finish late in the same MIDI document.
+- Reject generation preparation when the editor switches documents during a check, confirmation or snapshot response; retained fixed inputs remain available.
+- Export a requested MIDI role without expanding unrelated tracks or imposing their voice limits on the requested file.
+- Synchronize BPM and editor controls during undo/redo, and keep a valid active track when undo removes a newly added chord track.
+- Remove only exact matching failed-draft recovery snapshots after the owning page saves successfully, preserving other pages' different unsaved edits.
+- Add real-service browser checks for source ordering, document switches, actual tempo export, active-track transposition and shared-storage cleanup, plus a single-role export regression.
+
 ## 1.6.1 - 2026-09-19
 
 - Prevent repeated audio-to-MIDI submissions while a document save is pending; failed submissions unlock retry.

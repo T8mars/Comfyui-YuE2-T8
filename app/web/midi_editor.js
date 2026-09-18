@@ -20,10 +20,11 @@
   <aside class="midi-generator"><details open><summary>用 MuLaCover 生成完整歌曲</summary><form id="midi-generation-form"><label>歌词<textarea id="midi-gen-lyrics" data-midi-gen="lyrics" rows="5" placeholder="[Verse]\n填写要演唱的歌词" required></textarea></label><label>流派<input id="midi-gen-genre" data-midi-gen="genre" placeholder="例如 acoustic folk"></label><label>乐器<input data-midi-gen="instrument" placeholder="例如 guitar, piano"></label><label>情绪<input data-midi-gen="mood" placeholder="例如 warm, hopeful"></label><label>主题<input data-midi-gen="topic" placeholder="例如 home"></label><div class="midi-row"><label>时长上限（秒）<input data-midi-gen="duration_seconds" type="number" min="5" max="300" value="30"></label><label>采样种子<input data-midi-gen="seed" type="number" min="0" max="9007199254740991" value="831001"></label></div><details><summary>解码设置</summary><label>解码种子<input data-midi-gen="decode_seed" type="number" min="0" max="9007199254740991" value="831002"></label></details><label class="check"><input id="midi-empty-chords" type="checkbox">使用空和弦条件（控制较弱）</label><p id="midi-generate-note" class="meta">BPM 用于试听和导出；模型生成的速度、音色与演奏不保证精确一致。生成会固定当前 MIDI，之后的编辑不改变该任务。</p><button id="midi-generate" class="primary" type="submit">生成带伴奏的完整歌曲</button></form></details></aside></div><div id="midi-gen-result" class="midi-result-section"></div>`;
   let doc=null, trackId='', scope=String(window.workbenchProjectId?.()||''), scopeRevision=0, dirty=0, saved=0, saving=null, timer=null;
   let undo=[],redo=[],selection=new Set(),clipboard=[],mode='draw',drag=null,viewBeat=0,playBeat=null,generationBusy=false;
-  let audioSource=null,extractJob='',extractionBusy=false,generationJob='',audioContext=null,voices=new Set(),playTimer=null,playStart=0,playStartBeat=0,pausedBeat=null;
+  let audioSource=null,audioLoadRevision=0,extractJob='',extractionBusy=false,generationJob='',audioContext=null,voices=new Set(),playTimer=null,playStart=0,playStartBeat=0,pausedBeat=null;
   const clone=v=>structuredClone(v), uid=()=>crypto.randomUUID().replaceAll('-',''), post=(url,data)=>api(prefix+url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
   const actionContext=()=>({project:scope,revision:scopeRevision,document:doc?.id});
-  function guard(context){if(context.revision!==scopeRevision||context.project!==scope||context.document!==doc?.id)throw new Error('项目或编辑文档已切换，原操作的素材保留在原项目，请重新打开。');}
+  const audioLoadContext=()=>({...actionContext(),audioLoad:++audioLoadRevision});
+  function guard(context){if(context.revision!==scopeRevision||context.project!==scope||context.document!==doc?.id)throw new Error('项目或编辑文档已切换，原操作的素材保留在原项目，请重新打开。');if(context.audioLoad!==undefined&&context.audioLoad!==audioLoadRevision)throw new Error('已保留后选择的音乐，较早的加载结果已忽略。');}
   async function saveContext(context){finishPointer();await save();guard(context);}
   async function postContext(context,url,data={}){
     guard(context);const result=await post(url,{...data,project_id:context.project});guard(context);
@@ -129,16 +130,25 @@
     const captured=clone(doc),rev=dirty,localScope=scope,token=scopeRevision;
     setSave('正在保存…');
     saving=post(`/documents/${captured.id}/save`,{document:captured,version:captured.version,project_id:localScope}).then(result=>{
+      removeMatchingBackups(localScope,captured);
       if(token===scopeRevision&&doc?.id===captured.id){doc.version=result.version;doc.updated_at=result.updated_at;saved=rev;setSave(dirty===saved?`已保存 · v${doc.version}`:'正在保存新编辑…');backup();downloads();renderExtractTracks();}
       return result;
     }).catch(error=>{if(token===scopeRevision){backup();setSave(`保存失败：${error.message}；可另存副本`,true);}throw error;}).finally(()=>{saving=null;});
     const result=await saving;if(token===scopeRevision&&dirty>saved)return save();return result;
   }
   function noteName(p){return `${names[p%12]}${Math.floor(p/12)-1}`;}
-  function install(value){if(value.project_id!==scope)throw new Error('MIDI 文档与当前项目不一致');stop();drag=null;$('.midi-layout').inert=false;doc=value;dirty=saved=0;undo=[];redo=[];selection.clear();trackId=doc.tracks[0].id;viewBeat=Number(doc.settings?.view_beat||0);$('#midi-title').value=doc.title;$('#midi-bpm').value=(60e6/doc.tempos[0].tempo).toFixed(2);$('#midi-snap').value=String(doc.settings?.snap??16);$('#midi-zoom').value=String(doc.settings?.zoom||1);$('#midi-pitch-low').value=String(Math.max(0,Math.min(92,doc.settings?.pitch_low??48)));$('#midi-view-beat').value=viewBeat;
-    trackId=doc.tracks.some(t=>t.id===doc.settings?.active_track_id)?doc.settings.active_track_id:trackId;
-    audioSource=null;$('#midi-source-player').pause();$('#midi-source-player').removeAttribute('src');$('#midi-audio-card').classList.add('hidden');$('#midi-extract-tracks').replaceChildren();
+  function syncEditorControls(){
+    trackId=doc.tracks.some(t=>t.id===doc.settings?.active_track_id)?doc.settings.active_track_id:doc.tracks.some(t=>t.id===trackId)?trackId:doc.tracks[0].id;
+    viewBeat=Number(doc.settings?.view_beat||0);$('#midi-title').value=doc.title;$('#midi-bpm').value=(60e6/doc.tempos[0].tempo).toFixed(2);$('#midi-snap').value=String(doc.settings?.snap??16);$('#midi-zoom').value=String(doc.settings?.zoom||1);$('#midi-pitch-low').value=String(Math.max(0,Math.min(92,doc.settings?.pitch_low??48)));$('#midi-view-beat').value=viewBeat;
     root.querySelectorAll('[data-midi-gen]').forEach(input=>{input.value=doc.generation?.[input.dataset.midiGen]??input.defaultValue??'';});
+    $('#midi-loop-start').value=doc.settings?.loop_start??0;
+    $('#midi-loop-end').value=doc.settings?.loop_end??Math.max(16,...doc.tracks.flatMap(t=>t.notes.map(n=>(n.tick+n.duration)/doc.ppq)));
+    $('#midi-loop').checked=Boolean(doc.settings?.loop);
+    $('#midi-metronome').checked=Boolean(doc.settings?.metronome);$('#midi-volume').value=doc.settings?.volume??70;
+    $('#midi-empty-chords').checked=Boolean(doc.generation?.allow_empty_chords);
+  }
+  function install(value){if(value.project_id!==scope)throw new Error('MIDI 文档与当前项目不一致');stop();drag=null;$('.midi-layout').inert=false;doc=value;dirty=saved=0;undo=[];redo=[];selection.clear();trackId=doc.tracks[0].id;syncEditorControls();
+    audioSource=null;$('#midi-source-player').pause();$('#midi-source-player').removeAttribute('src');$('#midi-audio-card').classList.add('hidden');$('#midi-extract-tracks').replaceChildren();
     if(doc.settings?.audio_source){
       const source=doc.settings.audio_source;setAudio(source,source.url||'');
       $('#midi-clip-start').value=doc.settings.clip_start??0;$('#midi-clip-end').value=doc.settings.clip_end??'';$('#midi-extract-bpm').value=doc.settings.extract_bpm??'';
@@ -148,11 +158,6 @@
       $('#midi-clip-start').value=doc.source.clip_start||0;
       $('#midi-clip-end').value=doc.source.clip_end??'';
     }
-    $('#midi-loop-start').value=doc.settings?.loop_start??0;
-    $('#midi-loop-end').value=doc.settings?.loop_end??Math.max(16,...doc.tracks.flatMap(t=>t.notes.map(n=>(n.tick+n.duration)/doc.ppq)));
-    $('#midi-loop').checked=Boolean(doc.settings?.loop);
-    $('#midi-metronome').checked=Boolean(doc.settings?.metronome);$('#midi-volume').value=doc.settings?.volume??70;
-    $('#midi-empty-chords').checked=Boolean(doc.generation?.allow_empty_chords);
     setSave(`已保存 · v${doc.version}${scope?' · 当前项目':' · 独立草稿'}`);$('#midi-correct-bpm').classList.toggle('hidden',!doc.raw_transcription);renderTracks();properties();downloads();renderExtractTracks();draw();backup();readiness();
   }
   async function loadDocuments(page=0){
@@ -243,7 +248,7 @@
   function remove(){if(!selection.size)return;beforeEdit();currentTrack().notes=currentTrack().notes.filter(n=>!selection.has(n.id));selection.clear();changed();renderTracks();}
   function copy(){clipboard=currentTrack().notes.filter(n=>selection.has(n.id)).map(clone);message(`已复制 ${clipboard.length} 个音符`);}
   function paste(repeat=false){if(!clipboard.length)return;beforeEdit();const first=Math.min(...clipboard.map(n=>n.tick)),end=Math.max(...clipboard.map(n=>n.tick+n.duration));const offset=repeat?end-first:Math.round(viewBeat*doc.ppq)-first;selection.clear();for(const source of clipboard){const n={...source,id:uid(),tick:Math.max(0,source.tick+offset)};currentTrack().notes.push(n);selection.add(n.id);}changed();renderTracks();}
-  function historyStep(direction){const from=direction==='undo'?undo:redo,to=direction==='undo'?redo:undo;if(!from.length)return;stop();const identity={id:doc.id,version:doc.version,project_id:doc.project_id,created_at:doc.created_at,updated_at:doc.updated_at,asset_id:doc.asset_id};to.push(clone(doc));doc={...from.pop(),...identity};selection.clear();changed();renderTracks();properties();}
+  function historyStep(direction){const from=direction==='undo'?undo:redo,to=direction==='undo'?redo:undo;if(!from.length)return;stop();const identity={id:doc.id,version:doc.version,project_id:doc.project_id,created_at:doc.created_at,updated_at:doc.updated_at,asset_id:doc.asset_id};to.push(clone(doc));doc={...from.pop(),...identity};selection.clear();syncEditorControls();changed();renderTracks();properties();}
   for(const key of ['pitch','start','duration','velocity'])$('#midi-note-'+key).onchange=event=>{const selected=currentTrack()?.notes.filter(n=>selection.has(n.id))||[],value=Number(event.target.value),prop={pitch:'pitch',start:'tick',duration:'duration',velocity:'velocity'}[key],converted=['start','duration'].includes(key)?Math.round(value*doc.ppq):value;if(!Number.isFinite(converted)||!Number.isInteger(converted)||(key==='pitch'&&(converted<0||converted>127))||(key==='velocity'&&(converted<1||converted>127))||(key==='start'&&converted<0)||(key==='duration'&&converted<1)){message('请输入有效的音高、拍位置、长度或力度',true);properties();return;}beforeEdit();selected.forEach(n=>n[prop]=converted);changed();renderTracks();};
   $('#midi-delete').onclick=remove;$('#midi-copy').onclick=copy;$('#midi-paste').onclick=()=>paste();$('#midi-repeat').onclick=()=>{copy();paste(true);};$('#midi-undo').onclick=()=>historyStep('undo');$('#midi-redo').onclick=()=>historyStep('redo');
   canvas.onkeydown=event=>{if(event.isComposing||event.keyCode===229)return;const mod=event.ctrlKey||event.metaKey;if(event.key==='Delete'||event.key==='Backspace'){event.preventDefault();remove();}else if(mod&&event.key.toLowerCase()==='z'){event.preventDefault();historyStep(event.shiftKey?'redo':'undo');}else if(mod&&event.key.toLowerCase()==='c'){event.preventDefault();copy();}else if(mod&&event.key.toLowerCase()==='v'){event.preventDefault();paste();}else if(event.code==='Space'){event.preventDefault();togglePlay().catch(e=>message(e.message,true));}};
@@ -333,8 +338,8 @@
   $('#midi-publish').onclick=async()=>{try{const context=actionContext();await saveContext(context);await postContext(context,`/documents/${doc.id}/publish`,{version:doc.version});message('此版多轨 MIDI 已保存到资产库'+(scope?'和当前项目':''));await window.refreshWorkbenchProject?.();}catch(e){message(e.message,true);}};
   root.addEventListener('click',async event=>{const a=event.target.closest('a[download]');if(!a||!a.href.includes(prefix)||dirty<=saved)return;event.preventDefault();const context=actionContext(),url=new URL(a.href);try{await saveContext(context);url.searchParams.set('version',doc.version);a.href=url.href;a.click();}catch(e){if(context.revision===scopeRevision)message(e.message,true);}});
   $('#midi-import').onclick=()=>$('#midi-upload').click();$('#midi-upload').onchange=async event=>{const file=event.target.files[0],context=actionContext();if(!file)return;try{await saveContext(context);const uploaded=await api(`/api/uploads?filename=${encodeURIComponent(file.name)}`,{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:file});guard(context);install(await postContext(context,'/import',{source_path:uploaded.path,title:file.name}));message('已导入。请选择各轨道用途，再点击“确认轨道用途”。原 MIDI 保留。');await loadDocuments();}catch(e){if(context.revision===scopeRevision)message(e.message,true);}finally{event.target.value='';}};
-  $('#midi-audio').onclick=()=>$('#midi-audio-upload').click();$('#midi-audio-upload').onchange=async event=>{const file=event.target.files[0],context=actionContext();if(!file)return;try{const uploaded=await api(`/api/uploads?filename=${encodeURIComponent(file.name)}`,{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:file});guard(context);await stageAudio(context,{source_path:uploaded.path,title:file.name});}catch(e){if(context.revision===scopeRevision)message(e.message,true);}finally{event.target.value='';}};
-  async function stageAudio(context,source){const result=await postContext(context,'/source',source);setAudio(result,result.url);Object.assign(doc.settings,{audio_source:result,clip_start:0,clip_end:'',extract_bpm:''});$('#midi-extract-bpm').value='';changed();}
+  $('#midi-audio').onclick=()=>$('#midi-audio-upload').click();$('#midi-audio-upload').onchange=async event=>{const file=event.target.files[0];if(!file)return;const context=audioLoadContext();try{const uploaded=await api(`/api/uploads?filename=${encodeURIComponent(file.name)}`,{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:file});guard(context);await stageAudio(context,{source_path:uploaded.path,title:file.name});}catch(e){if(context.revision===scopeRevision)message(e.message,true);}finally{event.target.value='';}};
+  async function stageAudio(context,source){if(context.audioLoad===undefined)context={...context,audioLoad:++audioLoadRevision};const result=await postContext(context,'/source',source);setAudio(result,result.url);Object.assign(doc.settings,{audio_source:result,clip_start:0,clip_end:'',extract_bpm:''});$('#midi-extract-bpm').value='';changed();}
   let objectUrl='';function setAudio(source,url){if(objectUrl)URL.revokeObjectURL(objectUrl);objectUrl=url.startsWith('blob:')?url:'';audioSource=source;$('#midi-audio-card').classList.remove('hidden');$('#midi-source-name').textContent=source.title;$('#midi-source-player').src=url;$('#midi-clip-start').value=0;$('#midi-clip-end').value='';$('#midi-extract-progress').textContent='先试听原曲，再确认整首或提取范围。';$('#midi-extract-tracks').innerHTML='';}
   $('#midi-source-player').onloadedmetadata=()=>{const duration=$('#midi-source-player').duration;$('#midi-source-name').textContent=`${audioSource?.title||'原始歌曲'}${Number.isFinite(duration)?` · ${duration.toFixed(1)} 秒`:''}`;};
   for(const [id,key] of [['midi-clip-start','clip_start'],['midi-clip-end','clip_end'],['midi-extract-bpm','extract_bpm']])$('#'+id).onchange=event=>{if(doc){doc.settings[key]=event.target.value;changed();}};
@@ -387,11 +392,12 @@
     try{
       const context=actionContext();await saveContext(context);const current=clone(doc);
       const check=await post(`/documents/${current.id}/check`,{allow_empty_chords:$('#midi-empty-chords').checked});
+      guard(context);
       if(!check.ready)throw new Error(check.errors.join('；'));
       if(check.warnings.length){const ok=await studioDialog({title:'确认生成副本',message:check.warnings.join('\n'),confirmLabel:'确认生成',cancelLabel:'返回编辑'});if(!ok)return;}
-      if(token!==scopeRevision)throw new Error('项目已切换，请在当前项目重新确认');
+      guard(context);
       const snapshot=await post(`/documents/${current.id}/snapshot`,{version:current.version,allow_empty_chords:$('#midi-empty-chords').checked,acknowledge_projection:true});
-      if(token!==scopeRevision)throw new Error('项目已切换，固定 MIDI 仍保留；返回原项目后可生成。');
+      guard(context);
       const request={...current.generation,source_mode:'midi',style_mode:'custom',source:snapshot.source,project_id:projectScope,midi_document_id:snapshot.document_id,midi_document_version:snapshot.document_version,midi_snapshot_id:snapshot.snapshot_id};
       const job=await submit('mulacover_remix',request,$('#midi-gen-result'),button,projectScope);
       if(token!==scopeRevision)return;generationJob=job.id;
@@ -423,7 +429,7 @@
   }
   window.midiOpenAsset=async(assetId)=>{const context=actionContext();const asset=await api(`/api/workbench/assets/${assetId}`);await saveContext(context);if(asset.metadata?.midi_document_id){const version=Number(asset.metadata.document_version),value=await api(`${prefix}/documents/${asset.metadata.midi_document_id}${version?`?version=${version}`:''}`),latest=await api(`${prefix}/documents/${value.id}`);if(value.project_id===scope&&value.version===latest.version&&!latest.archived_at)install(await postContext(context,`/documents/${value.id}/select`));else install(await postContext(context,'/documents',{document:{...value,title:value.title.slice(0,182)+' · 固定版本副本'}}));}else install(await postContext(context,'/import',{asset_id:assetId,revision_id:asset.current_revision_id}));$('.tab[data-tab="midi"]').click();await loadDocuments();};
   window.midiOpenAudio=async(assetId)=>{
-    const context=actionContext(),asset=await api(`/api/workbench/assets/${assetId}`);
+    const context=audioLoadContext(),asset=await api(`/api/workbench/assets/${assetId}`);
     guard(context);await stageAudio(context,{source_path:{$asset:assetId,revision_id:asset.current_revision_id},title:asset.title});
     $('.tab[data-tab="midi"]').click();
   };
@@ -447,10 +453,11 @@
     }catch(e){message(e.message,true);await uiAlert(e.message);}
   };
   window.midiOpenJobAudio=async(jobId,relative)=>{
-    const context=actionContext();await stageAudio(context,{source_path:{$job_file:{job_id:jobId,relative}},title:`作品 · ${jobId}`});$('.tab[data-tab="midi"]').click();
+    const context=audioLoadContext();await stageAudio(context,{source_path:{$job_file:{job_id:jobId,relative}},title:`作品 · ${jobId}`});$('.tab[data-tab="midi"]').click();
   };
   window.midiOpenRemix=async()=>{
     const context=actionContext();try{const sourceMode=$('#remix-source-mode').value;
+      if(sourceMode==='audio')context.audioLoad=++audioLoadRevision;
       if(sourceMode==='audio'){const input=$('#remix-file'),ref=localInputReference(input)||await inputSourceValue(input),url=input.dataset.localPreview||(input.files[0]?URL.createObjectURL(input.files[0]):'');guard(context);if(ref)await stageAudio(context,{source_path:ref,title:input.dataset.localName||input.files[0]?.name||'重新编曲参考音乐'});$('.tab[data-tab="midi"]').click();if(!ref)$('#midi-audio-upload').click();}
       else{const sources={};for(const [role,id] of [['melody','remix-melody-midi'],['chord','remix-chord-midi'],['drums','remix-drum-midi']]){const input=$('#'+id),value=localInputReference(input)||(input.files.length?await inputSourceValue(input):null);if(value)sources[role]=value;}await saveContext(context);install(await postContext(context,'/import-group',{sources,title:'重新编曲 MIDI'}));$('.tab[data-tab="midi"]').click();await loadDocuments();}
     }catch(e){await uiAlert(e.message);}

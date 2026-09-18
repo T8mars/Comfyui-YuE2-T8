@@ -288,6 +288,8 @@ def export_midi(data, destination: Path, role='', *, model=False):
     conductor.append(mido.MetaMessage('end_of_track'))
     expanded = []
     for track in data['tracks']:
+        if role and track['role'] != role:
+            continue
         for index, notes in enumerate(note_voices(track['notes'])):
             item = {**track, 'notes': notes}
             if index:
