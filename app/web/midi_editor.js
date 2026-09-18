@@ -372,7 +372,7 @@
   };
   async function restoreJobs(token){
     let jobs=[];
-    try{const response=await api('/api/jobs?limit=100');if(token!==scopeRevision)return;jobs=response.jobs.filter(job=>String(job.project_id||'')===scope);}catch{}
+    try{const response=await api(`/api/jobs?limit=100&project_id=${encodeURIComponent(scope||'__global__')}`);if(token!==scopeRevision)return;jobs=response.jobs.filter(job=>String(job.project_id||'')===scope);}catch{}
     for(const type of ['extract','generation']){
       const candidates=jobs.filter(job=>type==='extract'?job.kind==='midi_extract':job.kind==='mulacover_remix'&&resultPanel(job)==='midi');
       const latest=candidates.find(job=>!TERMINAL.has(job.status))||candidates[0];

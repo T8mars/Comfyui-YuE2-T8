@@ -729,11 +729,24 @@ class JobStore:
         filtered = [item for item in values if matches(item)]
         if latest_by_panel:
             latest, panels = [], set()
+            midi_previous_needed, midi_previous_added = False, False
             for item in filtered:
                 key = str(item[1].get("result_panel") or item[1].get("kind") or "")
+                value = item[1]
+                # Transcription has its own result cards, and must not hide generated songs.
+                if key == 'midi' and value.get('kind') == 'midi_extract':
+                    continue
                 if key in panels:
+                    result = value.get('result') or {}
+                    if (key == 'midi' and midi_previous_needed and not midi_previous_added
+                            and value.get('kind') == 'mulacover_remix'
+                            and value.get('status') == 'complete' and result.get('audio')):
+                        latest.append(item)
+                        midi_previous_added = True
                     continue
                 panels.add(key); latest.append(item)
+                if key == 'midi':
+                    midi_previous_needed = value.get('status') != 'complete'
             filtered = latest
         result = []
         for job_id, _ in filtered[offset:offset + limit]:

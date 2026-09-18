@@ -159,7 +159,8 @@ function renderPanelResults(jobs) {
     const olderMidi = panel==='midi' && job.status!=='complete' ? jobs.find(item=>item.id!==job.id&&item.kind==='mulacover_remix'&&resultPanel(item)==='midi'&&scopedProject(item)===projectId&&item.status==='complete'&&item.result?.audio) : null;
     const previous = observedJobs.get(job.id);
     observedJobs.set(job.id, job.status);
-    if (panelStates.get(panel) === signature) continue;
+    const resultPresent=target.hasChildNodes()&&(!olderMidi||target.querySelector('.midi-previous-result'));
+    if (panelStates.get(panel) === signature && resultPresent) continue;
     panelStates.set(panel, signature);
     target.dataset.projectScope = scope;
     target.dataset.jobId = job.id;
@@ -567,7 +568,8 @@ async function refreshWorkspace() {
       const current=await api(`/api/jobs/${encodeURIComponent(healthData.current_job)}`).catch(()=>null);
       if(current)jobs.unshift(current);
     }
-    renderHealth(healthData); renderTaskCenter(healthData, jobs); renderPanelResults(panelData.jobs);
+    renderHealth(healthData); renderTaskCenter(healthData, jobs);
+    if(String(window.workbenchProjectId?.()||'')===projectId)renderPanelResults(panelData.jobs);
     const assetJob = listData.jobs.find(job => job.asset_ids?.length);
     const assetSignature = assetJob ? `${assetJob.id}:${assetJob.asset_ids.length}` : '';
     if (assetSignature && assetSignature !== projectAssetSignature) { projectAssetSignature = assetSignature; window.refreshWorkbenchProject?.(); }
