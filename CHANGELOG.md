@@ -8,7 +8,7 @@
 - Preserve original PPQ, tempo and controller events in normal MIDI exports; explicitly confirm quantized model copies without modifying the original material.
 - Recover independent unsaved snapshots across reloads, separate conflict-copy operations from failed saves, protect published source references and add paginated document/archive/cache management.
 - Guard finite audio exports and apply one global peak gain before PCM24 saving to avoid clipping model outputs.
-- Validate actual portable native startup, generation, independent transcription, source artifact hashes and preservation of existing user projects/settings. Human listening acceptance remains pending and is not inferred from waveform checks.
+- Validate actual portable native startup, generation, independent transcription, source artifact hashes and preservation of existing user projects/settings. The user confirmed both controlled 30-second samples sound normal; this listening acceptance is separate from waveform checks and limited to those samples.
 
 ## 1.5.12 - 2026-09-18
 
