@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.6.0 - 2026-09-19
+
+- Add a project-scoped MIDI editor with real note/chord editing, role mapping, local WebAudio audition, undo, transposition, touch controls, standard MIDI export and persistent drafts.
+- Add independent audio-to-melody/chord/drums MIDI extraction using only transcription weights, with real progress, partial-result persistence, cancellation, retry and raw-event cache reuse.
+- Generate MuLaCover songs from immutable edited MIDI snapshots, retain prior completed audio across later extraction/failure/cancellation, and connect outputs to the asset library and existing voice conversion.
+- Preserve original PPQ, tempo and controller events in normal MIDI exports; explicitly confirm quantized model copies without modifying the original material.
+- Recover independent unsaved snapshots across reloads, separate conflict-copy operations from failed saves, protect published source references and add paginated document/archive/cache management.
+- Guard finite audio exports and apply one global peak gain before PCM24 saving to avoid clipping model outputs.
+- Validate actual portable native startup, generation, independent transcription, source artifact hashes and preservation of existing user projects/settings. Human listening acceptance remains pending and is not inferred from waveform checks.
+
 ## 1.5.12 - 2026-09-18
 
 - Prevent duplicate paid assistant submissions before configuration/draft saves complete; wait before project changes and continue tracking submitted jobs when draft persistence fails.
