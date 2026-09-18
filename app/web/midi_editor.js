@@ -7,7 +7,7 @@
   const drumNames = {35:'底鼓',36:'底鼓',38:'军鼓',40:'军鼓',42:'闭镲',44:'踏镲',46:'开镲',49:'吊镲',51:'叮叮镲'};
   root.innerHTML = `<div class="midi-heading"><div><p class="eyebrow">MIDI WORKSPACE</p><h2>MIDI 编辑器</h2><p>编辑、免费试听，再用旋律与和弦生成完整歌曲。</p></div><div class="midi-actions"><button id="midi-new" class="ghost" type="button">新建 MIDI</button><button id="midi-import" class="ghost" type="button">导入 MIDI</button><button id="midi-audio" class="primary" type="button">上传音乐 · 提取 MIDI</button><button id="midi-choose-asset" class="ghost" type="button">从资产库选择</button></div></div>
   <input id="midi-upload" class="hidden" type="file" accept=".mid,.midi"><input id="midi-audio-upload" class="hidden" type="file" accept="audio/*,.wav,.flac,.mp3,.m4a">
-  <div class="midi-import-card hidden" id="midi-audio-card"><b>提取音乐的旋律、和弦与鼓组</b><p class="midi-source-preview" id="midi-source-name"></p><audio id="midi-source-player" controls preload="metadata"></audio><div class="midi-import-options"><label>起点（秒）<input id="midi-clip-start" type="number" min="0" step="0.1" value="0"></label><label>终点（空白 = 整首）<input id="midi-clip-end" type="number" min="0" step="0.1"></label><label>BPM（可选）<input id="midi-extract-bpm" type="number" min="20" max="400" placeholder="自动估计"></label></div><p class="meta">本地提取，无需歌词或 API。每次范围最多 15 分钟；下载的是识别乐谱，不是音频分轨。识别出的和弦以中心八度呈现，可编辑。</p><div class="toolbar"><button id="midi-extract" class="primary" type="button">提取三类 MIDI</button><button id="midi-cancel-extract" class="ghost hidden" type="button">取消提取</button></div><div id="midi-extract-progress" class="midi-status" role="status"></div><div id="midi-extract-tracks" class="midi-track-results"></div></div>
+  <div class="midi-import-card hidden" id="midi-audio-card"><b>提取音乐的旋律、和弦与鼓组</b><p class="midi-source-preview" id="midi-source-name"></p><audio id="midi-source-player" aria-label="原始音乐试听" controls preload="metadata"></audio><div class="midi-import-options"><label>起点（秒）<input id="midi-clip-start" type="number" min="0" step="0.1" value="0"></label><label>终点（空白 = 整首）<input id="midi-clip-end" type="number" min="0" step="0.1"></label><label>BPM（可选）<input id="midi-extract-bpm" type="number" min="20" max="400" placeholder="自动估计"></label></div><p class="meta">本地提取，无需歌词或 API。每次范围最多 15 分钟；下载的是识别乐谱，不是音频分轨。识别出的和弦以中心八度呈现，可编辑。</p><div class="toolbar"><button id="midi-extract" class="primary" type="button">提取三类 MIDI</button><button id="midi-cancel-extract" class="ghost hidden" type="button">取消提取</button></div><div id="midi-extract-progress" class="midi-status" role="status"></div><div id="midi-extract-tracks" class="midi-track-results"></div></div>
   <div class="toolbar"><input id="midi-title" class="midi-document-title" aria-label="MIDI 名称" maxlength="200"><select id="midi-documents" class="midi-documents" aria-label="打开已保存的 MIDI"></select><button id="midi-save" class="ghost" type="button">保存</button><button id="midi-reload" class="ghost" type="button">重新载入</button><button id="midi-save-copy" class="ghost" type="button">另存副本</button><span id="midi-save-state" class="midi-status" role="status">正在载入…</span></div>
   <div class="midi-mobile-switch"><button class="ghost" data-midi-view="edit" type="button">编辑与试听</button><button class="ghost" data-midi-view="generate" type="button">生成歌曲</button></div>
   <div class="midi-layout" data-view="edit"><aside id="midi-tracks" class="midi-tracks"></aside><section class="midi-editor-card"><div class="midi-transport"><button id="midi-play" class="primary" type="button">▶ 试听</button><button id="midi-stop" class="ghost" type="button">停止</button><label>BPM<input id="midi-bpm" type="number" min="20" max="400" value="120"></label><label><input id="midi-loop" type="checkbox">循环</label><label><input id="midi-metronome" type="checkbox">节拍器</label><label>起始拍<input id="midi-loop-start" type="number" min="0" value="0"></label><label>结束拍<input id="midi-loop-end" type="number" min="0.25" value="16"></label></div>
@@ -20,7 +20,7 @@
   <aside class="midi-generator"><details open><summary>用 MuLaCover 生成完整歌曲</summary><form id="midi-generation-form"><label>歌词<textarea id="midi-gen-lyrics" data-midi-gen="lyrics" rows="5" placeholder="[Verse]\n填写要演唱的歌词" required></textarea></label><label>流派<input id="midi-gen-genre" data-midi-gen="genre" placeholder="例如 acoustic folk"></label><label>乐器<input data-midi-gen="instrument" placeholder="例如 guitar, piano"></label><label>情绪<input data-midi-gen="mood" placeholder="例如 warm, hopeful"></label><label>主题<input data-midi-gen="topic" placeholder="例如 home"></label><div class="midi-row"><label>时长上限（秒）<input data-midi-gen="duration_seconds" type="number" min="5" max="300" value="30"></label><label>采样种子<input data-midi-gen="seed" type="number" min="0" max="9007199254740991" value="831001"></label></div><details><summary>解码设置</summary><label>解码种子<input data-midi-gen="decode_seed" type="number" min="0" max="9007199254740991" value="831002"></label></details><label class="check"><input id="midi-empty-chords" type="checkbox">使用空和弦条件（控制较弱）</label><p id="midi-generate-note" class="meta">BPM 用于试听和导出；模型生成的速度、音色与演奏不保证精确一致。生成会固定当前 MIDI，之后的编辑不改变该任务。</p><button id="midi-generate" class="primary" type="submit">生成带伴奏的完整歌曲</button></form></details></aside></div><div id="midi-gen-result" class="midi-result-section"></div>`;
   let doc=null, trackId='', scope=String(window.workbenchProjectId?.()||''), scopeRevision=0, dirty=0, saved=0, saving=null, timer=null;
   let undo=[],redo=[],selection=new Set(),clipboard=[],mode='draw',drag=null,viewBeat=0,playBeat=null,generationBusy=false;
-  let audioSource=null,extractJob='',generationJob='',audioContext=null,voices=new Set(),playTimer=null,playStart=0,playStartBeat=0,pausedBeat=null;
+  let audioSource=null,extractJob='',extractionBusy=false,generationJob='',audioContext=null,voices=new Set(),playTimer=null,playStart=0,playStartBeat=0,pausedBeat=null;
   const clone=v=>structuredClone(v), uid=()=>crypto.randomUUID().replaceAll('-',''), post=(url,data)=>api(prefix+url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
   const actionContext=()=>({project:scope,revision:scopeRevision,document:doc?.id});
   function guard(context){if(context.revision!==scopeRevision||context.project!==scope||context.document!==doc?.id)throw new Error('项目或编辑文档已切换，原操作的素材保留在原项目，请重新打开。');}
@@ -67,17 +67,18 @@
   }
   async function checkModels(){try{const health=await api('/api/health');generationModelsReady=Boolean(health.ready?.capabilities?.mulacover);readiness();}catch{generationModelsReady=false;readiness();}}
   const backupKey=(s=scope)=>`yue2:midi-backup:${s||'__global__'}`;
-  const documentBackupKey=(s,id)=>`${backupKey(s)}:document:${id}`;
+  const backupOwner=uid();
+  const documentBackupKey=(s,id)=>`${backupKey(s)}:document:${id}:session:${backupOwner}`;
   function readBackup(key){try{return JSON.parse(localStorage.getItem(key)||'null');}catch{return null;}}
   function message(text,error=false){$('#midi-message').textContent=text;$('#midi-message').classList.toggle('error',error);}
   function setSave(text,error=false){$('#midi-save-state').textContent=text;$('#midi-save-state').classList.toggle('error',error);}
   function backup(){
     if(!doc)return;
     try{
-      const value={document:doc,dirty:dirty>saved},key=documentBackupKey(scope,doc.id);
+      const value={document:doc,dirty:dirty>saved,owner:backupOwner},key=documentBackupKey(scope,doc.id);
       const previous=readBackup(backupKey());
       if(value.dirty)localStorage.setItem(key,JSON.stringify(value));else if(dirty>0)localStorage.removeItem(key);
-      if(!previous?.dirty||previous.document?.id===doc.id&&value.dirty||previous.document?.id===doc.id&&dirty>0)
+      if(!previous?.dirty||previous.owner===backupOwner)
         localStorage.setItem(backupKey(),JSON.stringify(value));
     }catch{setSave('本机备份空间不足，服务端保存仍可使用',true);}
   }
@@ -99,6 +100,17 @@
       }
     }catch{}
     return [...values.values()];
+  }
+  function removeMatchingBackups(project,document){
+    const base=backupKey(project),identity=JSON.stringify(document);
+    try{
+      const keys=[];
+      for(let index=0;index<localStorage.length;index++){
+        const key=localStorage.key(index);
+        if(key===base||key.startsWith(`${base}:document:`)||key.startsWith(`${base}:recovery:`))keys.push(key);
+      }
+      for(const key of keys){const value=readBackup(key);if(value?.dirty&&JSON.stringify(value.document)===identity)localStorage.removeItem(key);}
+    }catch{}
   }
   function changed(){
     const previous=undo.at(-1);
@@ -160,7 +172,7 @@
   async function restore(next=String(window.workbenchProjectId?.()||'')){
     finishPointer();
     if(doc&&dirty>saved){try{await save();}catch{backup();}}
-    scopeRevision++;scope=next;doc=null;drag=null;undo=[];redo=[];dirty=saved=0;generationBusy=false;restoreButton($('#midi-generate'));selection.clear();stop();properties();$('.midi-layout').inert=true;audioSource=null;extractJob='';generationJob='';$('#midi-gen-result').replaceChildren();$('#midi-audio-card').classList.add('hidden');$('#midi-extract').disabled=false;const token=scopeRevision;
+    scopeRevision++;scope=next;doc=null;drag=null;undo=[];redo=[];dirty=saved=0;generationBusy=false;restoreButton($('#midi-generate'));selection.clear();stop();properties();$('.midi-layout').inert=true;audioSource=null;extractJob='';extractionBusy=false;generationJob='';$('#midi-gen-result').replaceChildren();$('#midi-audio-card').classList.add('hidden');$('#midi-extract').disabled=false;const token=scopeRevision;
     const pending=pendingBackups();
     try{const result=await api(`${prefix}/current?project_id=${encodeURIComponent(scope)}`);if(token!==scopeRevision)return;
       let value=result.document;if(!value)value=await post('/documents',{project_id:scope});if(token!==scopeRevision||doc)return;install(value);
@@ -171,11 +183,7 @@
           button.textContent=pending.length===1?'恢复本机备份':`恢复：${local.document.title}`;
           button.onclick=async()=>{const context=actionContext();try{
             const result=await copyContext(context,()=>clone(local.document));
-            if(local.backup_key)localStorage.removeItem(local.backup_key);
-            const key=documentBackupKey(context.project,local.document.id),current=readBackup(key);
-            if(current?.dirty&&JSON.stringify(current.document)===JSON.stringify(local.document))localStorage.removeItem(key);
-            const previous=readBackup(backupKey(context.project));
-            if(previous?.dirty&&JSON.stringify(previous.document)===JSON.stringify(local.document))localStorage.removeItem(backupKey(context.project));
+            removeMatchingBackups(context.project,local.document);
             install(result);await loadDocuments();message('本机编辑已恢复为独立副本并保存。');
           }catch(e){message(`恢复失败：${e.message}；备份仍保留。`,true);}};
           $('#midi-message').append(button);
@@ -186,7 +194,16 @@
   }
   function renderTracks(){if(!doc)return;$('#midi-tracks').innerHTML='<h3>轨道用途</h3>'+doc.tracks.map(t=>`<div class="midi-track ${t.id===trackId?'active':''}"><button type="button" class="ghost" data-midi-track="${t.id}" title="${escapeHtml(t.name)}">${escapeHtml(t.name)} · ${t.notes.length}</button><select data-midi-role="${t.id}" aria-label="${escapeHtml(t.name)}的用途">${Object.entries(labels).map(([role,label])=>`<option value="${role}" ${t.role===role?'selected':''}>${label}</option>`).join('')}</select><div class="midi-track-flags"><label><input type="checkbox" data-midi-mute="${t.id}" ${t.muted?'checked':''}>静音</label><label><input type="checkbox" data-midi-solo="${t.id}" ${t.solo?'checked':''}>独奏</label></div></div>`).join('');
     root.querySelectorAll('[data-midi-track]').forEach(b=>b.onclick=()=>chooseTrack(b.dataset.midiTrack));
-    root.querySelectorAll('[data-midi-role]').forEach(input=>input.onchange=()=>{beforeEdit();doc.tracks.find(t=>t.id===input.dataset.midiRole).role=input.value;if(input.value==='drums')doc.tracks.find(t=>t.id===input.dataset.midiRole).channel=9;doc.mapping_confirmed=false;changed();renderTracks();});
+    root.querySelectorAll('[data-midi-role]').forEach(input=>input.onchange=()=>{
+      beforeEdit();const track=doc.tracks.find(t=>t.id===input.dataset.midiRole),previous=track.channel;
+      if(input.value==='drums'&&previous!==9){track.melodic_channel=previous;track.channel=9;}
+      else if(['melody','chord'].includes(input.value)&&previous===9){
+        const original=track.melodic_channel;
+        track.channel=Number.isInteger(original)&&original>=0&&original<=15&&original!==9?original:input.value==='chord'?1:0;
+      }
+      if(track.channel!==previous)for(const event of track.events||[]){if(!event.meta&&Number.isInteger(event.message?.channel))event.message.channel=track.channel;}
+      track.role=input.value;doc.mapping_confirmed=false;changed();renderTracks();
+    });
     for(const key of ['mute','solo'])root.querySelectorAll(`[data-midi-${key}]`).forEach(input=>input.onchange=()=>{beforeEdit();doc.tracks.find(t=>t.id===input.dataset[key==='mute'?'midiMute':'midiSolo'])[key==='mute'?'muted':'solo']=input.checked;changed();});
     $('#midi-confirm-mapping').textContent=doc.mapping_confirmed?'轨道用途已确认':'确认轨道用途';
   }
@@ -317,13 +334,13 @@
   root.addEventListener('click',async event=>{const a=event.target.closest('a[download]');if(!a||!a.href.includes(prefix)||dirty<=saved)return;event.preventDefault();const context=actionContext(),url=new URL(a.href);try{await saveContext(context);url.searchParams.set('version',doc.version);a.href=url.href;a.click();}catch(e){if(context.revision===scopeRevision)message(e.message,true);}});
   $('#midi-import').onclick=()=>$('#midi-upload').click();$('#midi-upload').onchange=async event=>{const file=event.target.files[0],context=actionContext();if(!file)return;try{await saveContext(context);const uploaded=await api(`/api/uploads?filename=${encodeURIComponent(file.name)}`,{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:file});guard(context);install(await postContext(context,'/import',{source_path:uploaded.path,title:file.name}));message('已导入。请选择各轨道用途，再点击“确认轨道用途”。原 MIDI 保留。');await loadDocuments();}catch(e){if(context.revision===scopeRevision)message(e.message,true);}finally{event.target.value='';}};
   $('#midi-audio').onclick=()=>$('#midi-audio-upload').click();$('#midi-audio-upload').onchange=async event=>{const file=event.target.files[0],context=actionContext();if(!file)return;try{const uploaded=await api(`/api/uploads?filename=${encodeURIComponent(file.name)}`,{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:file});guard(context);await stageAudio(context,{source_path:uploaded.path,title:file.name});}catch(e){if(context.revision===scopeRevision)message(e.message,true);}finally{event.target.value='';}};
-  async function stageAudio(context,source){const result=await postContext(context,'/source',source);setAudio(result,result.url);doc.settings.audio_source=result;changed();}
+  async function stageAudio(context,source){const result=await postContext(context,'/source',source);setAudio(result,result.url);Object.assign(doc.settings,{audio_source:result,clip_start:0,clip_end:'',extract_bpm:''});$('#midi-extract-bpm').value='';changed();}
   let objectUrl='';function setAudio(source,url){if(objectUrl)URL.revokeObjectURL(objectUrl);objectUrl=url.startsWith('blob:')?url:'';audioSource=source;$('#midi-audio-card').classList.remove('hidden');$('#midi-source-name').textContent=source.title;$('#midi-source-player').src=url;$('#midi-clip-start').value=0;$('#midi-clip-end').value='';$('#midi-extract-progress').textContent='先试听原曲，再确认整首或提取范围。';$('#midi-extract-tracks').innerHTML='';}
   $('#midi-source-player').onloadedmetadata=()=>{const duration=$('#midi-source-player').duration;$('#midi-source-name').textContent=`${audioSource?.title||'原始歌曲'}${Number.isFinite(duration)?` · ${duration.toFixed(1)} 秒`:''}`;};
   for(const [id,key] of [['midi-clip-start','clip_start'],['midi-clip-end','clip_end'],['midi-extract-bpm','extract_bpm']])$('#'+id).onchange=event=>{if(doc){doc.settings[key]=event.target.value;changed();}};
   async function pollExtract(id,token){
     if(token!==scopeRevision)return;
-    extractJob=id;$('#midi-extract').disabled=true;$('#midi-cancel-extract').classList.remove('hidden');
+    extractJob=id;extractionBusy=true;$('#midi-extract').disabled=true;$('#midi-cancel-extract').classList.remove('hidden');
     try{while(token===scopeRevision){
       const job=await api(`/api/jobs/${id}`);if(token!==scopeRevision)return;
       const stage={queued:'排队等待',midi_decode:'解码音乐',midi_tempo:'估计 BPM',midi_notes:'识别旋律与鼓组',midi_chords:'识别和弦',midi_export:'保存三轨 MIDI',cancelling:'正在取消'}[job.stage]||job.stage;
@@ -343,9 +360,22 @@
       }
       await new Promise(r=>setTimeout(r,1000));
     }}catch(e){if(token===scopeRevision)$('#midi-extract-progress').textContent=e.message;}
-    finally{if(token===scopeRevision){$('#midi-extract').disabled=false;$('#midi-cancel-extract').classList.add('hidden');extractJob='';}}
+    finally{if(token===scopeRevision){$('#midi-extract').disabled=false;$('#midi-cancel-extract').classList.add('hidden');extractJob='';extractionBusy=false;}}
   }
-  $('#midi-extract').onclick=async()=>{const token=scopeRevision,context=actionContext(),source=clone(audioSource);try{if(!source)throw new Error('先上传音乐或从资产库选择');await saveContext(context);const request={...source,project_id:context.project,editor_document_id:doc.id,editor_document_version:doc.version,clip_start:Number($('#midi-clip-start').value)||0,clip_end:$('#midi-clip-end').value?Number($('#midi-clip-end').value):null,bpm:$('#midi-extract-bpm').value?Number($('#midi-extract-bpm').value):null};$('#midi-extract').disabled=true;const job=await api('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind:'midi_extract',request,result_panel:'midi',source:'webui',client_request_id:crypto.randomUUID()})});try{localStorage.setItem(`yue2:midi-extract:${context.project}`,job.id);}catch{}await pollExtract(job.id,token);}catch(e){if(token===scopeRevision){$('#midi-extract').disabled=false;$('#midi-extract-progress').textContent=e.message;}}};
+  $('#midi-extract').onclick=async()=>{
+    if(extractionBusy)return;
+    const token=scopeRevision,context=actionContext(),source=clone(audioSource);
+    extractionBusy=true;$('#midi-extract').disabled=true;
+    try{
+      if(!source)throw new Error('先上传音乐或从资产库选择');
+      await saveContext(context);
+      const request={...source,project_id:context.project,editor_document_id:doc.id,editor_document_version:doc.version,clip_start:Number($('#midi-clip-start').value)||0,clip_end:$('#midi-clip-end').value?Number($('#midi-clip-end').value):null,bpm:$('#midi-extract-bpm').value?Number($('#midi-extract-bpm').value):null};
+      const job=await api('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind:'midi_extract',request,result_panel:'midi',source:'webui',client_request_id:crypto.randomUUID()})});
+      try{localStorage.setItem(`yue2:midi-extract:${context.project}`,job.id);}catch{}
+      await pollExtract(job.id,token);
+    }catch(e){if(token===scopeRevision)$('#midi-extract-progress').textContent=e.message;}
+    finally{if(token===scopeRevision){extractionBusy=false;$('#midi-extract').disabled=false;}}
+  };
   $('#midi-cancel-extract').onclick=async()=>{if(extractJob)await api(`/api/jobs/${extractJob}/cancel`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).catch(e=>message(e.message,true));};
   function renderExtractTracks(){if(!doc?.extraction)return;$('#midi-audio-card').classList.remove('hidden');const states=doc.extraction.tracks||{};$('#midi-extract-tracks').innerHTML=['melody','chord','drums'].map(role=>{const state=states[role]||{},count=doc.tracks.filter(t=>t.role===role).reduce((s,t)=>s+t.notes.length,0),failed=state.status==='failed',pending=state.status==='pending';return `<div class="midi-track-result"><h4>${labels[role]} MIDI</h4><p class="meta">${failed?'识别失败':pending?'尚未识别':count?`${count} 个音符${state.status==='edited'?' · 已手工编辑':''}`:'没有识别到音符（空轨）'}</p>${failed?`<p class="meta">${escapeHtml(state.error||'')}</p>`:''}<div class="toolbar">${!failed&&!pending?`<a class="ghost" href="${prefix}/documents/${doc.id}/download?version=${doc.version}&role=${role}" download="${role}.mid">下载</a>`:''}<button class="ghost" type="button" data-midi-edit-role="${role}">编辑 / 试听</button></div></div>`;}).join('');root.querySelectorAll('[data-midi-edit-role]').forEach(b=>b.onclick=()=>{chooseTrack(doc.tracks.find(t=>t.role===b.dataset.midiEditRole)?.id||trackId);$('.midi-layout').dataset.view='edit';canvas.focus();});}
   $('#midi-correct-bpm').onclick=async()=>{try{if(!await uiConfirm('按原始识别时间重新定位，会替换当前手工编辑的识别轨道。需要保留编辑时请先另存副本；原音频仍保留。','校正识别 BPM','重新定位'))return;const context=actionContext();await saveContext(context);const value=Number($('#midi-bpm').value);install(await postContext(context,`/documents/${doc.id}/correct-bpm`,{version:doc.version,bpm:value}));message('已按原始秒级识别校正 BPM，没有重新调用 GPU。');}catch(e){message(e.message,true);}};

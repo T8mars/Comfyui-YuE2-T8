@@ -1098,6 +1098,8 @@ def run_browser(url: str, output: Path) -> dict:
         assert_manual_cleanup(browser, url, output)
         assert_audit_races(browser, url, output)
         assert_training_cleanup(browser, url, output)
+        from scripts.midi_browser_smoke import assert_midi_races
+        midi_regressions = assert_midi_races(browser, url, output)
         browser.close()
 
     assert not console_errors, f"Browser console/page errors: {console_errors}"
@@ -1125,6 +1127,7 @@ def run_browser(url: str, output: Path) -> dict:
             "training cleanup paginates ten records, confirms precise deletion, protects shared snapshots and retains model downloads on desktop and phone",
         ],
         "console_errors": console_errors,
+        "midi_regressions": midi_regressions,
     }
 
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.1 - 2026-09-19
+
+- Prevent repeated audio-to-MIDI submissions while a document save is pending; failed submissions unlock retry.
+- Reset the saved source clip range and recognition BPM when choosing new music, keeping refresh behavior consistent with the displayed range.
+- Restore the original melodic channel when changing a percussion track back to melody or chords, including channel-bearing controller messages.
+- Keep failed drafts independent across browser tabs; recovering one snapshot removes only matching backups and retains other unsaved edits.
+- Name the source-audio player for assistive navigation and add real-browser regressions for role changes, source persistence, slow-save submissions and shared-storage recovery.
+
 ## 1.6.0 - 2026-09-19
 
 - Add a project-scoped MIDI editor with real note/chord editing, role mapping, local WebAudio audition, undo, transposition, touch controls, standard MIDI export and persistent drafts.
