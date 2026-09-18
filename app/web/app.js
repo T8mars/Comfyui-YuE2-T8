@@ -112,6 +112,23 @@ function generationMemoryBudget() {
   savedValue('generation-memory-gib', String(budget));
   return budget;
 }
+const loadingInputs = $$('[data-generation-loading]');
+const loadingModes = new Set(['auto', 'gpu', 'cpu-offload']);
+const rememberedLoading = savedValue('generation-model-loading');
+for (const input of loadingInputs) {
+  if (loadingModes.has(rememberedLoading)) input.value = rememberedLoading;
+  input.addEventListener('change', () => {
+    for (const other of loadingInputs) other.value = input.value;
+    savedValue('generation-model-loading', input.value);
+  });
+}
+function generationModelLoading() {
+  const mode = ($('.panel.active [data-generation-loading]') || loadingInputs[0])?.value || 'auto';
+  if (!loadingModes.has(mode)) throw new Error('请选择有效的模型加载方式');
+  savedValue('generation-model-loading', mode);
+  return mode;
+}
+window.generationModelLoading = generationModelLoading;
 function resultPanel(job) {
   return savedValue(`job-panel:${job.id}`) || job.result_panel ||
     (['reference_cover', 'voice_convert'].includes(job.kind) ? 'cover' : job.kind === 'render_plan' ? 'plan' : 'create');
@@ -301,7 +318,7 @@ function failureMarkup(error) {
   const id = error?.jobId;
   const job = error?.job || {};
   const oom = /out of memory/i.test(error?.message || '');
-  const reason = oom ? '显存不足，任务已停止。可以使用保存的阶段结果重新运行。' : publicErrorSummary(error?.message);
+  const reason = oom ? '显存不足，任务已停止。请在高级设置选择“低显存 · CPU 分批加载”，关闭其他占用显卡的程序后，再使用保存的阶段结果重新运行。调低预算不会缩小模型；预算还包含 2 GiB 预留。' : publicErrorSummary(error?.message);
   const generatedAudio = job.generated_result?.audio;
   const generatedRel = generatedAudio && id ? relativeAudio(job, generatedAudio) : null;
   const intermediate = generatedRel ? `<p>歌曲已生成，可先试听：</p><audio controls preload="metadata" aria-label="已生成歌曲试听" src="${audioUrl(id, generatedRel)}"></audio>` : '';
@@ -320,7 +337,7 @@ async function resumeJob(id, button) {
     const options = {method: 'POST'};
     if (resumableGeneration) {
       options.headers = {'Content-Type': 'application/json'};
-      options.body = JSON.stringify({memory_budget_gib: generationMemoryBudget()});
+      options.body = JSON.stringify({memory_budget_gib: generationMemoryBudget(), model_loading: generationModelLoading()});
     }
     const job = await api(`/api/jobs/${id}/resume`, options);
     const panel = savedValue(`job-panel:${id}`) || button.closest('.panel')?.id;
@@ -550,8 +567,11 @@ async function refreshWorkspace() {
 async function submit(kind, request, resultTarget, button = null, projectScope = String(window.workbenchProjectId?.() || '')) {
   setSubmitting(button);
   try {
-    if (['generate', 'plan', 'render_plan'].includes(kind)) request.memory_budget_gib = generationMemoryBudget();
-    if (kind === 'reference_cover') request.generate.memory_budget_gib = generationMemoryBudget();
+    const generation = ['generate', 'plan', 'render_plan'].includes(kind) ? request : kind === 'reference_cover' ? request.generate : null;
+    if (generation) {
+      generation.memory_budget_gib = generationMemoryBudget();
+      generation.model_loading = generationModelLoading();
+    }
     const activeProject = projectScope;
     if (activeProject && ['generate','plan','render_plan','reference_cover','voice_convert','transcribe','mulacover_remix'].includes(kind)) {
       if (kind === 'reference_cover') request.generate.project_id = activeProject;

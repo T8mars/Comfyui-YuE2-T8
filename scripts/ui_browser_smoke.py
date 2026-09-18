@@ -300,6 +300,26 @@ def assert_assistant_model_refresh(browser, url: str, output: Path) -> None:
     try:
         page.goto(url, wait_until="domcontentloaded")
         wait_for_ui(page)
+
+        page.locator('.studio-sidebar [data-tab="create"]').click()
+        page.locator('#create [data-generation-loading]').evaluate("element => { element.closest('details').open = true; }")
+        loading = page.locator('#create [data-generation-loading]')
+        assert loading.input_value() == 'auto'
+        loading.select_option('cpu-offload')
+        assert page.locator('[data-generation-loading]').evaluate_all("elements => elements.every(element => element.value === 'cpu-offload')")
+        assert page.evaluate("window.generationModelLoading()") == 'cpu-offload'
+        page.reload(wait_until='domcontentloaded')
+        wait_for_ui(page)
+        assert page.locator('[data-generation-loading]').evaluate_all("elements => elements.every(element => element.value === 'cpu-offload')")
+        page.locator('.studio-sidebar [data-tab="create"]').click()
+        loading = page.locator('#create [data-generation-loading]')
+        loading.evaluate("element => { element.closest('details').open = true; }")
+        loading.select_option('auto')
+        assert page.locator('#create').get_by_text('预算包含 2 GiB 预留', exact=False).is_visible()
+        assert_no_page_overflow(page, 'desktop low-VRAM settings')
+        loading.scroll_into_view_if_needed()
+        page.screenshot(path=output/'desktop-low-vram.png', full_page=False)
+        loading.evaluate("element => { element.closest('details').open = false; }")
         page.locator('.studio-sidebar [data-tab="assistant"]').click()
         page.locator("#assistant-settings").evaluate("element => element.open = true")
         page.locator("#assistant-provider").select_option("compatible")
@@ -1084,6 +1104,7 @@ def run_browser(url: str, output: Path) -> dict:
     return {
         "viewports": ["1366x900", "820x900", "390x844"],
         "scenarios": [
+            "low-VRAM loading defaults to auto, synchronizes across generation pages and survives browser reloads with reserve guidance",
             "seeded project and asset cards stay within the desktop viewport",
             "asset use, edit and read dialogs expose accessible names",
             "asset and completed-job audio handoff uses server references without browser file copies",

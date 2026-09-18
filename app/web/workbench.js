@@ -601,7 +601,7 @@
       const data=Object.fromEntries(new FormData($('#training-form'))),memory=Number($('[data-generation-memory]')?.value||23.5);
       data.style=currentRun.config?.default_style||'instrumental music';data.lyrics=currentRun.config?.default_lyrics||'[instrumental]';
       const selectedStep=Number($('#training-checkpoint-select').value||0);
-      await submitTrainingJob('yue2_preview',{run_id:currentRun.id,project_id:currentProjectId||undefined,checkpoint_step:selectedStep||undefined,model_asset_id:selectedStep?undefined:(currentRun.model_asset_id||undefined),style_model_scale:Number($('#training-style-scale').value),generate:{style:data.style||'instrumental music',lyrics:data.lyrics||'[instrumental]',cot:'off',seed:831001,cfg_scale:1.01,candidates:1,backend:'torch-eager',memory_budget_gib:memory,offload_ar:true,nar_attention:'sdpa',nar_query_chunk_size:256,semantic_sampling:{min_tokens:200,max_tokens:256}}});
+      await submitTrainingJob('yue2_preview',{run_id:currentRun.id,project_id:currentProjectId||undefined,checkpoint_step:selectedStep||undefined,model_asset_id:selectedStep?undefined:(currentRun.model_asset_id||undefined),style_model_scale:Number($('#training-style-scale').value),generate:{style:data.style||'instrumental music',lyrics:data.lyrics||'[instrumental]',cot:'off',seed:831001,cfg_scale:1.01,candidates:1,backend:'torch-eager',memory_budget_gib:memory,model_loading:window.generationModelLoading?.()||'auto',offload_ar:true,nar_attention:'sdpa',nar_query_chunk_size:256,semantic_sampling:{min_tokens:200,max_tokens:256}}});
     } catch(error) { showError($('#training-result'),error); }
   }
   $('#training-preview-checkpoint').onclick=previewTrainingRun;

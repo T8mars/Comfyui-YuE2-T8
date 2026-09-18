@@ -514,6 +514,9 @@ class JobStore:
             if not math.isfinite(budget) or budget <= 2:
                 raise ValueError("显存预算必须是大于 2 GiB 的有限数值")
             generation["memory_budget_gib"] = budget
+            generation.setdefault("model_loading", "auto")
+            if not isinstance(generation["model_loading"], str) or generation["model_loading"] not in {"auto", "gpu", "cpu-offload"}:
+                raise ValueError("模型加载方式必须是 auto、gpu 或 cpu-offload")
             if generation.get("style_model_asset_id"):
                 model_asset = AssetLibrary(ROOT).get_asset(str(generation["style_model_asset_id"]))
                 if model_asset.get("kind") != "model" or model_asset.get("metadata", {}).get("model_type") != "yue2_ar_lora":
@@ -615,7 +618,7 @@ class JobStore:
                 raise ValueError("这个任务类型暂不支持阶段恢复")
             request = dict(job["request"])
             overrides = dict(data or {})
-            runtime_keys = {"memory_budget_gib", "backend", "offload_ar", "nar_attention",
+            runtime_keys = {"memory_budget_gib", "backend", "model_loading", "offload_ar", "nar_attention",
                             "nar_query_chunk_size", "vae_core_frames"}
             unexpected = set(overrides) - runtime_keys
             if unexpected:

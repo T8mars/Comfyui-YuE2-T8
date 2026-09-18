@@ -213,7 +213,9 @@
         <details class="wide advanced"><summary>高级设置</summary><div class="advanced-grid">
           <label>运行后端<select name="backend"><option value="torch-eager">兼容模式</option><option value="torch">GPU Graph 加速（实验）</option></select></label>
           <label>显存预算 GiB<input name="memory_budget_gib" data-generation-memory type="number" step="any" min="2" required value="23.5"></label>
-          <p class="meta wide">可自行修改，三个创作页面同步并在当前浏览器记住。请大于 2 GiB，按显卡可用显存设置；预算内含 2 GiB 预留，调低不保证模型能运行。</p>
+        <label>模型加载方式<select name="model_loading" data-generation-loading><option value="auto">自动选择（小显存分批加载）</option><option value="cpu-offload">低显存 · CPU 分批加载</option><option value="gpu">全部载入显卡</option></select></label>
+        <p class="meta wide">三个创作页面同步并在当前浏览器记住。预算包含 2 GiB 预留，例如填 8 时进程最多分配约 6 GiB。自动选择在显卡或预算不超过 12 GiB 时使用 CPU 分批加载，速度较慢、占用内存更多；建议至少 32 GB 内存。此设置用于 YuE2 生成，不控制 RVC 训练或直接换声。</p>
+
           <label class="check"><input name="offload_ar" type="checkbox" checked>声学合成时释放闲置模型显存</label>
           <label>声学计算块<input name="nar_query_chunk_size" type="number" min="1" max="1024" step="1" value="256"></label>
           <label>声学后端<select name="nar_attention"><option value="sdpa">自动（显存保护）</option><option value="math">兼容模式</option><option value="cudnn">cuDNN</option></select></label>
@@ -238,7 +240,9 @@ This melody still waits for you</textarea></label>
         <label>规划模式<select name="cot"><option value="full">旋律 + 和弦</option><option value="melody">仅旋律</option></select></label>
         <label>随机种子<input name="seed" type="number" min="0" max="9007199254740991" step="1" value="831001"></label>
         <label>显存预算 GiB<input name="memory_budget_gib" data-generation-memory type="number" step="any" min="2" required value="23.5"></label>
-        <p class="meta wide">可自行修改，三个创作页面同步并在当前浏览器记住。请大于 2 GiB，按显卡可用显存设置；预算内含 2 GiB 预留，调低不保证模型能运行。</p>
+        <label>模型加载方式<select name="model_loading" data-generation-loading><option value="auto">自动选择（小显存分批加载）</option><option value="cpu-offload">低显存 · CPU 分批加载</option><option value="gpu">全部载入显卡</option></select></label>
+        <p class="meta wide">三个创作页面同步并在当前浏览器记住。预算包含 2 GiB 预留，例如填 8 时进程最多分配约 6 GiB。自动选择在显卡或预算不超过 12 GiB 时使用 CPU 分批加载，速度较慢、占用内存更多；建议至少 32 GB 内存。此设置用于 YuE2 生成，不控制 RVC 训练或直接换声。</p>
+
         <button id="plan-button" class="primary wide" type="submit" data-idle-label="生成 ABC 计划">生成 ABC 计划</button>
       </form>
       <div id="plan-workbench" class="workbench hidden">
@@ -315,7 +319,9 @@ This melody still waits for you</textarea></label>
         <label>目标风格<textarea id="cover-style" rows="3">Jazz-funk, warm lead vocal, Rhodes piano, electric bass, tight drums</textarea></label>
         <label>歌词<textarea id="cover-lyrics" rows="10" placeholder="粘贴并按 [Verse] / [Chorus] 整理歌词"></textarea></label>
         <label>显存预算 GiB<input name="memory_budget_gib" data-generation-memory type="number" step="any" min="2" required value="23.5"></label>
-        <p class="meta wide">可自行修改，三个创作页面同步并在当前浏览器记住。请大于 2 GiB，按显卡可用显存设置；预算内含 2 GiB 预留，调低不保证模型能运行。</p>
+        <label>模型加载方式<select name="model_loading" data-generation-loading><option value="auto">自动选择（小显存分批加载）</option><option value="cpu-offload">低显存 · CPU 分批加载</option><option value="gpu">全部载入显卡</option></select></label>
+        <p class="meta wide">三个创作页面同步并在当前浏览器记住。预算包含 2 GiB 预留，例如填 8 时进程最多分配约 6 GiB。自动选择在显卡或预算不超过 12 GiB 时使用 CPU 分批加载，速度较慢、占用内存更多；建议至少 32 GB 内存。此设置用于 YuE2 生成，不控制 RVC 训练或直接换声。</p>
+
         <label>随机种子<input id="cover-seed" type="number" min="0" max="9007199254740991" step="1" value="831001"></label>
         </div>
         <div class="creation-options">

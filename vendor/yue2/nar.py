@@ -160,7 +160,8 @@ class CachedNAR:
         self.backend, self.query_chunk_size = attention, query_chunk_size
         self.cancelled, self.stats = cancelled, stats
         weight = next(model.vae2llm.parameters())
-        self.device, self.dtype = weight.device, weight.dtype
+        from .offloading import execution_device
+        self.device, self.dtype = execution_device(model), weight.dtype
         if chunk.noise.ndim != 2 or chunk.noise.shape[1] != 64 or len(chunk.noise) < 1:
             raise ValueError("Expected nonempty acoustic noise [frames,64]")
         if not torch.isfinite(chunk.noise).all():
@@ -260,6 +261,9 @@ class CachedNAR:
 @contextmanager
 def _offload_ar(model, enabled):
     """Temporarily move unused AR modules; this model cannot serve concurrently."""
+    if getattr(model, "_yue2_cpu_offloaded", False):
+        yield  # All weights already have CPU backing; moving meta tensors is invalid.
+        return
     modules = [model.model.embed_tokens, model.lm_head]
     for layer in model.model.layers:
         modules.extend((layer.input_layernorm, layer.self_attn, layer.post_attention_layernorm, layer.mlp))

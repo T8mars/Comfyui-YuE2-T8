@@ -57,7 +57,8 @@ def distribution(logits, sampling, history, step, phase, legacy_off=False):
 def generate_tokens(model, prefix, sampling, seed, phase, negative=None, cfg_scale=1.0,
                     legacy_off=False, cancelled=None, on_token=None, use_cuda_graph=True):
     from .modeling_yue2 import StaticKVCache
-    device = next(model.parameters()).device
+    from .offloading import execution_device
+    device = execution_device(model)
     dtype = next(model.parameters()).dtype
     if len(prefix) + sampling.max_tokens > CONTEXT:
         raise ValueError("Prefix + requested generation budget exceeds 24576; no implicit truncation")
@@ -83,7 +84,7 @@ def generate_tokens(model, prefix, sampling, seed, phase, negative=None, cfg_sca
 
     graph = None
     positive_cache = negative_cache = None
-    graph_enabled = use_cuda_graph and device.type == "cuda" and not getattr(model, "_yue2_fp8_originals", {})
+    graph_enabled = use_cuda_graph and device.type == "cuda" and not getattr(model, "_yue2_fp8_originals", {}) and not getattr(model, "_yue2_cpu_offloaded", False)
     synchronize(device)
     start = time.perf_counter()
     try:

@@ -52,6 +52,8 @@ def vae_core_frames_for(request: dict, physical_memory_gib: float | None = None)
         except Exception:
             physical_memory_gib = budget
     effective_memory_gib = min(float(physical_memory_gib), budget)
+    if request.get("model_loading", "auto") == "cpu-offload" or (request.get("model_loading", "auto") == "auto" and effective_memory_gib <= 12):
+        return 128
     return 1024 if effective_memory_gib >= 20 else 512
 
 
@@ -64,6 +66,7 @@ def create_pipe(root: Path, request: dict):
     pipe = YuE2Pipeline.from_pretrained(
         str(paths["model"]), vae=str(paths["vae"]), device="cuda",
         memory_budget_gib=budget, backend=backend, quantization="none",
+        model_loading=request.get("model_loading", "auto"),
         offload_ar=bool(request.get("offload_ar", True)), local_files_only=True,
         nar_attention=request.get("nar_attention", "sdpa"),
         nar_query_chunk_size=int(request.get("nar_query_chunk_size", 256)),
@@ -94,8 +97,7 @@ def create_pipe(root: Path, request: dict):
                         "merged_linears": 196, "io_replaced": True,
                         "scaling_convention": "weight_plus_scale_times_B_matmul_A"}
         original_loader, merged = pipe._load_model, {"done": False}
-        def load_with_adapter(for_nar=False):
-            model = original_loader(for_nar=for_nar)
+        def apply_adapter(model):
             if not merged["done"]:
                 ar_info = merge_ar_adapter(model, adapter, scale=scale)
                 nar_info = merge_nar_companion(model, nar)
@@ -103,7 +105,12 @@ def create_pipe(root: Path, request: dict):
                     raise ValueError("歌曲风格模型运行时身份与加载前校验不一致")
                 merged["done"] = True
             return model
-        pipe._load_model = load_with_adapter
+        if pipe.cpu_offload_enabled:
+            pipe.model_transform = apply_adapter
+        else:
+            def load_with_adapter(for_nar=False):
+                return apply_adapter(original_loader(for_nar=for_nar))
+            pipe._load_model = load_with_adapter
         # Provenance participates in request/checkpoint identity before lazy load.
         pipe.weights["style_adapter"] = expected_ar
         pipe.weights["nar_companion"] = expected_nar

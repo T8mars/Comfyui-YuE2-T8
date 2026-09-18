@@ -42,6 +42,35 @@ class GenerationBudget(unittest.TestCase):
         self.assertFalse(self.store.jobs)
         self.assertTrue(self.store.pending.empty())
 
+    def test_loading_mode_survives_queue_and_pipeline_and_old_requests_default_to_auto(self):
+        pipeline = Mock()
+        with patch.dict(sys.modules, {'yue2':types.SimpleNamespace(YuE2Pipeline=pipeline)}), patch.object(core_worker,'model_paths',return_value={'model':'model','vae':'vae'}):
+            for kind in ('generate', 'plan', 'render_plan', 'reference_cover'):
+                for mode in (None, 'auto', 'cpu-offload', 'gpu'):
+                    with self.subTest(kind=kind, mode=mode):
+                        request = self.request(kind, 8)
+                        generation = request['generate'] if kind=='reference_cover' else request
+                        if mode is not None:
+                            generation['model_loading'] = mode
+                        job = self.store.create(kind, request)
+                        saved_request = json.loads((self.root/'outputs/jobs'/job['id']/'job.json').read_text())['request']
+                        saved = saved_request['generate'] if kind=='reference_cover' else saved_request
+                        self.assertEqual(saved['model_loading'], mode or 'auto')
+                        core_worker.create_pipe(self.root, saved)
+                        self.assertEqual(pipeline.from_pretrained.call_args.kwargs['model_loading'], mode or 'auto')
+
+    def test_invalid_loading_mode_is_rejected_before_queue(self):
+        for kind in ('generate', 'plan', 'render_plan', 'reference_cover'):
+            for mode in (None, True, 8, [], {}, 'bad'):
+                with self.subTest(kind=kind, mode=mode):
+                    request = self.request(kind, 8)
+                    generation = request['generate'] if kind=='reference_cover' else request
+                    generation['model_loading'] = mode
+                    with self.assertRaisesRegex(ValueError, '模型加载方式'):
+                        self.store.create(kind, request)
+        self.assertFalse(self.store.jobs)
+        self.assertTrue(self.store.pending.empty())
+
     def test_comfyui_budget_widget_matches_service_range(self):
         root = Path(__file__).resolve().parents[1]
         for relative in ('nodes.py', 'comfyui_nodes/nodes.py'):
@@ -56,6 +85,11 @@ class GenerationBudget(unittest.TestCase):
                     try:
                         spec.loader.exec_module(module)
                         config = module.YuE2ModelLoader.INPUT_TYPES()['required']['memory_budget_gib'][1]
+                        modes = module.YuE2ModelLoader.INPUT_TYPES()['optional']['model_loading']
+                        self.assertEqual(modes[0], ['auto', 'cpu-offload', 'gpu'])
+                        self.assertEqual(modes[1]['default'], 'auto')
+                        self.assertEqual(module.base_request({'backend':'torch-eager','memory_budget_gib':8})['model_loading'], 'auto')
+                        self.assertEqual(module.base_request({'backend':'torch-eager','memory_budget_gib':8,'model_loading':'cpu-offload'})['model_loading'], 'cpu-offload')
                     finally:
                         sys.modules.pop(spec.name, None)
                 self.assertLessEqual(config['min'], 2.5)
@@ -63,7 +97,9 @@ class GenerationBudget(unittest.TestCase):
 
     def test_vae_tile_uses_smaller_of_device_and_budget(self):
         cases = [
-            ({'memory_budget_gib': 8}, 24, 512),
+            ({'memory_budget_gib': 8}, 24, 128),
+            ({'memory_budget_gib': 8, 'model_loading':'gpu'}, 24, 512),
+            ({'memory_budget_gib': 24, 'model_loading':'cpu-offload'}, 24, 128),
             ({'memory_budget_gib': 23.5}, 24, 1024),
             ({'memory_budget_gib': 32}, 16, 512),
             ({'memory_budget_gib': 32, 'vae_core_frames': 256}, 24, 256),

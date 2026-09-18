@@ -63,6 +63,7 @@ def _selected_id(value: str, label: str) -> str:
 def base_request(model: dict) -> dict:
     return {"backend": model["backend"], "memory_budget_gib": model["memory_budget_gib"],
             "offload_ar": model.get("offload_ar", True),
+            "model_loading": model.get("model_loading", "auto"),
             "nar_attention": model.get("nar_attention", "sdpa"),
             "nar_query_chunk_size": model.get("nar_query_chunk_size", 256)}
 
@@ -109,6 +110,7 @@ class YuE2ModelLoader:
             "memory_budget_gib": ("FLOAT", {"default": 23.5, "min": 2.5, "max": 256.0, "step": 0.5}),
             "offload_ar": ("BOOLEAN", {"default": True}),
         }, "optional": {
+            "model_loading": (["auto", "cpu-offload", "gpu"], {"default": "auto"}),
             "nar_attention": (["sdpa", "math", "cudnn"], {"default": "sdpa"}),
             "nar_query_chunk_size": ("INT", {"default": 256, "min": 1, "max": 1024}),
         }}
@@ -117,7 +119,7 @@ class YuE2ModelLoader:
     FUNCTION = "load"
     CATEGORY = CATEGORY
 
-    def load(self, backend, memory_budget_gib, offload_ar, nar_attention="sdpa", nar_query_chunk_size=256):
+    def load(self, backend, memory_budget_gib, offload_ar, nar_attention="sdpa", nar_query_chunk_size=256, model_loading="auto"):
         health = client.ensure_service()
         ready = health["ready"]
         missing = [name for name in ("model", "vae") if not ready["models"].get(name)]
@@ -131,7 +133,7 @@ class YuE2ModelLoader:
                 details.append("模型 " + ", ".join(missing))
             raise RuntimeError("YuE2 生成环境未就绪：缺少 " + "、".join(details))
         handle = {"backend": backend, "memory_budget_gib": float(memory_budget_gib),
-                  "offload_ar": bool(offload_ar), "service": client.SERVICE,
+                  "offload_ar": bool(offload_ar), "service": client.SERVICE, "model_loading": model_loading,
                   "nar_attention": nar_attention, "nar_query_chunk_size": int(nar_query_chunk_size)}
         return (handle, json.dumps(health, ensure_ascii=False))
 
