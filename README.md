@@ -295,7 +295,7 @@ git clone https://github.com/T8mars/Comfyui-YuE2-T8.git
 
 ### 模型放置路径
 
-模型统一发布在 [t8star/YuE2-Comfy](https://huggingface.co/t8star/YuE2-Comfy)。安装脚本固定使用已验证的模型提交 [`a083f1064`](https://huggingface.co/t8star/YuE2-Comfy/commit/a083f106499daead99259dd0c443a5494254cfc5)。默认放到当前节点目录的 `models` 下；也可以在 WebUI 顶部展开“模型位置与安装说明”填写其他硬盘的绝对路径，或者双击 `configure_models.bat` 后再安装。当前路径保存在 `settings.json`。
+模型统一发布在 [t8star/YuE2-Comfy](https://huggingface.co/t8star/YuE2-Comfy)。安装脚本固定使用已验证的提交 [`4d5165b9`](https://huggingface.co/t8star/YuE2-Comfy/commit/4d5165b9770255aee9151a626693fd09b87318e2)，其中补齐了 YuE2 风格训练所需的 `regularizer-safe-v1` 缓存和 MuLaCover 清单。默认放到当前节点目录的 `models` 下；也可以在 WebUI 顶部展开“模型位置与安装说明”填写其他硬盘的绝对路径，或者双击 `configure_models.bat` 后再安装。当前路径保存在 `settings.json`。
 
 ```text
 ComfyUI/custom_nodes/yue2-t8/models/YuE2-3B/model.safetensors
@@ -311,10 +311,15 @@ ComfyUI/custom_nodes/yue2-t8/models/MuLaCover/
 ComfyUI/custom_nodes/yue2-t8/models/HeartCodec-oss/
 ComfyUI/custom_nodes/yue2-t8/models/Qwen3-Embedding-0.6B/
 ComfyUI/custom_nodes/yue2-t8/models/SymbolicTranscriptor/
+ComfyUI/custom_nodes/yue2-t8/models/YuE2-training/regularizer-safe-v1/codec.npy
+ComfyUI/custom_nodes/yue2-t8/models/YuE2-training/regularizer-safe-v1/offsets.npy
+ComfyUI/custom_nodes/yue2-t8/models/YuE2-training/regularizer-safe-v1/metadata.json
+ComfyUI/custom_nodes/yue2-t8/models/MODEL_MANIFEST.json
 ComfyUI/custom_nodes/yue2-t8/models/VOICE_MODEL_MANIFEST.json
+ComfyUI/custom_nodes/yue2-t8/models/MULACOVER_MODEL_MANIFEST.json
 ```
 
-手动 Git clone 时，把上面的 `yue2-t8` 换成实际仓库目录名 `Comfyui-YuE2-T8`。不要把权重直接放入 ComfyUI 的 `checkpoints` 目录；代码需要保留十二个模型子目录及其配置和清单。`YuE2-training` 约 414 MB；MuLaCover 相关四个目录可运行 `scripts/download_mulacover_models.py --root <整合包目录>` 下载并按固定版本校验。原生 [Comfyui-Mulacover-T8](https://github.com/T8mars/Comfyui-Mulacover-T8) 的模型加载器也可直接填写这里的 `models` 绝对路径，避免重复保存大模型。
+手动 Git clone 时，把上面的 `yue2-t8` 换成实际仓库目录名 `Comfyui-YuE2-T8`。不要把权重直接放入 ComfyUI 的 `checkpoints` 目录；代码需要保留十二个模型子目录、三个根清单以及各目录配置和清单。`YuE2-training` 约 500 MB，其中 `regularizer-safe-v1` 是训练预处理使用的固定缓存；MuLaCover 相关四个目录可运行 `scripts/download_mulacover_models.py --root <整合包目录>` 下载并按固定版本校验。原生 [Comfyui-Mulacover-T8](https://github.com/T8mars/Comfyui-Mulacover-T8) 的模型加载器也可直接填写这里的 `models` 绝对路径，避免重复保存大模型。
 
 如果使用自定义目录，该目录本身就是上面路径中的 `models`：十二个子目录和相应清单必须直接位于其中。命令行安装也可使用：
 
@@ -376,6 +381,8 @@ YuE2 Music T8 integrates YuE2-3B full-song generation with ComfyUI and includes 
 Install it with `comfy node install yue2-t8`, then run `install_runtime.bat` once from the node directory and restart ComfyUI. Models are downloaded from [t8star/YuE2-Comfy](https://huggingface.co/t8star/YuE2-Comfy) into `<node-directory>/models`; use the WebUI model settings or `configure_models.bat` to place them on another drive. Keep all twelve model subdirectories, including RVC, YuE2-training and the four MuLaCover components, with their configuration files. Windows and an NVIDIA GPU are required, with 24GB VRAM and at least 60GB free disk space recommended for installation and migration, plus storage for training data and outputs.
 
 The node pack supports Chinese and English lyrics, editable ABC plans, multi-candidate generation, SheetSage2 transcription, melody remake, MuLaCover audio/MIDI remixing, Seed-VC and RVC voice conversion, YuE2 style LoRA and RVC training, staged inference, per-task cancellation, history, and artifact export. Training datasets and rights review are prepared in the local studio; native ComfyUI nodes run the checked project and can connect the resulting model directly to generation or voice conversion. MuLaCover results include playable audio and extracted melody, chord and drum MIDI, and can be sent directly to voice conversion. A separate native, in-process node package is available at [Comfyui-Mulacover-T8](https://github.com/T8mars/Comfyui-Mulacover-T8).
+
+The model root is shared by the WebUI, ComfyUI nodes and native MuLaCover nodes. Keep the twelve model directories (`YuE2-3B`, `YuE2-Vae`, `MuLaCover`, `HeartCodec-oss`, `Qwen3-Embedding-0.6B`, `SymbolicTranscriptor`, `SheetSage2`, `MERT-v2-FullSong`, `Demucs`, `Seed-VC`, `RVC`, and `YuE2-training`) plus `MODEL_MANIFEST.json`, `VOICE_MODEL_MANIFEST.json` and `MULACOVER_MODEL_MANIFEST.json`. YuE2 style training also requires `YuE2-training/regularizer-safe-v1/codec.npy`, `offsets.npy` and `metadata.json`; the installer is pinned to the verified model commit that contains these files.
 
 The standalone v1.5 studio uses one CPython 3.12.10 runtime for music, transcription, Seed-VC, RVC, YuE2 style training and optional GGUF. Its project workspace and content-addressed asset library connect source songs, stems, lyrics, scores, generated versions, voices and trained models. YuE2 AR LoRA training uses immutable train/validation snapshots, pinned Mothersuperior v4 companion resources, loss tracking, resumable checkpoints and an in-page audio preview. Version 1.4.11 samples reproducible 768-token semantic windows (about 30 seconds) from complete songs, while validation checks fixed start, middle and end windows with song-disjoint groups. Trained adapters are currently enabled only for the validated direct-generation mode. The updater migrates legacy runtimes and rolls back a failed startup.
 

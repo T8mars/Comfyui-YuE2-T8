@@ -1,5 +1,11 @@
 # YuE2 本地整合验证报告
 
+## v1.6.4 模型仓库结构补齐（2026-09-19）
+
+- 对本地 `models` 目录与 `t8star/YuE2-Comfy` 远端树逐文件对照：基础生成、MuLaCover、HeartCodec、Qwen Embedding、Seed-VC、Demucs、RVC、SheetSage2、MERT、SymbolicTranscriptor 和 YuE2-training 主文件均已存在且大小一致。
+- 补传 `YuE2-training/regularizer-safe-v1/codec.npy`、`offsets.npy`、`metadata.json`、`manifest.json` 以及根目录 `MULACOVER_MODEL_MANIFEST.json`；包含 README 和目录属性的最终远端提交为 `4d5165b9770255aee9151a626693fd09b87318e2`。
+- 安装脚本改为固定该提交，避免新安装仍下载旧模型树；没有上传 Python、运行时、用户资产、输出或完整整合包。
+
 ## v1.6.3 MIDI 布局补丁（2026-09-19）
 
 - 当前 8189 服务在 1280、1440、1920px 视口分别检查：MIDI 工作区使用可用宽度；1280 / 1440px 时生成栏移到编辑器下方，中间编辑区分别为 830 / 990px。

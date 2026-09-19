@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.6.4 - 2026-09-19
+
+- Mirror the complete YuE2 style-training `regularizer-safe-v1` cache in `t8star/YuE2-Comfy`, including codec, offsets and metadata.
+- Add the root `MULACOVER_MODEL_MANIFEST.json` to the model repository so MuLaCover provenance and checksums are available after a clean download.
+- Pin the installer to the verified Hugging Face commit containing the new model structure.
+- Document the shared model tree and the three root manifests in the installation instructions.
+
 ## 1.6.3 - 2026-09-19
 
 - Make the MIDI workspace use the full available width instead of leaving large side gutters.
