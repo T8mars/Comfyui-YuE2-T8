@@ -295,7 +295,7 @@ git clone https://github.com/T8mars/Comfyui-YuE2-T8.git
 
 ### 模型放置路径
 
-模型统一发布在 [t8star/YuE2-Comfy](https://huggingface.co/t8star/YuE2-Comfy)。安装脚本固定使用已验证的提交 [`4d5165b9`](https://huggingface.co/t8star/YuE2-Comfy/commit/4d5165b9770255aee9151a626693fd09b87318e2)，其中补齐了 YuE2 风格训练所需的 `regularizer-safe-v1` 缓存和 MuLaCover 清单。默认放到当前节点目录的 `models` 下；也可以在 WebUI 顶部展开“模型位置与安装说明”填写其他硬盘的绝对路径，或者双击 `configure_models.bat` 后再安装。当前路径保存在 `settings.json`。
+模型统一发布在 [t8star/YuE2-Comfy](https://huggingface.co/t8star/YuE2-Comfy)。安装脚本固定使用已验证的提交 [`94f6d64c`](https://huggingface.co/t8star/YuE2-Comfy/commit/94f6d64c1b53a1700e8f76c0c4faff8500be7780)，其中补齐了 YuE2 风格训练所需的 `regularizer-safe-v1` 缓存和可移植的 MuLaCover 清单。默认放到当前节点目录的 `models` 下；也可以在 WebUI 顶部展开“模型位置与安装说明”填写其他硬盘的绝对路径，或者双击 `configure_models.bat` 后再安装。当前路径保存在 `settings.json`。
 
 ```text
 ComfyUI/custom_nodes/yue2-t8/models/YuE2-3B/model.safetensors

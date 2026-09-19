@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.6.5 - 2026-09-19
+
+- Make the public MuLaCover manifest portable by replacing local absolute paths with model-root-relative paths.
+- Pin the installer to the final Hugging Face model tree after the manifest privacy fix.
+
 ## 1.6.4 - 2026-09-19
 
 - Mirror the complete YuE2 style-training `regularizer-safe-v1` cache in `t8star/YuE2-Comfy`, including codec, offsets and metadata.

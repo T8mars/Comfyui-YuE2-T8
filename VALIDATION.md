@@ -1,5 +1,10 @@
 # YuE2 本地整合验证报告
 
+## v1.6.5 清单隐私修复（2026-09-19）
+
+- MuLaCover 清单已改为模型根目录相对路径，不再公开本机 `E:\` 目录；远端最终模型提交为 `94f6d64c1b53a1700e8f76c0c4faff8500be7780`。
+- 新安装器固定该提交，仍保留 YuE2 training regularizer-safe 缓存、MuLaCover 清单和全部模型文件。
+
 ## v1.6.4 模型仓库结构补齐（2026-09-19）
 
 - 对本地 `models` 目录与 `t8star/YuE2-Comfy` 远端树逐文件对照：基础生成、MuLaCover、HeartCodec、Qwen Embedding、Seed-VC、Demucs、RVC、SheetSage2、MERT、SymbolicTranscriptor 和 YuE2-training 主文件均已存在且大小一致。

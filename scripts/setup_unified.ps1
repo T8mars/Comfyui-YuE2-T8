@@ -123,7 +123,7 @@ if (-not $SkipModels) {
     $Python = Join-Path $Runtime 'python.exe'
     $Models = (& $Python -X utf8 -c 'from app.yue2_app.config import ROOT; from app.yue2_app.settings import model_directory; print(model_directory(ROOT,strict=False))' | Out-String).Trim()
     Assert-ExitCode 'Model directory settings'
-    & $Python -X utf8 -m huggingface_hub.cli.hf download t8star/YuE2-Comfy --revision 4d5165b9770255aee9151a626693fd09b87318e2 --local-dir $Models
+    & $Python -X utf8 -m huggingface_hub.cli.hf download t8star/YuE2-Comfy --revision 94f6d64c1b53a1700e8f76c0c4faff8500be7780 --local-dir $Models
     Assert-ExitCode 'YuE2 model download'
     & $Python -X utf8 (Join-Path $PSScriptRoot 'verify_models.py') @ModelArgs
     Assert-ExitCode 'YuE2 models verification'
