@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.6.6 - 2026-09-19
+
+- Add the requested Bilibili, YouTube, API signup, RunningHub, portable package and Hugging Face profile links to the studio header, public README and distribution documentation.
+- Keep the social and distribution links visible on narrow screens through the existing responsive wrapping layout.
+
+
+
 ## 1.6.5 - 2026-09-19
 
 - Make the public MuLaCover manifest portable by replacing local absolute paths with model-root-relative paths.

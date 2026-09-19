@@ -6,7 +6,7 @@
 
 ## 完整版整合包
 
-完整版整合包：[夸克网盘下载](https://pan.quark.cn/s/67ebf18a2d51) · [Hugging Face 下载 v1.5.4](https://huggingface.co/t8star/YuE2-Comfy/resolve/main/bundles/Yue2-T8-Onekey-v1.5.4-Windows-NVIDIA.rar?download=true) · [SHA-256](https://huggingface.co/t8star/YuE2-Comfy/resolve/main/bundles/Yue2-T8-Onekey-v1.5.4-Windows-NVIDIA.rar.sha256?download=true)
+完整版整合包：[夸克网盘下载](https://pan.quark.cn/s/264edb7e36bd) · [Hugging Face 下载 v1.5.4](https://huggingface.co/t8star/YuE2-Comfy/resolve/main/bundles/Yue2-T8-Onekey-v1.5.4-Windows-NVIDIA.rar?download=true) · [SHA-256](https://huggingface.co/t8star/YuE2-Comfy/resolve/main/bundles/Yue2-T8-Onekey-v1.5.4-Windows-NVIDIA.rar.sha256?download=true)
 
 Windows / NVIDIA 完整包，包含运行环境与模型。完整解压后，双击 `YuE2-T8.exe` 即可启动；首次启动可通过页面“检查更新”安装最新的小型代码补丁。
 
@@ -396,7 +396,7 @@ The [CSD Korean Female v1 examples](https://huggingface.co/t8star/YuE2-Comfy/tre
 - YouTube: https://www.youtube.com/@T8star-Aix/
 - API: https://api.seedance.nz/sign-up?aff=5f4w
 - 在线 AI 应用 / Online AI apps: https://www.runninghub.ai/zh-cn/user-center/1907375370302308353/userPost?inviteCode=rh-v1121
-- ComfyUI 整合包 / Portable package: https://pan.quark.cn/s/67ebf18a2d51
+- ComfyUI 整合包 / Portable package: https://pan.quark.cn/s/264edb7e36bd
 - Full portable bundle on Hugging Face: https://huggingface.co/t8star/YuE2-Comfy/resolve/main/bundles/Yue2-T8-Onekey-v1.5.4-Windows-NVIDIA.rar?download=true
 - Hugging Face: https://huggingface.co/t8star
 - Model repository: https://huggingface.co/t8star/YuE2-Comfy
