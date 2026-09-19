@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.6.3 - 2026-09-19
+
+- Make the MIDI workspace use the full available width instead of leaving large side gutters.
+- Move the MuLaCover generation panel below the editor at medium window widths so the piano roll remains usable.
+- Add a real horizontal scroll area for long and zoomed piano-roll timelines.
+- Give audio-to-MIDI start, end and BPM inputs equal flexible widths so the BPM field is never clipped.
+
 ## 1.6.2 - 2026-09-19
 
 - Keep the most recent audio selection when earlier uploads or asset reads finish late in the same MIDI document.
