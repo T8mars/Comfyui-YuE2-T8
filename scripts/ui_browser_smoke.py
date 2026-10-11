@@ -694,8 +694,14 @@ def assert_cleanup_reference_navigation(browser, url: str, output: Path) -> None
         page.locator('.studio-sidebar [data-tab="assets"]').click()
         page.locator('#asset-status').select_option('trashed')
         page.locator('#asset-query').fill(asset['title'])
+        # A one-card result from the previous query may remain during debounce.
+        # Wait for this asset, not just an unchanged result count, before selecting.
+        selected_asset=page.locator(f'[data-select-asset="{asset["id"]}"]')
+        expect(selected_asset).to_be_visible()
         expect(page.locator('#asset-grid .asset-card')).to_have_count(1)
         page.locator('#asset-select-page').check()
+        expect(selected_asset).to_be_checked()
+        expect(page.locator('#asset-selection-count')).to_contain_text('已选 1 项')
         page.locator('#purge-selected-assets').click()
         dialog=page.locator('.asset-cleanup-dialog')
         dialog.locator('[name="detach_projects"]').check()
