@@ -47,6 +47,15 @@ class TrainingCleanupTest(unittest.TestCase):
                        (ident, 'snapshot', 'yue2_style', json.dumps(manifest or {}), 'a' * 64, 1))
         return ident
 
+    def test_inventory_filters_the_exact_snapshot_and_its_runs(self):
+        first=self.snapshot();second=self.snapshot()
+        run,_=self.make_run(snapshot=first)
+        self.make_run(snapshot=second)
+        self.assertEqual([item['id'] for item in self.cleanup.inventory(kind='snapshots',reference_id=first)['items']],[first])
+        self.assertEqual([item['id'] for item in self.cleanup.inventory(reference_id=first)['items']],[run['id']])
+        self.assertEqual(self.cleanup.inventory(reference_id=run['id'])['total'],1)
+        with self.assertRaises(ValueError):self.cleanup.inventory(reference_id='../escape')
+
     def make_run(self, state='complete', snapshot=None, config=None):
         run = self.library.create_training_run(title='training', training_kind='yue2_style',
                                               snapshot_id=snapshot or self.snapshot(), config=config or {'steps':200})

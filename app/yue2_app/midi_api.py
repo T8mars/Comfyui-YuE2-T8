@@ -54,7 +54,7 @@ def get(handler, parsed, library, *, head=False):
     return True
 
 
-def post(handler, parsed, library, root):
+def post(handler, parsed, library, root, *, protected=()):
     if not parsed.path.startswith(PREFIX):
         return False
     from .workbench_api import _allowed_source
@@ -150,6 +150,9 @@ def post(handler, parsed, library, root):
                 result = store.select(document_id, data.get('project_id', ''))
             elif action in ('archive','restore'):
                 result = store.archive(document_id,data.get('project_id',''),archived=action=='archive')
+            elif action == 'purge':
+                result = store.purge(document_id, data.get('project_id', ''), version=data.get('version'),
+                                     confirmed=data.get('confirmed') is True, protected=protected)
             elif action == 'check':
                 result = generation_check(store.get(document_id), data.get('allow_empty_chords') is True)
             elif action == 'correct-bpm':

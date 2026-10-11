@@ -280,3 +280,12 @@ body:has(.global-player:not(.hidden)) .workload { bottom: 132px; }
 .training-cleanup-row .check { align-items: flex-start; overflow-wrap: anywhere; }
 .training-cleanup-row p { margin: 8px 0; }
 #training-cleanup-dialog [data-preview] { white-space: pre-line; max-height: 45vh; overflow-y: auto; overflow-wrap: anywhere; }
+.asset-cleanup-dialog [data-blockers] { max-height: 35vh; overflow-y: auto; }
+.asset-blocker-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 10px 0; border-top: 1px solid var(--blue-line); }
+.asset-blocker-row span { flex: 1 1 180px; min-width: 0; overflow-wrap: anywhere; }
+.asset-blocker-row button { white-space: normal; }
+#training-cleanup-entry { margin: 0 0 16px; }
+.asset-cleanup-dialog, .midi-manage-dialog, #training-cleanup-dialog { width: min(760px, calc(100vw - 24px)); max-height: calc(100dvh - 32px); overflow: auto; padding: 24px; border: 1px solid var(--blue-line); border-radius: 16px; }
+.midi-manage-dialog { max-width: 640px; }
+.midi-manage-dialog p { overflow-wrap: anywhere; }
+.midi-archive-entry { flex-wrap: wrap; }

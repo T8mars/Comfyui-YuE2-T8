@@ -446,14 +446,10 @@ class JobStore:
                 from .midi_document import MidiStore, ident
                 midi_store = MidiStore(AssetLibrary(ROOT))
                 snapshot_id = ident(request['midi_snapshot_id'])
-                with midi_store.library.reading() as db:
-                    row = db.execute('SELECT * FROM midi_snapshots WHERE id=?', (snapshot_id,)).fetchone()
-                if row is None:
-                    raise ValueError('MIDI 生成快照不存在')
-                snapshot = json.loads(row['data_json'])
+                row = midi_store.snapshot_receipt(snapshot_id)
                 if (row['document_id'] != request['midi_document_id'] or
                     row['document_version'] != request['midi_document_version'] or
-                    snapshot['project_id'] != request['project_id']):
+                    row['project_id'] != request['project_id']):
                     raise ValueError('MIDI 生成快照版本或项目不匹配')
                 for role, key in (('melody','melody_midi'),('chord','chord_midi'),('drums','drum_midi')):
                     expected = midi_store.home/'s'/snapshot_id/f'{role}.mid'
@@ -974,12 +970,20 @@ class JobStore:
         with self.storage_lock:
             return self.retention.status()
 
-    def cleanup_asset_references(self) -> set[str]:
+    def cleanup_asset_references(self, *, details=False):
         from .library_cleanup import strings
         drafts = assistant_data.all_drafts(ROOT)
-        if any(draft.get("error") for scope in drafts.values() for draft in scope.values()):
-            return {"*"}
-        references = set(strings(drafts))
+        references = {}
+        def add(values, blocker):
+            for value in set(values):
+                references.setdefault(value, []).append(blocker)
+        labels = {'assistant': 'AI 创作助手', 'create': '歌曲创作', 'plan': '乐谱计划', 'cover': '旋律与音色'}
+        for project, panels in drafts.items():
+            for panel, draft in panels.items():
+                add(['*'] if draft.get('error') else strings(draft), {
+                    'kind': 'unknown' if draft.get('error') else 'draft', 'id': panel,
+                    'title': labels.get(panel, panel) + (' · 全局草稿' if project == 'global' else ' · 项目 ' + project[:8]),
+                    'tab': panel, 'project_id': '' if project == 'global' else project})
         with self.lock:
             active = [job_id for job_id, status in self.jobs.items()
                       if status.get("status") not in {"complete", "failed", "cancelled"}]
@@ -988,10 +992,13 @@ class JobStore:
         for job_id in active:
             try:
                 request = json.loads((job_directory(job_id) / "job.json").read_text(encoding="utf-8-sig"))
-                references.update(strings(request))
+                status = json.loads((job_directory(job_id) / 'status.json').read_text(encoding='utf-8-sig'))
+                # Extraction creates its document after submission; that document
+                # exists in the live result rather than in the original request.
+                add(strings([request, status]), {'kind': 'job', 'id': job_id, 'title': job_id, 'tab': 'history'})
             except (OSError, ValueError):
-                return {"*"}
-        return references
+                add(['*'], {'kind': 'unknown', 'id': job_id, 'title': '任务引用无法读取：' + job_id, 'tab': 'history'})
+        return references if details else ({'*'} if '*' in references else set(references))
 
     def training_cleanup(self, data: dict, *, execute: bool = False) -> dict:
         from .library_cleanup import strings
@@ -1607,7 +1614,7 @@ class Handler(BaseHTTPRequestHandler):
                     STORE.assert_writable()
                     if path in {"/api/workbench/training-cleanup/preview", "/api/workbench/training-cleanup/delete"}:
                         return self._json(200, STORE.training_cleanup(self._body_json(128 * 1024), execute=path.endswith("/delete")))
-                    protected_assets = STORE.cleanup_asset_references() if path in {"/api/workbench/assets/cleanup-preview", "/api/workbench/assets/purge"} else ()
+                    protected_assets = STORE.cleanup_asset_references(details=True) if path in {"/api/workbench/assets/cleanup-preview", "/api/workbench/assets/purge"} or (path.startswith('/api/workbench/midi/documents/') and path.endswith('/purge')) else ()
                     if workbench_api.post(self, parsed, ASSETS, ROOT, protected_assets=protected_assets):
                         return
             if path.startswith("/api/rvc/"):

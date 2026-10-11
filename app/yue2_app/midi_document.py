@@ -393,6 +393,7 @@ class MidiStore:
             db.execute('CREATE TABLE IF NOT EXISTS midi_documents(id TEXT PRIMARY KEY, project_id TEXT NOT NULL, version INTEGER NOT NULL, data_json TEXT NOT NULL, created_at REAL NOT NULL, updated_at REAL NOT NULL, asset_id TEXT NOT NULL DEFAULT "")')
             db.execute('CREATE TABLE IF NOT EXISTS midi_current(scope TEXT PRIMARY KEY, document_id TEXT NOT NULL REFERENCES midi_documents(id))')
             db.execute('CREATE TABLE IF NOT EXISTS midi_snapshots(id TEXT PRIMARY KEY, document_id TEXT NOT NULL REFERENCES midi_documents(id), document_version INTEGER NOT NULL, data_json TEXT NOT NULL, created_at REAL NOT NULL)')
+            db.execute('CREATE TABLE IF NOT EXISTS midi_retained_snapshots(id TEXT PRIMARY KEY, document_id TEXT NOT NULL, document_version INTEGER NOT NULL, project_id TEXT NOT NULL, created_at REAL NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS midi_versions(document_id TEXT NOT NULL REFERENCES midi_documents(id), version INTEGER NOT NULL, data_json TEXT NOT NULL, PRIMARY KEY(document_id,version))')
             if 'archived_at' not in {row[1] for row in db.execute('PRAGMA table_info(midi_documents)')}:
                 db.execute('ALTER TABLE midi_documents ADD COLUMN archived_at REAL NOT NULL DEFAULT 0')
@@ -508,6 +509,55 @@ class MidiStore:
             else:
                 db.execute('INSERT INTO midi_current VALUES(?,?) ON CONFLICT(scope) DO UPDATE SET document_id=excluded.document_id',(scope,document_id))
         return {'document':self.get(document_id),'archived':archived}
+
+    @document_locked
+    def purge(self, document_id, project_id, *, version, confirmed=False, protected=()):
+        """Forget an archived editing history, retaining self-contained outputs."""
+        from .library_cleanup import strings
+        if not confirmed:
+            raise ValueError('请先确认彻底删除 MIDI 文档及其编辑历史')
+        integer(version, '文档版本', 1, 1_000_000_000)
+        scope = self.scope(project_id)
+        with self.library.transaction() as db:
+            row = db.execute('SELECT project_id,version,archived_at FROM midi_documents WHERE id=?', (document_id,)).fetchone()
+            if row is None or row['project_id'] != scope:
+                raise ValueError('MIDI 文档与项目不一致或已删除')
+            if row['version'] != version:
+                raise VersionConflict('文档版本已改变，请刷新后重试')
+            if not row['archived_at']:
+                raise ValueError('请先归档此 MIDI 文档，再彻底删除')
+            snapshots = [item[0] for item in db.execute('SELECT id FROM midi_snapshots WHERE document_id=?', (document_id,))]
+            pins = set(protected)
+            for table, column in (('dataset_snapshots', 'manifest_json'), ('training_runs', 'config_json')):
+                for item in db.execute(f'SELECT {column} FROM {table}'):
+                    pins.update(strings(json.loads(item[0])))
+            paths = [self.home/document_id, *(self.home/'s'/item for item in snapshots)]
+            prefixes = [str(path.resolve()).replace('\\', '/').casefold().rstrip('/') for path in paths]
+            if '*' in pins or pins.intersection([document_id, *snapshots]) or any(
+                    value.replace('\\', '/').casefold().rstrip('/') == prefix or
+                    value.replace('\\', '/').casefold().startswith(prefix + '/') for value in pins for prefix in prefixes):
+                raise ValueError('任务、草稿或训练仍在使用此 MIDI 文档，请先结束任务或更换相关素材')
+            # A receipt has no original-asset references. Completed jobs may still
+            # rerun using their self-contained, fixed MIDI inputs after edit cleanup.
+            db.execute('INSERT OR IGNORE INTO midi_retained_snapshots SELECT id,document_id,document_version,?,created_at FROM midi_snapshots WHERE document_id=?', (scope, document_id))
+            db.execute('DELETE FROM midi_current WHERE document_id=?', (document_id,))
+            db.execute('DELETE FROM midi_snapshots WHERE document_id=?', (document_id,))
+            db.execute('DELETE FROM midi_versions WHERE document_id=?', (document_id,))
+            db.execute('DELETE FROM midi_documents WHERE id=?', (document_id,))
+        # Saved asset blobs, generated MIDI inputs and song outputs are independent
+        # files. Keep them so completed jobs and user exports remain reproducible.
+        return {'deleted': document_id, 'released_source_references': True}
+
+    def snapshot_receipt(self, snapshot_id):
+        with self.library.reading() as db:
+            row = db.execute('SELECT document_id,document_version,data_json FROM midi_snapshots WHERE id=?', (ident(snapshot_id),)).fetchone()
+            if row:
+                return {'document_id': row['document_id'], 'document_version': row['document_version'],
+                        'project_id': json.loads(row['data_json'])['project_id']}
+            row = db.execute('SELECT document_id,document_version,project_id FROM midi_retained_snapshots WHERE id=?', (snapshot_id,)).fetchone()
+        if row is None:
+            raise ValueError('MIDI 生成快照不存在')
+        return dict(row)
 
     def cache_files(self):
         cache=self.home/'cache'

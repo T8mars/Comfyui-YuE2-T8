@@ -312,17 +312,23 @@
     if(!empty&&!data.ids.length)return;
     assetCleanupBusy=true;updateAssetSelection();
     const dialog=document.createElement('dialog');
-    dialog.innerHTML=`<form><h3>彻底删除资产</h3><p class="meta">${empty?'清理全部回收站，不受当前类型或名称筛选限制；每次最多 500 项。':'清理所选资产的全部版本。'} 删除后不能恢复。原始导入文件、导出文件和其他资产共享的内容会保留。</p><label class="check"><input name="detach_projects" type="checkbox">同时从所有项目移出（会清除被删除素材的主版本选择）</label><p data-preview role="status">正在检查引用与可释放空间…</p><div class="toolbar"><button class="ghost" type="button" data-cancel>取消</button><button class="danger" type="submit" data-confirm disabled>确认彻底删除</button></div></form>`;
+    dialog.className='asset-cleanup-dialog';
+    dialog.innerHTML=`<form><h3>彻底删除资产</h3><p class="meta">${empty?'清理全部回收站，不受当前类型或名称筛选限制；每次最多 500 项。':'清理所选资产的全部版本。'} 删除后不能恢复。原始导入文件、导出文件和其他资产共享的内容会保留。</p><label class="check"><input name="detach_projects" type="checkbox">同时从所有项目移出（会清除被删除素材的主版本选择）</label><p data-preview role="status">正在检查引用与可释放空间…</p><div data-blockers></div><div class="toolbar"><button class="ghost" type="button" data-cancel>取消</button><button class="danger" type="submit" data-confirm disabled>确认彻底删除</button></div></form>`;
     labelDialog(dialog,'asset-cleanup-dialog-title');document.body.append(dialog);dialog.showModal();
     let previewRevision=0,approvedIds=[],previewSkipped=0,executing=false;
     const confirm=dialog.querySelector('[data-confirm]'),message=dialog.querySelector('[data-preview]');
-    async function preview(){const revision=++previewRevision;confirm.disabled=true;message.textContent='正在检查引用与可释放空间…';try{
+    async function preview(){const revision=++previewRevision;confirm.disabled=true;dialog.querySelector('[data-blockers]').replaceChildren();message.textContent='正在检查引用与可释放空间…';try{
       data.detach_projects=dialog.querySelector('[name="detach_projects"]').checked;
       const result=await api('/api/workbench/assets/cleanup-preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
       if(revision!==previewRevision||!dialog.open)return;
       approvedIds=result.deletable;previewSkipped=result.skipped.length;
       message.textContent=`可删除 ${result.deletable.length} 项，约释放 ${(result.bytes/1048576).toFixed(1)} MB；保留 ${result.skipped.length} 项。`+(result.projects.length?`\n将从项目移出：${result.projects.slice(0,5).join('、')}。`:'')+(result.skipped.length?'\n'+result.skipped.slice(0,5).map(item=>`${item.title}：${item.reason}`).join('\n'):'');
       if(result.titles.length)message.textContent+='\n将删除：'+result.titles.slice(0,6).join('、')+(result.titles.length>6?'等。':'。');
+      const blockers=[];for(const item of result.skipped)for(const ref of item.blockers||[])if(!blockers.some(value=>JSON.stringify(value)===JSON.stringify(ref)))blockers.push(ref);
+      const labels={training_snapshot:'查看 / 清理此训练快照',training_run:'查看 / 清理此训练记录',midi_document:'管理此 MIDI 文档',job:'查看 / 停止此任务',draft:'打开引用草稿'};
+      const container=dialog.querySelector('[data-blockers]');
+      if(blockers.length){container.innerHTML='<p class="meta">快照是固定的素材清单，本身不会运行。先处理下列引用，再回到回收站重试；MIDI 归档仅收起文档，彻底删除文档后才释放素材引用。</p>';
+        for(const ref of blockers){const row=document.createElement('div');row.className='asset-blocker-row';const title=document.createElement('span');title.textContent=ref.title+(ref.id?` · ${ref.id.slice(0,8)}`:'');row.append(title);const button=document.createElement('button');button.type='button';button.className='ghost compact';button.textContent=labels[ref.kind]||'查看任务与引用';button.onclick=async()=>{dialog.close();try{await openAssetReference(ref);}catch(error){$('#asset-cleanup-status').textContent=error.message;}};row.append(button);container.append(row);}}
       confirm.disabled=!result.deletable.length&&!result.bytes&&!result.pending_gc;
     }catch(error){if(revision===previewRevision)message.textContent=`无法安全清理：${error.message}`;}}
     dialog.querySelector('[name="detach_projects"]').onchange=preview;
@@ -336,6 +342,16 @@
       dialog.close();await refreshAfterAssetCleanup();
     }catch(error){executing=false;message.textContent=error.message;confirm.disabled=false;dialog.querySelector('[data-cancel]').disabled=false;dialog.querySelector('[name="detach_projects"]').disabled=false;}};
     await preview();
+  }
+  async function openAssetReference(ref){
+    if(ref.kind==='training_snapshot'||ref.kind==='training_run')return window.openTrainingCleanup(ref.kind==='training_snapshot'?'snapshots':'runs',ref.id);
+    if(ref.kind==='midi_document')return window.midiManageReference(ref.id);
+    if(ref.kind==='draft'){
+      if(ref.project_id&&!projects.some(project=>project.id===ref.project_id)){$('.tab[data-tab="project"]').click();throw new Error('这份草稿属于已归档项目，请先在歌曲项目中恢复该项目，再更换草稿中的素材。');}
+      if((ref.project_id||'')!==currentProjectId){await window.assistantSwitchProject?.(ref.project_id||'');await window.midiSwitchProject?.(ref.project_id||'');window.mulacoverSaveDraft?.();saveTrainingDraft();currentProjectId=ref.project_id||'';globalDraft=!currentProjectId;savedValue('workbench-global-draft',globalDraft?'1':'0');window.mulacoverRestoreDraft?.();restoreTrainingFormDraft();await loadProjects();await refreshWorkspace();}
+      $('.tab[data-tab="'+ref.tab+'"]').click();return;
+    }
+    $('.tab[data-tab="history"]').click();$('#history-status').value='';$('#history-kind').value='';$('#history-project').value='';$('#history-query').value=ref.kind==='job'?ref.id:'';$('#history-query').dispatchEvent(new Event('input',{bubbles:true}));
   }
   $('#asset-status').onchange=()=>{selectedAssets.clear();assetOffset=0;$('#asset-cleanup-status').textContent=$('#asset-status').value==='trashed'?'回收站可恢复素材。彻底删除会检查项目、训练快照、任务和草稿引用；受保护的素材不会删除。':'勾选不用的资产移入回收站，可随时恢复；进入回收站才能释放空间。';loadAssets();};
   $('#asset-select-page').onchange=event=>{assets.forEach(item=>{if(event.target.checked&&selectedAssets.size<500)selectedAssets.add(item.id);else if(!event.target.checked)selectedAssets.delete(item.id);});renderAssets();};

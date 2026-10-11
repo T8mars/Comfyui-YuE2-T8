@@ -48,18 +48,22 @@ class TrainingCleanup:
         self.library, self.home = library, library.home
         self.finished_jobs = dict(finished_jobs or {})
 
-    def inventory(self, *, kind="runs", offset=0, limit=10) -> dict:
+    def inventory(self, *, kind="runs", offset=0, limit=10, reference_id='') -> dict:
         if kind not in {"runs", "snapshots"}:
             raise ValueError("清理类型无效")
         offset, limit = max(0, int(offset)), min(100, max(1, int(limit)))
+        if reference_id:
+            reference_id = _ident(reference_id, '关联记录 ID')
         with self.library.reading() as db:
             if kind == "runs":
-                rows = db.execute("SELECT * FROM training_runs ORDER BY updated_at DESC,id LIMIT ? OFFSET ?", (limit, offset)).fetchall()
-                total = db.execute("SELECT COUNT(*) FROM training_runs").fetchone()[0]
+                where, args = (' WHERE id=? OR snapshot_id=?', (reference_id, reference_id)) if reference_id else ('', ())
+                rows = db.execute("SELECT * FROM training_runs" + where + " ORDER BY updated_at DESC,id LIMIT ? OFFSET ?", (*args, limit, offset)).fetchall()
+                total = db.execute("SELECT COUNT(*) FROM training_runs" + where, args).fetchone()[0]
             else:
+                where, args = (' WHERE ds.id=?', (reference_id,)) if reference_id else ('', ())
                 rows = db.execute("SELECT ds.*, (SELECT COUNT(*) FROM training_runs tr WHERE tr.snapshot_id=ds.id) AS run_count "
-                                  "FROM dataset_snapshots ds ORDER BY created_at DESC,id LIMIT ? OFFSET ?", (limit, offset)).fetchall()
-                total = db.execute("SELECT COUNT(*) FROM dataset_snapshots").fetchone()[0]
+                                  "FROM dataset_snapshots ds" + where + " ORDER BY created_at DESC,id LIMIT ? OFFSET ?", (*args, limit, offset)).fetchall()
+                total = db.execute("SELECT COUNT(*) FROM dataset_snapshots ds" + where, args).fetchone()[0]
         items = []
         for row in rows:
             item = dict(row)
@@ -75,7 +79,7 @@ class TrainingCleanup:
             else:
                 item.pop("manifest_json")
             items.append(item)
-        return {"items": items, "total": total, "offset": offset, "limit": limit}
+        return {"items": items, "total": total, "offset": offset, "limit": limit, "reference_id": reference_id}
 
     def _preview(self, db, data, protected) -> dict:
         runs = selected_ids(data.get("run_ids", []))

@@ -66,32 +66,59 @@ class LibraryCleanup:
         return path
 
     def _preview(self, db, ids, protected, detach, limit=None) -> dict:
-        pinned = set(protected)
-        for row in db.execute("SELECT manifest_json FROM dataset_snapshots"):
-            manifest = json.loads(row[0])  # Corrupt snapshots must block destructive cleanup.
-            pinned.update(strings(manifest))
+        # Keep the source of each pin so a blocked deletion has a way out.
+        sources = {}
+        targets = set(ids) | {'*'}
+        for start in range(0, len(ids), 500):
+            chunk = ids[start:start+500]
+            targets.update(row[0] for row in db.execute(
+                'SELECT id FROM revisions WHERE asset_id IN (' + ','.join('?' for _ in chunk) + ')', chunk))
+        def pin(values, blocker):
+            for value in set(values):
+                if value in targets:
+                    sources.setdefault(value, []).extend(blocker if isinstance(blocker, list) else [blocker])
+        for value in protected:
+            pin([value], protected[value] if isinstance(protected, dict) else
+                {"kind": "external", "title": "运行任务或页面草稿", "tab": "history"})
+        for row in db.execute("SELECT id,title,manifest_json FROM dataset_snapshots"):
+            manifest = json.loads(row['manifest_json'])  # Corrupt snapshots must block destructive cleanup.
+            pin(strings(manifest), {"kind": "training_snapshot", "id": row['id'], "title": row['title'], "tab": "training"})
         # MIDI source revisions and generation recipes remain immutable references.
         tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         for table in ('midi_documents', 'midi_versions', 'midi_snapshots'):
             if table in tables:
-                for row in db.execute(f'SELECT data_json FROM {table}'):
-                    pinned.update(strings(json.loads(row[0])))
+                for row in db.execute(f'SELECT * FROM {table}'):
+                    data = json.loads(row['data_json'])
+                    document_id = row['id'] if table == 'midi_documents' else row['document_id']
+                    pin(strings(data), {"kind": "midi_document", "id": document_id,
+                        "title": data.get('title', 'MIDI 文档'), "tab": "midi"})
         deletable, titles, skipped, projects = [], [], [], {}
         for asset_id in ids:
             if limit is not None and len(deletable) >= limit:
                 break
             row = db.execute("SELECT title,status FROM assets WHERE id=?", (asset_id,)).fetchone()
             reason = ""
+            blockers = []
             revisions = db.execute("SELECT id,blob_sha256,blob_suffix FROM revisions WHERE asset_id=?", (asset_id,)).fetchall()
             links = db.execute("SELECT DISTINCT p.id,p.title FROM project_assets pa JOIN projects p ON p.id=pa.project_id WHERE pa.asset_id=?", (asset_id,)).fetchall()
             if row is None:
                 reason = "素材已不存在"
             elif row["status"] != "trashed":
                 reason = "请先移入回收站"
-            elif "*" in protected or asset_id in pinned or any(item["id"] in pinned for item in revisions):
-                reason = "训练快照、运行任务或草稿仍在使用"
+            elif any(value in sources for value in ('*', asset_id, *(item['id'] for item in revisions))):
+                for value in ('*', asset_id, *(item['id'] for item in revisions)):
+                    for blocker in sources.get(value, []):
+                        if blocker not in blockers:
+                            blockers.append(blocker)
+                labels = {"training_snapshot": "训练素材快照", "midi_document": "MIDI 文档（含归档及固定版本）",
+                          "job": "未结束任务", "draft": "页面草稿", "external": "运行任务或页面草稿", "unknown": "引用状态异常"}
+                reason = '；'.join(f"{labels.get(item['kind'], '引用')}：{item['title']}" for item in blockers[:5])
+                if len(blockers) > 5:
+                    reason += f"；另有 {len(blockers)-5} 处引用"
             elif db.execute("SELECT 1 FROM training_runs WHERE model_asset_id=?", (asset_id,)).fetchone():
                 reason = "训练记录仍关联此模型"
+                blockers = [{"kind": "training_run", "id": item['id'], "title": item['title'], "tab": "training"}
+                            for item in db.execute("SELECT id,title FROM training_runs WHERE model_asset_id=?", (asset_id,))]
             elif db.execute("SELECT 1 FROM collection_assets WHERE asset_id=?", (asset_id,)).fetchone():
                 reason = "分类收藏仍在使用"
             elif db.execute("SELECT 1 FROM revisions WHERE asset_id<>? AND parent_revision_id IN (SELECT id FROM revisions WHERE asset_id=?)", (asset_id, asset_id)).fetchone():
@@ -105,7 +132,7 @@ class LibraryCleanup:
                 except ValueError as exc:
                     reason = str(exc)
             if reason:
-                skipped.append({"id": asset_id, "title": row["title"] if row else asset_id, "reason": reason})
+                skipped.append({"id": asset_id, "title": row["title"] if row else asset_id, "reason": reason, "blockers": blockers})
             else:
                 deletable.append(asset_id)
                 titles.append(row["title"])

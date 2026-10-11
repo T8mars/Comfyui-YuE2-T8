@@ -94,6 +94,9 @@ class AssetCleanupTest(unittest.TestCase):
             db.execute("INSERT INTO dataset_snapshots VALUES(?,?,?,?,?,?)", ("a" * 32, "fixed", "yue2_style", json.dumps({"items": [{"revision_id": asset["current_revision_id"]}]}), "b" * 64, 1))
         self.trash(asset)
         self.assertFalse(self.purge(asset, detach_projects=True)["deleted"])
+        skipped=self.cleanup.preview({'ids':[asset['id']]})['skipped'][0]
+        self.assertEqual(skipped['blockers'],[{'kind':'training_snapshot','id':'a'*32,'title':'fixed','tab':'training'}])
+        self.assertNotIn('运行任务',skipped['reason'])
         other = self.asset("draft")
         self.trash(other)
         for protected in ({other["id"]}, {other["current_revision_id"]}, {"*"}):
@@ -211,6 +214,22 @@ class JobCleanupTest(unittest.TestCase):
         self.store.jobs[job_id] = {"id": job_id, "kind": "generate", "status": status, "created_at": index, "summary": "fixture", "project_id": ""}
         atomic_json(directory / "status.json", self.store.jobs[job_id])
         return job_id
+
+    def test_asset_reference_details_distinguish_jobs_drafts_and_corruption(self):
+        ident='a'*32
+        job_id=self.job(1,'running',{'asset_id':ident})
+        drafts={'global':{'create':{'draft':{'source':{'$asset':ident}}}}}
+        with patch.object(service.assistant_data,'all_drafts',return_value=drafts):
+            details=self.store.cleanup_asset_references(details=True)
+            self.assertEqual({item['kind'] for item in details[ident]},{'job','draft'})
+            self.assertIn(job_id,[item['id'] for item in details[ident]])
+            self.assertIn(ident,self.store.cleanup_asset_references())
+        document_id='c'*32
+        atomic_json(self.outputs/job_id/'status.json',{'result':{'midi_document_id':document_id}})
+        with patch.object(service.assistant_data,'all_drafts',return_value={}):
+            self.assertEqual(self.store.cleanup_asset_references(details=True)[document_id][0]['kind'],'job')
+        with patch.object(service.assistant_data,'all_drafts',return_value={'global':{'create':{'error':'broken'}}}):
+            self.assertIn('*',self.store.cleanup_asset_references())
 
     def test_preview_then_selected_delete_leaves_other_jobs_and_assets(self):
         first, second = self.job(1), self.job(2, "failed")

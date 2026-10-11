@@ -680,6 +680,90 @@ def assert_training_cleanup(browser, url: str, output: Path) -> None:
     context.close()
 
 
+def assert_cleanup_reference_navigation(browser, url: str, output: Path) -> None:
+    """Resolve real snapshot and archived MIDI pins without deleting user data."""
+    from app.yue2_app.midi_document import example_document
+    context=browser.new_context(viewport={'width':1366,'height':900})
+    page=context.new_page();errors=[]
+    page.on('pageerror',lambda error:errors.append(str(error)))
+    def post(path,data):
+        response=context.request.post(url+path,data=data)
+        assert response.ok,response.text()
+        return response.json()
+    def asset_dialog(asset):
+        page.locator('.studio-sidebar [data-tab="assets"]').click()
+        page.locator('#asset-status').select_option('trashed')
+        page.locator('#asset-query').fill(asset['title'])
+        expect(page.locator('#asset-grid .asset-card')).to_have_count(1)
+        page.locator('#asset-select-page').check()
+        page.locator('#purge-selected-assets').click()
+        dialog=page.locator('.asset-cleanup-dialog')
+        dialog.locator('[name="detach_projects"]').check()
+        return dialog
+    page.goto(url);wait_for_ui(page)
+    snapshots=context.request.get(url+'/api/workbench/snapshots?limit=500').json()['snapshots']
+    snapshot=next(item for item in snapshots if item['title']=='浏览器模型分页快照')
+    song=context.request.get(url+'/api/workbench/assets/'+snapshot['items'][0]['asset_id']).json()
+    post('/api/workbench/assets/batch-status',{'ids':[song['id']],'status':'trashed'})
+    dialog=asset_dialog(song)
+    expect(dialog.locator('[data-preview]')).to_contain_text('训练素材快照')
+    assert '训练快照、运行任务或草稿仍在使用' not in dialog.inner_text()
+    assert dialog.locator('[data-confirm]').is_disabled()
+    page.screenshot(path=output/'asset-reference-desktop.png',full_page=False)
+    dialog.locator('.asset-blocker-row').filter(has_text=snapshot['title']).get_by_role('button').click()
+    expect(page.locator('#training-cleanup-kind')).to_have_value('snapshots')
+    expect(page.locator('.training-cleanup-row')).to_have_count(1)
+    expect(page.locator('#training-cleanup-content')).to_contain_text('无需停止')
+    page.locator('.training-cleanup-row').get_by_role('button',name='查看关联训练 / 停止任务').click()
+    expect(page.locator('#training-cleanup-kind')).to_have_value('runs')
+    linked=context.request.get(url+'/api/workbench/training-cleanup?reference_id='+snapshot['id']).json()
+    expect(page.locator('.training-cleanup-row')).to_have_count(linked['total'])
+    page.locator('#training-cleanup-all').click()
+    expect(page.locator('#training-cleanup-filter')).to_have_text('')
+    post('/api/workbench/assets/batch-status',{'ids':[song['id']],'status':'active'})
+
+    source=post('/api/workbench/assets/text',{'kind':'lyrics','title':'reference-cleanup-fixture','text':'fixture'})
+    data=example_document();data['title']='引用清理 MIDI 回归'
+    data['settings']['audio_source']={'source_path':{'$asset':source['id'],'revision_id':source['current_revision_id']}}
+    document=post('/api/workbench/midi/documents',{'document':data})
+    saved=post(f"/api/workbench/midi/documents/{document['id']}/publish",{'version':document['version']})
+    data['settings'].pop('audio_source')
+    document=post(f"/api/workbench/midi/documents/{document['id']}/save",{'version':document['version'],'document':data})
+    post('/api/workbench/assets/batch-status',{'ids':[source['id']],'status':'trashed'})
+    dialog=asset_dialog(source)
+    expect(dialog.locator('[data-preview]')).to_contain_text('MIDI 文档')
+    dialog.get_by_role('button',name='管理此 MIDI 文档').click()
+    manager=page.locator('.midi-manage-dialog')
+    expect(manager.locator('[data-document-title]')).to_contain_text(data['title'])
+    assert manager.locator('[data-purge-document]').is_disabled()
+    manager.locator('[data-archive-reference]').click()
+    expect(manager.locator('[data-purge-document]')).to_be_enabled()
+    page.set_viewport_size({'width':390,'height':844})
+    assert_no_page_overflow(page,'phone MIDI reference manager')
+    page.screenshot(path=output/'midi-reference-phone.png',full_page=False)
+    manager.locator('[data-purge-document]').click()
+    page.locator('.studio-dialog').get_by_role('button',name='取消',exact=True).click()
+    assert context.request.get(url+'/api/workbench/midi/documents/'+document['id']).ok
+    manager.locator('[data-purge-document]').click()
+    page.locator('.studio-dialog').get_by_role('button',name='确认彻底删除',exact=True).click()
+    expect(manager).to_have_count(0)
+    assert not context.request.get(url+'/api/workbench/midi/documents/'+document['id']).ok
+    preview=post('/api/workbench/assets/cleanup-preview',{'ids':[source['id']]})
+    assert preview['deletable']==[source['id']],preview
+    assert context.request.get(url+'/api/workbench/assets/'+saved['id']+'/content').ok
+    page.locator('#purge-selected-assets').click()
+    dialog=page.locator('.asset-cleanup-dialog')
+    expect(dialog.locator('[data-confirm]')).to_be_enabled()
+    dialog.locator('[data-confirm]').click()
+    expect(page.locator('#asset-cleanup-status')).to_contain_text('已彻底删除 1 项')
+    assert not context.request.get(url+'/api/workbench/assets/'+source['id']).ok
+    page.evaluate('id => window.midiOpenAsset(id)',saved['id'])
+    expect(page.locator('#midi-title')).to_have_value(saved['title'])
+    assert_no_page_overflow(page,'phone MIDI after deleted-history import')
+    assert not errors,errors
+    context.close()
+
+
 def run_browser(url: str, output: Path) -> dict:
     console_errors: list[str] = []
     with sync_playwright() as playwright:
@@ -1098,6 +1182,7 @@ def run_browser(url: str, output: Path) -> dict:
         assert_manual_cleanup(browser, url, output)
         assert_audit_races(browser, url, output)
         assert_training_cleanup(browser, url, output)
+        assert_cleanup_reference_navigation(browser, url, output)
         from scripts.midi_browser_smoke import assert_midi_races, assert_midi_boundaries
         midi_regressions = assert_midi_races(browser, url, output)
         midi_regressions['boundaries'] = assert_midi_boundaries(browser, url, output)
@@ -1126,6 +1211,7 @@ def run_browser(url: str, output: Path) -> dict:
             "asset cross-page selection, trash, restore, protected purge, cancellation and task cleanup work through real HTTP routes on desktop and phone",
             "delayed project and model reads cannot overwrite newer state; deletion remains inside its preview and assistant double submits create one job without paid API calls",
             "training cleanup paginates ten records, confirms precise deletion, protects shared snapshots and retains model downloads on desktop and phone",
+            "asset deletion identifies exact snapshot and MIDI references; links open filtered cleanup, archived document deletion releases sources and retains playable/importable MIDI on desktop and phone",
         ],
         "console_errors": console_errors,
         "midi_regressions": midi_regressions,

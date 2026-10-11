@@ -236,7 +236,8 @@ def get(handler, parsed, library: AssetLibrary, *, head: bool = False) -> bool:
     if path == "/api/workbench/training-cleanup":
         from .training_cleanup import TrainingCleanup
         handler._json(200, TrainingCleanup(library).inventory(kind=query.get("kind", ["runs"])[0],
-                        offset=int(query.get("offset", ["0"])[0]), limit=int(query.get("limit", ["10"])[0])))
+                        offset=int(query.get("offset", ["0"])[0]), limit=int(query.get("limit", ["10"])[0]),
+                        reference_id=query.get('reference_id', [''])[0]))
         return True
     if path == "/api/workbench/training-runs":
         kind = query.get("training_kind", [""])[0]
@@ -306,7 +307,7 @@ def export_project(library: AssetLibrary, root: Path, project_id: str) -> dict:
 def post(handler, parsed, library: AssetLibrary, root: Path, *, protected_assets=()) -> bool:
     if parsed.path.startswith('/api/workbench/midi'):
         from . import midi_api
-        return midi_api.post(handler, parsed, library, root)
+        return midi_api.post(handler, parsed, library, root, protected=protected_assets)
     path = parsed.path
     if path in {"/api/workbench/assets/batch-status", "/api/workbench/assets/cleanup-preview", "/api/workbench/assets/purge"}:
         from .library_cleanup import LibraryCleanup

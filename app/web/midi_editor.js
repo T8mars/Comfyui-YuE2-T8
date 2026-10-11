@@ -55,7 +55,7 @@
   $('#midi-doc-prev').onclick=()=>loadDocuments(documentsPage-1).catch(e=>message(e.message,true));
   $('#midi-doc-next').onclick=()=>loadDocuments(documentsPage+1).catch(e=>message(e.message,true));
   const management=document.createElement('details');management.className='midi-management';
-  management.innerHTML='<summary>文档与缓存管理</summary><p class="meta">归档可收起不用的文档，随时恢复。识别缓存可单独清理；保存的 MIDI 和歌曲均保留。资产删除请到资产库回收站。</p><div class="toolbar"><button id="midi-archive" class="ghost" type="button">归档当前文档</button><button id="midi-open-archive" class="ghost" type="button">查看归档文档</button><button id="midi-clear-cache" class="ghost" type="button">清理识别缓存</button></div>';
+  management.innerHTML='<summary>文档与缓存管理 · 归档 / 删除</summary><p class="meta">归档只收起文档，仍保留素材引用。彻底删除已归档文档及其编辑历史后，原素材才能在资产库回收站清理。已保存 MIDI 和歌曲保留。</p><div class="toolbar"><button id="midi-archive" class="ghost" type="button">归档当前文档</button><button id="midi-manage-current" class="ghost" type="button">管理 / 删除当前文档</button><button id="midi-open-archive" class="ghost" type="button">查看归档文档</button><button id="midi-clear-cache" class="ghost" type="button">清理识别缓存</button></div>';
   $('.midi-mobile-switch').before(management);
   exampleButton.onclick=async()=>{const context=actionContext();try{await saveContext(context);install(await postContext(context,'/examples/simple'));await loadDocuments();message('已打开练习示例。先改几个音并试听，再填写自己的歌词生成歌曲。');}catch(e){if(context.revision===scopeRevision)message(e.message,true);}};
   let generationModelsReady=false;
@@ -310,16 +310,37 @@
       await restore(context.project);message('文档已归档，可在“查看归档文档”中恢复。');
     }catch(e){message(e.message,true);}
   };
+  window.midiManageReference=async id=>{
+    if(doc?.id===id)await saveContext(actionContext());
+    let value=await api(`${prefix}/documents/${id}`),executing=false;
+    const dialog=document.createElement('dialog');dialog.className='midi-manage-dialog';
+    dialog.innerHTML='<form method="dialog"><h3>管理 MIDI 文档</h3><p data-document-title></p><p class="meta">归档只收起文档。彻底删除会移除这份文档、历史版本和生成快照的编辑记录，释放它对原素材的引用，不能恢复。资产库中已保存的 MIDI、歌曲和已生成的任务文件保留。</p><p class="meta" data-document-state></p><div class="toolbar"><button type="button" class="ghost" data-archive-reference>先归档此文档</button><button type="button" class="danger" data-purge-document>彻底删除文档及历史</button><button class="ghost" data-close>关闭</button></div><p role="status" data-document-error></p></form>';
+    dialog.querySelector('h3').id=`midi-manage-title-${id}`;dialog.setAttribute('aria-labelledby',`midi-manage-title-${id}`);
+    const render=()=>{dialog.querySelector('[data-document-title]').textContent=`${value.title} · v${value.version} · ${id.slice(0,8)}`;dialog.querySelector('[data-document-state]').textContent=value.archived_at?'已归档，可以彻底删除。':'尚未归档，请先归档，再确认彻底删除。';dialog.querySelector('[data-archive-reference]').disabled=Boolean(value.archived_at);dialog.querySelector('[data-purge-document]').disabled=!value.archived_at;};
+    const operate=async action=>{if(executing)return;executing=true;dialog.querySelectorAll('button').forEach(button=>button.disabled=true);try{
+      await api(`${prefix}/documents/${id}/${action}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project_id:value.project_id,version:value.version,confirmed:action==='purge'})});
+      if(action==='purge'){
+        for(const key of Object.keys(localStorage)){if(!key.startsWith('yue2:midi-backup:'))continue;const backup=readBackup(key);if(backup?.document?.id===id&&!backup.dirty)localStorage.removeItem(key);}
+        dialog.close();if(doc?.id===id)await restore(scope);else await loadDocuments();const notice='已彻底删除 MIDI 文档及编辑历史，已保存作品保留。可回资产库回收站重试删除原素材。';message(notice);$('#asset-cleanup-status').textContent=notice;
+      }else{value=await api(`${prefix}/documents/${id}`);if(doc?.id===id)await restore(scope);await loadDocuments();}
+    }catch(error){dialog.querySelector('[data-document-error]').textContent=error.message;}finally{executing=false;if(dialog.open){dialog.querySelectorAll('button').forEach(button=>button.disabled=false);render();}}};
+    dialog.querySelector('[data-archive-reference]').onclick=()=>operate('archive');
+    dialog.querySelector('[data-purge-document]').onclick=async()=>{if(await uiConfirm(`彻底删除「${value.title}」及全部编辑历史？\n不可恢复；已保存的 MIDI、歌曲、任务文件和原始素材保留。`,'彻底删除 MIDI 文档','确认彻底删除'))await operate('purge');};
+    dialog.oncancel=event=>{if(executing)event.preventDefault();};dialog.onclose=()=>dialog.remove();document.body.append(dialog);dialog.showModal();render();
+  };
+  $('#midi-manage-current').onclick=()=>{if(doc)window.midiManageReference(doc.id).catch(e=>message(e.message,true));};
   $('#midi-open-archive').onclick=async()=>{
     const context=actionContext(),dialog=document.createElement('dialog');dialog.className='midi-archive-dialog';
     dialog.innerHTML='<form method="dialog"><h3>归档的 MIDI 文档</h3><div class="midi-archive-list"></div><div class="toolbar"><button class="ghost" type="button" data-archive-prev>上一页</button><span class="meta" data-archive-page></span><button class="ghost" type="button" data-archive-next>下一页</button><button class="ghost">关闭</button></div><p class="meta" role="status" data-archive-error></p></form>';
     let page=0;
     const show=async next=>{try{
       guard(context);const result=await api(`${prefix}/documents?project_id=${encodeURIComponent(context.project)}&archived=1&limit=20&offset=${next*20}`);guard(context);
+      if(next>0&&next*20>=result.total)return show(Math.max(0,Math.ceil(result.total/20)-1));
       page=next;const pages=Math.max(1,Math.ceil(result.total/20));
-      dialog.querySelector('.midi-archive-list').innerHTML=result.documents.map(item=>`<div class="midi-archive-entry"><span>${escapeHtml(item.title)} · v${item.version}</span><button type="button" class="ghost" data-restore-document="${item.id}">恢复并打开</button></div>`).join('')||'<p class="meta">没有归档的文档。</p>';
+      dialog.querySelector('.midi-archive-list').innerHTML=result.documents.map(item=>`<div class="midi-archive-entry"><span>${escapeHtml(item.title)} · v${item.version}</span><button type="button" class="ghost" data-restore-document="${item.id}">恢复并打开</button><button type="button" class="danger" data-manage-document="${item.id}">管理 / 删除</button></div>`).join('')||'<p class="meta">没有归档的文档。</p>';
       dialog.querySelector('[data-archive-page]').textContent=`${page+1}/${pages} 页 · ${result.total} 份`;
       dialog.querySelector('[data-archive-prev]').disabled=page===0;dialog.querySelector('[data-archive-next]').disabled=page+1>=pages;
+      dialog.querySelectorAll('[data-manage-document]').forEach(button=>button.onclick=async()=>{try{dialog.close();await window.midiManageReference(button.dataset.manageDocument);}catch(e){message(e.message,true);}});
       dialog.querySelectorAll('[data-restore-document]').forEach(button=>button.onclick=async()=>{try{
         await saveContext(context);const result=await postContext(context,`/documents/${button.dataset.restoreDocument}/restore`);
         install(result.document);dialog.close();await loadDocuments();message('归档文档已恢复，继续编辑。');
@@ -428,7 +449,15 @@
       }catch{}
     }
   }
-  window.midiOpenAsset=async(assetId)=>{const context=actionContext();const asset=await api(`/api/workbench/assets/${assetId}`);await saveContext(context);if(asset.metadata?.midi_document_id){const version=Number(asset.metadata.document_version),value=await api(`${prefix}/documents/${asset.metadata.midi_document_id}${version?`?version=${version}`:''}`),latest=await api(`${prefix}/documents/${value.id}`);if(value.project_id===scope&&value.version===latest.version&&!latest.archived_at)install(await postContext(context,`/documents/${value.id}/select`));else install(await postContext(context,'/documents',{document:{...value,title:value.title.slice(0,182)+' · 固定版本副本'}}));}else install(await postContext(context,'/import',{asset_id:assetId,revision_id:asset.current_revision_id}));$('.tab[data-tab="midi"]').click();await loadDocuments();};
+  window.midiOpenAsset=async(assetId)=>{
+    const context=actionContext(),asset=await api(`/api/workbench/assets/${assetId}`);await saveContext(context);let restored=false;
+    if(asset.metadata?.midi_document_id){try{
+      const version=Number(asset.metadata.document_version),value=await api(`${prefix}/documents/${asset.metadata.midi_document_id}${version?`?version=${version}`:''}`),latest=await api(`${prefix}/documents/${value.id}`);
+      if(value.project_id===scope&&value.version===latest.version&&!latest.archived_at)install(await postContext(context,`/documents/${value.id}/select`));else install(await postContext(context,'/documents',{document:{...value,title:value.title.slice(0,182)+' · 固定版本副本'}}));restored=true;
+    }catch(error){if(error.message!=='MIDI 文档不存在')throw error;}}
+    if(!restored)install(await postContext(context,'/import',{asset_id:assetId,revision_id:asset.current_revision_id}));
+    $('.tab[data-tab="midi"]').click();await loadDocuments();
+  };
   window.midiOpenAudio=async(assetId)=>{
     const context=audioLoadContext(),asset=await api(`/api/workbench/assets/${assetId}`);
     guard(context);await stageAudio(context,{source_path:{$asset:assetId,revision_id:asset.current_revision_id},title:asset.title});
@@ -441,7 +470,10 @@
       await saveContext(context);const job=await api(`/api/jobs/${jobId}`);guard(context);
       if(!job.result?.midi_document_id)throw new Error('这个任务还没有已保存的 MIDI 文档');
       const id=job.result.midi_document_id,version=job.result.document_version;
-      const value=await api(`${prefix}/documents/${id}${version?`?version=${Number(version)}`:''}`),latest=await api(`${prefix}/documents/${id}`);guard(context);
+      let value,latest;
+      try{value=await api(`${prefix}/documents/${id}${version?`?version=${Number(version)}`:''}`);latest=await api(`${prefix}/documents/${id}`);}
+      catch(error){if(error.message!=='MIDI 文档不存在')throw error;guard(context);const savedAsset=job.result.asset_ids?.[0];if(!savedAsset)throw new Error('编辑文档已删除。请从任务文件或资产库重新导入保存的 MIDI。');await window.midiOpenAsset(savedAsset);message('编辑历史已清理，已从任务保存的 MIDI 重新导入副本。');return;}
+      guard(context);
       if(value.project_id===context.project&&value.version===latest.version&&!latest.archived_at)install(await postContext(context,`/documents/${id}/select`));
       else install(await postContext(context,'/documents',{document:{...value,title:value.title.slice(0,180)+' · 任务版本副本'}}));
       $('.tab[data-tab="midi"]').click();await loadDocuments();message('已打开任务保存的 MIDI；可编辑、试听和下载可用轨道。');

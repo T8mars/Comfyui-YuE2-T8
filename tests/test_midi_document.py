@@ -140,9 +140,53 @@ class MidiDocumentTest(unittest.TestCase):
         cleanup.move([asset['id']],'trashed')
         preview=cleanup.preview({'ids':[asset['id']],'detach_projects':True})
         self.assertEqual(preview['deletable'],[])
-        self.assertIn('草稿仍在使用',preview['skipped'][0]['reason'])
+        self.assertIn('MIDI 文档',preview['skipped'][0]['reason'])
+        self.assertEqual(preview['skipped'][0]['blockers'][0]['id'],doc['id'])
         frozen=self.store.get(doc['id'],1)
         self.assertEqual(frozen['settings']['audio_source']['source_path']['$asset'],asset['id'])
+
+    def test_purge_archived_history_releases_sources_and_retains_published_midi(self):
+        source=self.library.create_text(kind='lyrics',title='source',text='source')
+        data=blank_document('disposable edit')
+        data['tracks'][0]['notes']=[note()]
+        data['settings']['audio_source']={'source_path':{'$asset':source['id'],'revision_id':source['current_revision_id']}}
+        doc=self.store.create(data)
+        saved=self.store.publish(doc['id'],doc['version'])
+        snapshot=self.store.snapshot(doc['id'],doc['version'],allow_empty_chords=True)
+        original_path=self.library.revision_file(saved['id'])[0]
+        original=original_path.read_bytes()
+        cleanup=LibraryCleanup(self.library);cleanup.move([source['id']],'trashed')
+        with self.assertRaises(ValueError):
+            self.store.purge(doc['id'],'',version=doc['version'],confirmed=True)
+        self.store.archive(doc['id'],'')
+        self.assertFalse(cleanup.preview({'ids':[source['id']]})['deletable'])
+        for protected in ({doc['id']},{snapshot['snapshot_id']},{snapshot['source']['melody_midi']},{'*'}):
+            with self.assertRaises(ValueError):
+                self.store.purge(doc['id'],'',version=doc['version'],confirmed=True,protected=protected)
+        with self.assertRaises(VersionConflict):
+            self.store.purge(doc['id'],'',version=doc['version']+1,confirmed=True)
+        with self.assertRaises(ValueError):
+            self.store.purge(doc['id'],'',version=doc['version'])
+        self.store.purge(doc['id'],'',version=doc['version'],confirmed=True)
+        self.assertEqual(cleanup.preview({'ids':[source['id']]})['deletable'],[source['id']])
+        self.assertEqual(original_path.read_bytes(),original)
+        self.assertTrue(Path(snapshot['source']['melody_midi']).is_file())
+        self.assertEqual(self.store.snapshot_receipt(snapshot['snapshot_id']),
+                         {'document_id':doc['id'],'document_version':doc['version'],'project_id':''})
+        self.assertEqual(parse_midi(original_path)['tracks'][0]['notes'][0]['pitch'],60)
+        with self.assertRaises(ValueError):self.store.get(doc['id'])
+
+    def test_purge_document_checks_project_and_training_references(self):
+        import json
+        project=self.library.create_project('other project')
+        doc=self.store.create(blank_document(),project['id'])
+        self.store.archive(doc['id'],project['id'])
+        with self.assertRaises(ValueError):
+            self.store.purge(doc['id'],'',version=1,confirmed=True)
+        with self.library.transaction() as db:
+            db.execute('INSERT INTO dataset_snapshots VALUES(?,?,?,?,?,?)',('a'*32,'fixed','yue2_style',json.dumps({'midi_document_id':doc['id']}),'b'*64,1))
+        with self.assertRaises(ValueError):
+            self.store.purge(doc['id'],project['id'],version=1,confirmed=True)
 
     def test_document_pagination_archive_restore_and_cache_cleanup_preserve_outputs(self):
         docs=[self.store.create(blank_document(f'doc {index}')) for index in range(23)]
