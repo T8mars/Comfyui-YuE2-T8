@@ -192,9 +192,12 @@ def run(root, job_dir, request, ctx):
     samples, rate = sf.read(decoded, dtype='float32')
     ctx.update('midi_tempo', message='估计速度；可在结果中修正，不重复识别')
     import librosa
-    tempo, _ = librosa.beat.beat_track(y=samples, sr=rate)
+    tempo, beat_frames = librosa.beat.beat_track(y=samples, sr=rate)
     estimated = float(np.asarray(tempo).reshape(-1)[0])
     estimated = estimated if math.isfinite(estimated) and estimated > 0 else 120.0
+    from .transcription_timing import fitted_bpm
+    beat_seconds = librosa.frames_to_time(beat_frames, sr=rate).tolist()
+    estimated = fitted_bpm(beat_seconds, estimated)
     bpm = prepared['bpm'] or estimated
     ctx.check_cancelled()
     refs = prepared.get('_local_references', [])
@@ -208,7 +211,9 @@ def run(root, job_dir, request, ctx):
     data['tempos'][0]['tempo'] = round(60_000_000/bpm)
     data['source'] = {'format': 'audio', 'asset_id': asset_id, 'revision_id': revision_id,
         'sha256': source_hash, 'clip_start': prepared['clip_start'], 'clip_end': prepared['clip_end'],
-        'duration_seconds': duration, 'estimated_bpm': estimated, 'recognition_bpm': bpm}
+        'duration_seconds': duration, 'estimated_bpm': estimated, 'recognition_bpm': bpm,
+        'beat_seconds': beat_seconds, 'timing_origin': 'clip-start',
+        'timing_note': '音符保留原始秒级时间；节拍估计不等于首拍或强拍确认'}
     data['extraction'] = {'tracks': {role: {'status': 'pending'} for role in ('melody', 'chord', 'drums')}}
     document = store.create(data, prepared['project_id'], current=False)
     result = {'midi_document_id': document['id'], 'project_id': prepared['project_id'], 'duration_seconds': duration, 'bpm': bpm}

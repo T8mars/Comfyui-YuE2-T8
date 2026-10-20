@@ -654,6 +654,10 @@ function stemPlayers(job, result) {
 
 function renderJob(job, target) {
   const result = job.result || {}; const candidates = result.candidates || (result.audio ? [{seed: result.seed, audio: result.audio, audio_seconds: result.audio_seconds || result.audio_info?.duration_seconds, truncated: result.truncated}] : []);
+  if(job.kind==='transcribe'){
+    const files=[['abc','音频对齐 ABC'],['midi','原时间 MIDI'],['notation_abc','节拍整理 ABC']].map(([key,label])=>{const rel=relativeAudio(job,result[key==='abc'?'abc_path':key]);return rel?`<a class="ghost" href="${audioUrl(job.id,rel)}" download>${label}</a>`:'';}).join('');
+    target.innerHTML=`<article class="result-card"><b>扒谱完成 · 请对照原曲校对</b><p class="meta">${escapeHtml(result.timing?.mode==='audio-clock'?'已修正弱起补齐造成的位移，并按音频时间生成 ABC。原始 MIDI 保留识别时序。':'当前为节拍整理版；尚未完成音频时间对齐。')}</p>${(result.warnings||[]).map(w=>`<p class="meta">${escapeHtml(w)}</p>`).join('')}<div class="toolbar">${files}<button class="ghost" type="button" onclick="midiOpenTranscription('${job.id}')">在 MIDI 编辑器校对</button><button class="ghost" type="button" onclick="exportJob('${job.id}')">导出全部文件</button></div></article>`;return;
+  }
   if (!candidates.length) { target.innerHTML = `<div class="result-card"><b>任务完成</b><pre class="meta">${escapeHtml(JSON.stringify(result, null, 2))}</pre></div>`; return; }
   const partial = result.partial ? `<div class="result-card">已保留 ${result.completed_candidates}/${result.requested_candidates} 个${result.comparison ? '转换结果' : '版本'}。${result.failures?.length ? `未完成原因：${escapeHtml(publicErrorSummary(result.failures[0].error))}` : '其余结果正在制作中。'}</div>` : '';
   target.innerHTML = partial + candidates.map((candidate, index) => {

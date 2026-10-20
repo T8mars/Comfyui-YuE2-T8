@@ -59,11 +59,35 @@ def main(argv=None) -> int:
             audio_input, output_dir=output, melody_only=bool(request.get("melody_only", True)),
             dtype=request.get("dtype", "bf16"), preset=request.get("preset", "default"),
             max_seconds=request.get("max_seconds"),
-            render_audio=bool(request.get("render_audio", False)),
-            render_score=request.get("render_score", False),
+            render_audio=False, render_score=False,
             render_parts=tuple(request.get("render_parts", ["mix"])), progress=progress, **input_options,
         )
         ctx.check_cancelled()
+        # Native notation inserts pickup padding and averages tempo; it is a
+        # musical score, not an audio-clock-aligned conditioning sequence.
+        # Rebuild from the saved raw seconds, retaining the native score too.
+        from importlib import import_module
+        from .transcription_timing import align_abc_to_audio
+        try:
+            notation = import_module(model.__class__.__module__.rsplit('.', 1)[0] + '.notation_sheetsage2')
+            result['melody_only'] = bool(request.get('melody_only', True))
+            align_abc_to_audio(output, result, notation.generate_abc_from_data)
+        except (ValueError, OSError, TypeError) as exc:
+            # A paid/expensive successful recognition is still usable. Never
+            # silently present fallback notation as audio-aligned.
+            result.setdefault('warnings', []).append(f'音频时间对齐未完成，已保留原转谱：{exc}')
+        if request.get('render_audio') or request.get('render_score'):
+            try:
+                rendering = import_module(model.__class__.__module__.rsplit('.', 1)[0] + '.rendering_sheetsage2')
+                result['rendered'] = rendering.render_outputs(
+                    input_dir=output, output_dir=output,
+                    audio=bool(request.get('render_audio', False)),
+                    score=request.get('render_score') or (),
+                    parts=tuple(request.get('render_parts', ['mix'])),
+                    assets_dir=paths['sheetsage']/'render_assets')
+            except Exception as exc:
+                result['render_error'] = str(exc)
+                result.setdefault('warnings', []).append(f'转谱已保留，预览渲染未完成：{exc}')
         abc_path = output / "score.abc"
         abc = abc_path.read_text(encoding="utf-8") if abc_path.is_file() else result.get("abc")
         if request.get("melody_only", True) and (not abc or result.get("abc_error")):
@@ -79,6 +103,9 @@ def main(argv=None) -> int:
             "rendered": result.get("rendered"),
             "render_error": result.get("render_error"),
             "abc_error": result.get("abc_error"),
+            "timing": result.get("timing"),
+            "notation_abc": str(output / "score.notation.abc") if (output / "score.notation.abc").is_file() else None,
+            "source_audio": str(source),
         }
         atomic_json(output / "job_result.json", public)
         artifact_files = [

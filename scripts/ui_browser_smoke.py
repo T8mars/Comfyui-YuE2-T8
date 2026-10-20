@@ -1192,6 +1192,8 @@ def run_browser(url: str, output: Path) -> dict:
         from scripts.midi_browser_smoke import assert_midi_races, assert_midi_boundaries
         midi_regressions = assert_midi_races(browser, url, output)
         midi_regressions['boundaries'] = assert_midi_boundaries(browser, url, output)
+        from scripts.midi_timing_smoke import assert_midi_timing
+        midi_regressions['timing'] = assert_midi_timing(browser, url, output)
         browser.close()
 
     assert not console_errors, f"Browser console/page errors: {console_errors}"

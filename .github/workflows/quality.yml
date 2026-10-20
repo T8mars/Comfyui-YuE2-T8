@@ -38,6 +38,8 @@ jobs:
           node --check app/web/training_cleanup.js
           node --check app/web/mulacover.js
           node --check app/web/midi_editor.js
+          node --check app/web/midi_timing.js
+          node tests/midi_timing.test.cjs
       - name: Install browser for UI smoke checks
         run: |
           python -m pip install playwright==1.62.0
