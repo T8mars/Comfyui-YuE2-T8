@@ -26,8 +26,14 @@ def generation_provenance(root: Path, runtime_weights: dict) -> dict:
         "YuE2-Vae": runtime_weights.get("vae", {}).get("files", {}).get("model.safetensors", {}).get("sha256"),
     }
     for name, digest in expected.items():
-        if not digest or str(selected[name].get("sha256", "")).lower() != str(digest).lower():
-            raise ValueError(f"{name} 运行时权重与模型来源清单不一致")
+        weight = model_directory(root.resolve(), strict=True) / selected[name]['file']
+        if not digest:
+            raise ValueError(f"{name} 运行时身份缺少 model.safetensors 哈希；请重新启动工作台并检查模型目录：{weight}")
+        if str(selected[name].get("sha256", "")).lower() != str(digest).lower():
+            recovery = ('关闭工作台后双击整合包中的“检查修复VAE模型.bat”，修复后从已保存的乐谱新建生成任务。'
+                        if name == 'YuE2-Vae' else '请从模型仓库重新下载对应版本的权重，再重新使用已保存的乐谱。')
+            raise ValueError(f"{name} 运行时权重与模型来源清单不一致；文件：{weight}；"
+                             f"期望 SHA-256：{selected[name]['sha256']}；实际 SHA-256：{digest}；{recovery}")
     return {
         "bundle": manifest["bundle"],
         "models": selected,

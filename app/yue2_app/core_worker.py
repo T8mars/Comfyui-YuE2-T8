@@ -160,6 +160,8 @@ def generate_one(pipe, ctx: JobContext, request: dict, destination: Path, seed: 
     from yue2.storage import identity
     root = getattr(ctx, "root", ctx.job_dir.parents[2])
 
+    # Reject incompatible decoders before expensive AR work or resume writes.
+    provenance = generation_provenance(root, pipe.weights)
     kwargs = generation_kwargs(request, seed)
     request_only = {k: v for k, v in kwargs.items() if k not in {"abc_sampling", "semantic_sampling"}}
     song_request = initial_plan.request if initial_plan is not None else pipe._request(**request_only)
@@ -209,7 +211,6 @@ def generate_one(pipe, ctx: JobContext, request: dict, destination: Path, seed: 
     else:
         semantic = pipe.generate_semantic(plan, sampling=kwargs.get("semantic_sampling"),
                                           cancelled=ctx.cancelled, on_token=ctx.token)
-    provenance = generation_provenance(root, pipe.weights)
     if not (checkpoint / "semantic" / "semantic_manifest.json").is_file():
         atomic_stage(checkpoint / "semantic", lambda temporary: save_semantic(
             temporary, semantic, models=provenance, semantic_sampling=kwargs.get("semantic_sampling")))
@@ -413,13 +414,14 @@ def run_semantic(root: Path, ctx: JobContext, request: dict) -> dict:
     pipe = create_pipe(root, request)
     pipe.on_stage_progress, pipe.on_memory = ctx.progress, ctx.memory
     try:
+        provenance = generation_provenance(root, pipe.weights)
         ctx.update("semantic", tokens=0)
         semantic = pipe.generate_semantic(plan, sampling=request.get("semantic_sampling"),
                                           cancelled=ctx.cancelled, on_token=ctx.token)
         ctx.check_cancelled()
         manifest = save_semantic(
             destination, semantic,
-            models=generation_provenance(root, pipe.weights),
+            models=provenance,
             semantic_sampling=request.get("semantic_sampling"),
             source={"plan_manifest": manifest_reference(plan_path / "plan_manifest.json")},
         )
