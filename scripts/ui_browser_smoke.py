@@ -1194,6 +1194,8 @@ def run_browser(url: str, output: Path) -> dict:
         midi_regressions['boundaries'] = assert_midi_boundaries(browser, url, output)
         from scripts.midi_timing_smoke import assert_midi_timing
         midi_regressions['timing'] = assert_midi_timing(browser, url, output)
+        from scripts.random_seed_smoke import assert_cover_random_seeds
+        cover_seeds = assert_cover_random_seeds(browser, url, output)
         browser.close()
 
     assert not console_errors, f"Browser console/page errors: {console_errors}"
@@ -1223,6 +1225,7 @@ def run_browser(url: str, output: Path) -> dict:
         ],
         "console_errors": console_errors,
         "midi_regressions": midi_regressions,
+        "cover_random_seeds": cover_seeds,
     }
 
 

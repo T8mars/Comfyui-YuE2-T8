@@ -236,6 +236,41 @@ function safeSeed(value) {
   return seed;
 }
 
+function refreshCoverSeedMode() {
+  const automatic = $('#cover-random-seed').checked;
+  $('#cover-seed').disabled = automatic;
+  $('#cover-seed-hint').textContent = automatic || ($('#cover-seed').value.trim() !== '' && Number($('#cover-seed').value) === 0)
+    ? '当前为每次随机：提交时使用系统安全随机数选择新种子，实际数字会随任务保存；可填回用于复现。'
+    : '勾选“每次随机”或填写 0，每次生成自动选择新种子；填写其他数字可固定结果。';
+}
+function coverSeedValue() {
+  const automatic = $('#cover-random-seed').checked;
+  if (!automatic && !$('#cover-seed').value.trim()) throw new Error('请填写随机种子，或勾选“每次随机”');
+  const value = automatic ? 0 : safeSeed($('#cover-seed').value);
+  if (value !== 0) return value;
+  const seed = window.YuE2Seeds.randomSeed(savedValue('cover-last-issued-seed'));
+  savedValue('cover-last-issued-seed', String(seed));
+  return seed;
+}
+function setCoverSeedUsed(value) {
+  const valid = value !== null && value !== undefined && value !== '' && Number.isSafeInteger(Number(value)) && Number(value) >= 0;
+  const target = $('#cover-seed-used');
+  target.dataset.seed = valid ? String(value) : '';
+  target.textContent = valid ? `最近提交的实际种子：${value}（已随任务保存）` : '';
+  target.classList.toggle('hidden', !valid);
+  $('#cover-reuse-seed').classList.toggle('hidden', !valid);
+}
+Object.assign(window, {refreshCoverSeedMode, setCoverSeedUsed});
+$('#cover-random-seed').addEventListener('input', refreshCoverSeedMode);
+$('#cover-seed').addEventListener('input', refreshCoverSeedMode);
+$('#cover-reuse-seed').onclick = () => {
+  $('#cover-seed').value = $('#cover-seed-used').dataset.seed;
+  $('#cover-random-seed').checked = false;
+  refreshCoverSeedMode();
+  window.assistantDraftChanged?.('cover');
+};
+refreshCoverSeedMode();
+
 function kindLabel(kind) {
   return ({
     assistant: 'AI 创作助手',
@@ -594,6 +629,11 @@ async function submit(kind, request, resultTarget, button = null, projectScope =
     }
     const clientRequestId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
     const job = await api('/api/jobs', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({kind, request, source: 'webui', client_request_id: clientRequestId, result_panel: resultTarget?.closest('.panel')?.id})});
+    if (resultTarget?.closest('.panel')?.id === 'cover' && generation && String(window.workbenchProjectId?.() || '') === projectScope) {
+      setCoverSeedUsed(generation.seed);
+      savedValue('cover-last-issued-seed', String(generation.seed));
+      window.assistantDraftChanged?.('cover');
+    }
     rememberResult(job, resultTarget);
     bindButton(button, job); await refreshWorkspace(); return await waitForJob(job.id, resultTarget);
   } catch (error) { if(String(window.workbenchProjectId?.()||'')===projectScope&&(!error.jobId||button?.dataset.jobId===error.jobId))restoreButton(button); error.projectScope=projectScope; throw error; }
@@ -667,7 +707,8 @@ function renderJob(job, target) {
     const player = url ? `<audio controls preload="metadata" aria-label="${escapeHtml(playerLabel)}" src="${url}"></audio>` : '';
     const duration = Number(candidate.audio_seconds || candidate.audio_info?.duration_seconds);
     const midiVersion=result.midi_document_version?`MIDI v${Number(result.midi_document_version)}（生成时固定版本）`:'';
-    const details = [voiceDescription({...result,...candidate}), midiVersion, candidates.length > 1 ? `版本 ${index + 1}` : '', Number.isFinite(duration) && duration > 0 ? `${duration.toFixed(1)} 秒` : '', candidate.seed != null ? `Seed ${escapeHtml(candidate.seed)}` : '', `任务 ${escapeHtml(shortId(job.id))}`].filter(Boolean).join(' · ');
+    const actualSeed = candidate.seed ?? result.generated_result?.candidates?.[0]?.seed;
+    const details = [voiceDescription({...result,...candidate}), midiVersion, candidates.length > 1 ? `版本 ${index + 1}` : '', Number.isFinite(duration) && duration > 0 ? `${duration.toFixed(1)} 秒` : '', actualSeed != null ? `Seed ${escapeHtml(actualSeed)}` : '', `任务 ${escapeHtml(shortId(job.id))}`].filter(Boolean).join(' · ');
     const download = url ? `<a class="ghost audio-download" href="${url}" download="YuE2-${job.id}-${index + 1}.flac">下载音频</a>` : '';
     const remixFiles = job.kind === 'mulacover_remix' ? [['melody_midi','旋律 MIDI'],['chord_midi','和弦 MIDI'],['drum_midi','鼓组 MIDI']].map(([key,label]) => { const file = relativeAudio(job,result[key]); return file ? `<a class="ghost compact" href="${audioUrl(job.id,file)}" download>${label}</a>` : ''; }).join('') : '';
     const remixVoice = job.kind === 'mulacover_remix' && rel ? `<button class="primary" type="button" onclick="sendJobAudioToCover('${job.id}','${rel}')">发送到音色转换</button>` : '';
@@ -1026,10 +1067,11 @@ $('#transcribe-button').onclick = async () => {
   } catch (error) { restoreButton(button);renderScopedFailure($('#cover-result'),error,projectScope); }
 };
 $('#generate-cover').onclick = async () => {
-  let seed; try { seed = safeSeed($('#cover-seed').value); } catch (error) { return alert(error.message); }
-  const request = {style: $('#cover-style').value, lyrics: $('#cover-lyrics').value, abc: $('#cover-abc').value, cot: 'melody', seed, cfg_scale: 1, backend: 'torch-eager', candidates: 1};
+  if ($('#generate-cover').disabled) return;
+  const request = {style: $('#cover-style').value, lyrics: $('#cover-lyrics').value, abc: $('#cover-abc').value, cot: 'melody', cfg_scale: 1, backend: 'torch-eager', candidates: 1};
   if (!request.lyrics.trim() && $('#cover').dataset.instrumental !== 'true') return alert('请先填写并核对歌词');
   if (!request.abc.trim()) return alert('请先转谱或导入有效的旋律 ABC');
+  try { request.seed = coverSeedValue(); } catch (error) { return alert(error.message); }
   try { await submit('generate', request, $('#cover-result'), $('#generate-cover')); }
   catch (error) { renderScopedFailure($('#cover-result'),error); }
 };
@@ -1040,6 +1082,7 @@ $('#reference-file').addEventListener('change', () => {
 });
 
 $('#generate-reference-cover').onclick = async () => {
+  if ($('#generate-reference-cover').disabled) return;
   const projectScope=String(window.workbenchProjectId?.()||'');
   const direct = $('#cover-mode').value === 'direct', sourceInput = $('#cover-file');
   if (direct && !inputHasSource(sourceInput)) return alert('请先选择要转换音色的歌曲');
@@ -1050,11 +1093,11 @@ $('#generate-reference-cover').onclick = async () => {
   if (backend !== 'seed-vc' && !$('#rvc-cover-model').value) return alert('请先到“我的音色 / 训练”创建或导入音色模型');
   if (backend !== 'seed-vc' && !$('#rvc-pitch-shift').reportValidity()) return;
   if (backend !== 'rvc' && !$('#voice-shift').reportValidity()) return;
-  let seed;
-  try { if (!direct) { seed = safeSeed($('#cover-seed').value); generationMemoryBudget(); } } catch (error) { return alert(error.message); }
-  const generate = {style: $('#cover-style').value, lyrics: $('#cover-lyrics').value, abc: $('#cover-abc').value, cot: 'melody', seed, cfg_scale: 1, backend: 'torch-eager', candidates: 1, offload_ar: true, nar_query_chunk_size: 256, nar_attention: 'sdpa'};
+  try { if (!direct) generationMemoryBudget(); } catch (error) { return alert(error.message); }
+  const generate = {style: $('#cover-style').value, lyrics: $('#cover-lyrics').value, abc: $('#cover-abc').value, cot: 'melody', cfg_scale: 1, backend: 'torch-eager', candidates: 1, offload_ar: true, nar_query_chunk_size: 256, nar_attention: 'sdpa'};
   if (!direct && !generate.lyrics.trim()) return alert('请先填写并核对歌词');
   if (!direct && !generate.abc.trim()) return alert('请先转谱或导入有效的旋律 ABC');
+  try { if (!direct) generate.seed = coverSeedValue(); } catch (error) { return alert(error.message); }
   const button = $('#generate-reference-cover');
   setSubmitting(button);
   try {

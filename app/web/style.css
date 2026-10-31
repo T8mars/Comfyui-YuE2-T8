@@ -298,5 +298,8 @@ footer { padding: 30px; border-top: 1px solid #e0e5ed; color: #8a94a5; text-alig
 @media (max-width: 1024px) { #voices .grid.two { grid-template-columns: 1fr; } }
 
 .stem-previews { margin-top: 18px; }
+.cover-seed-settings { margin-top: 18px; }
+.cover-seed-receipt { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.cover-seed-receipt p { overflow-wrap: anywhere; }
 .stem-player { margin: 16px 0; }
 .stem-player audio { display: block; width: 100%; margin: 8px 0; }

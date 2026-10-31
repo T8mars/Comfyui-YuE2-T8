@@ -336,7 +336,12 @@ This melody still waits for you</textarea></label>
         <label>模型加载方式<select name="model_loading" data-generation-loading><option value="auto">自动选择（小显存分批加载）</option><option value="cpu-offload">低显存 · CPU 分批加载</option><option value="gpu">全部载入显卡</option></select></label>
         <p class="meta wide">三个创作页面同步并在当前浏览器记住。预算包含 2 GiB 预留，例如填 8 时进程最多分配约 6 GiB。自动选择在显卡或预算不超过 12 GiB 时使用 CPU 分批加载，速度较慢、占用内存更多；建议至少 32 GB 内存。此设置用于 YuE2 生成，不控制 RVC 训练或直接换声。</p>
 
-        <label>随机种子<input id="cover-seed" type="number" min="0" max="9007199254740991" step="1" value="831001"></label>
+        <div class="cover-seed-settings">
+          <label>随机种子<input id="cover-seed" type="number" min="0" max="9007199254740991" step="1" value="831001" aria-describedby="cover-seed-hint"></label>
+          <label class="check"><input id="cover-random-seed" type="checkbox" aria-describedby="cover-seed-hint">每次随机</label>
+          <p id="cover-seed-hint" class="meta">勾选“每次随机”或填写 0，每次生成自动选择新种子；填写其他数字可固定结果。</p>
+          <div class="cover-seed-receipt"><p id="cover-seed-used" class="meta hidden" role="status"></p><button id="cover-reuse-seed" type="button" class="ghost compact hidden">填回此种子复现</button></div>
+        </div>
         </div>
         <div class="creation-options">
           <article id="cover-regenerate-choice" class="choice-card">
@@ -543,6 +548,7 @@ This melody still waits for you</textarea></label>
   <div id="global-player" class="global-player hidden"><div><small id="global-player-kind">正在试听</small><b id="global-player-title">未选择音频</b></div><audio id="global-audio" controls preload="metadata" aria-labelledby="global-player-title"></audio><button id="global-player-close" class="ghost compact" type="button" aria-label="关闭播放器"><i class="bi bi-x-lg"></i></button></div>
 
   <footer>YuE2 本地整合包 · 制作者 By B站UP主：T8star-Aix · 仅绑定 127.0.0.1 · 权重与输出保存在本机</footer>
+  <script src="/static/random_seed.js"></script>
   <script src="/static/app.js"></script>
   <script src="/static/mulacover.js"></script>
   <script src="/static/rvc.js"></script>

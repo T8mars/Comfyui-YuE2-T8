@@ -46,7 +46,8 @@ function captureDraft(panel) {
   if (panel === 'plan') return {form: formFields($('#plan-form')), abc: $('#plan-abc').value,
     exact: $('#plan-exact').checked, plan: planState ? {source: planState.source || 'saved_exact', abc_status: planState.abc_status || null, plan_dir: planState.plan_dir || null, request: planState.request || {}} : null};
   return {abc: $('#cover-abc').value, lyrics: $('#cover-lyrics').value, style: $('#cover-style').value,
-    seed: $('#cover-seed').value, mode: $('#cover-mode').value, instrumental: $('#cover').dataset.instrumental === 'true', visible: !$('#cover-review').classList.contains('hidden')};
+    seed: $('#cover-seed').value, random_seed: $('#cover-random-seed').checked, last_seed: $('#cover-seed-used').dataset.seed || null,
+    mode: $('#cover-mode').value, instrumental: $('#cover').dataset.instrumental === 'true', visible: !$('#cover-review').classList.contains('hidden')};
 }
 function applyDraft(panel, draft) {
   if (!draft || !Object.keys(draft).length) return;
@@ -73,6 +74,9 @@ function applyDraft(panel, draft) {
     updateInstrumental('plan');
   } else {
     for (const key of ['abc', 'lyrics', 'style', 'seed']) if (draft[key] !== undefined) $(`#cover-${key}`).value = draft[key];
+    $('#cover-random-seed').checked = draft.random_seed === true;
+    window.setCoverSeedUsed?.(draft.last_seed);
+    window.refreshCoverSeedMode?.();
     $('#cover').dataset.instrumental = String(Boolean(draft.instrumental));
     $('#cover-review').classList.toggle('hidden', !draft.visible);
     window.setCoverMode?.(draft.mode || 'generate');
@@ -693,7 +697,7 @@ async function initAssistant() {
     for (const panel of ['create', 'plan', 'cover', 'assistant']) {
       $(`#${panel}`).addEventListener('input', event => {
         if (event.target.closest('#assistant-config-form') || event.target.type === 'file') return;
-        if (event.target.type === 'checkbox') updateInstrumental(panel);
+        if (event.target.type === 'checkbox' && event.target.id !== 'cover-random-seed') updateInstrumental(panel);
         if (panel === 'cover' && event.target.id === 'cover-lyrics' && event.target.value.trim()) { $('#cover').dataset.instrumental = 'false'; updateInstrumental('cover'); }
         if (panel === 'assistant') {
           if (event.target.id.startsWith('assistant-result-')) assistant.resultEdited = true;
