@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -6,10 +7,27 @@ import tomllib
 import unittest
 from pathlib import Path
 
-from scripts.apply_update import apply_files
+from scripts.apply_update import apply_files, rollback
 
 
 class UpdateInstallTests(unittest.TestCase):
+    def test_relative_install_root_and_backup_are_normalized_before_boundary_checks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            previous = Path.cwd()
+            try:
+                os.chdir(directory)
+                source, target = Path('stage'), Path('install')
+                source.mkdir(); target.mkdir()
+                (source/'client.py').write_bytes(b'new client')
+                (target/'client.py').write_bytes(b'old client')
+                backup, records = apply_files(source, target, 'relative-path')
+                self.assertTrue(backup.is_absolute())
+                self.assertEqual((target/'client.py').read_bytes(), b'new client')
+                rollback(target, backup.relative_to(Path.cwd()), records)
+                self.assertEqual((target/'client.py').read_bytes(), b'old client')
+            finally:
+                os.chdir(previous)
+
     def test_staged_updater_preserves_large_user_directories_and_creates_backup(self):
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "install"

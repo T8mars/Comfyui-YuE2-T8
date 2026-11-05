@@ -139,6 +139,8 @@ def invalidate_bytecode(destination: Path) -> None:
 
 
 def apply_files(source: Path, target: Path, version: str) -> tuple[Path, list[dict]]:
+    # Windows TEMP may use an 8.3 alias; compare canonical roots to canonical files.
+    source, target = source.resolve(), target.resolve()
     backup = target / "logs" / "backups" / ("before-" + version + "-" + time.strftime("%Y%m%d-%H%M%S") + '-' + uuid.uuid4().hex[:8])
     records = []
     try:
@@ -191,6 +193,7 @@ def apply_files(source: Path, target: Path, version: str) -> tuple[Path, list[di
 
 
 def rollback(target: Path, backup: Path, records: list[dict]) -> None:
+    target, backup = target.resolve(), backup.resolve()
     for record in reversed(records):
         destination = (target / record["file"]).resolve()
         saved = (backup / record["file"]).resolve()

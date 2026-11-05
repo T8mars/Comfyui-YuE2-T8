@@ -92,11 +92,11 @@ jobs:
       - name: Run Windows update and bundle tests
         run: |
           python -m pip install numpy filelock
-          python -m unittest discover -s tests -p "test_storage_paths.py" -v
-          python -m unittest discover -s tests -p "test_manual_cleanup.py" -v
-          python -m unittest discover -s tests -p "test_cleanup_audit_regressions.py" -v
-          python -m unittest discover -s tests -p "test_training_cleanup.py" -v
-          python -m unittest discover -s tests -p "test_unified_update.py" -v
-          python -m unittest discover -s tests -p "test_update_install.py" -v
-          python -m unittest discover -s tests -p "test_unified_bundle.py" -v
-          python -m unittest discover -s tests -p "test_windows_launcher.py" -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $patterns = @('test_storage_paths.py', 'test_manual_cleanup.py', 'test_cleanup_audit_regressions.py',
+                        'test_training_cleanup.py', 'test_unified_update.py', 'test_update_install.py',
+                        'test_unified_bundle.py', 'test_windows_launcher.py')
+          foreach ($pattern in $patterns) {
+            python -m unittest discover -s tests -p $pattern -v
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
