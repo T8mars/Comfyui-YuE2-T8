@@ -23,7 +23,7 @@ class UpdateInstallTests(unittest.TestCase):
                 backup, records = apply_files(source, target, 'relative-path')
                 self.assertTrue(backup.is_absolute())
                 self.assertEqual((target/'client.py').read_bytes(), b'new client')
-                rollback(target, backup.relative_to(Path.cwd()), records)
+                rollback(target, backup.relative_to(Path.cwd().resolve()), records)
                 self.assertEqual((target/'client.py').read_bytes(), b'old client')
             finally:
                 os.chdir(previous)
