@@ -39,6 +39,7 @@ from .memory import clear_current_process_cuda, memory_snapshot
 from . import assistant_data
 from . import updater
 from .asset_library import AssetLibrary
+from .windows_runtime import powershell_executable
 
 CREDENTIALS = assistant_data.Credentials()
 ASSISTANT_KINDS = {"assistant"}
@@ -213,7 +214,7 @@ def terminate_recorded_worker(status: dict, job_id: str) -> None:
         f"if($p -and $p.CommandLine -match 'app\\.yue2_app\\.(core_worker|transcribe_worker|voice_worker|workflow_worker|rvc_worker|training_worker|mulacover_worker|midi_extract_worker)' "
         f"-and $p.CommandLine -like '*{job_id}*'){{taskkill.exe /PID {pid} /T /F | Out-Null}}"
     )
-    subprocess.run(["powershell.exe", "-NoProfile", "-Command", script], check=False,
+    subprocess.run([powershell_executable(), "-NoProfile", "-Command", script], check=False,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 

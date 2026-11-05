@@ -22,6 +22,19 @@ PRESERVE = {
 DEVELOPMENT_ONLY_DIRS = {".git", ".pytest_cache", ".ruff_cache", ".mypy_cache", ".tox", ".venv", "venv", "node_modules"}
 
 
+def powershell_executable() -> str:
+    """Also works before staged app files are installed; do not depend on PATH."""
+    windows = ctypes.create_unicode_buffer(32768)
+    length = ctypes.windll.kernel32.GetWindowsDirectoryW(windows, len(windows))
+    if not length or length >= len(windows):
+        raise OSError('无法确定 Windows 系统目录，无法启动 Windows PowerShell')
+    for system in ('Sysnative', 'System32'):
+        executable = Path(windows.value)/system/'WindowsPowerShell/v1.0/powershell.exe'
+        if executable.is_file():
+            return str(executable)
+    raise FileNotFoundError('找不到 Windows PowerShell 系统组件，请修复 Windows 后重试；无需修改 PATH')
+
+
 def atomic_status(path: Path, value: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -272,7 +285,7 @@ def main() -> int:
         coordinator = source / 'scripts/apply_unified_update.ps1'
         if not coordinator.is_file():
             raise FileNotFoundError('更新包缺少统一环境迁移程序')
-        command = ['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(coordinator),
+        command = [powershell_executable(), '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(coordinator),
                    '-Target', str(target), '-Source', str(source), '-Manifest', str(args.manifest.resolve()),
                    '-ServicePid', str(args.pid), '-BootstrapPid', str(os.getpid()), '-Port', str(args.port)]
         if args.prepared_runtime:

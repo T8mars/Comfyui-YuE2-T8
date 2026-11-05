@@ -1,11 +1,13 @@
 @echo off
 setlocal
-chcp 65001 >nul
+"%SystemRoot%\System32\chcp.com" 65001 >nul
 title T8star-Aix - YuE2 Music T8
 cd /d "%~dp0"
 echo.
 echo [YuE2] Starting the local studio. Please wait...
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\start_webui.ps1"
+call "%~dp0scripts\windows_powershell.cmd"
+if errorlevel 1 exit /b 6
+"%YUE2_POWERSHELL%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\start_webui.ps1" %*
 set "YUE2_EXIT=%ERRORLEVEL%"
 echo.
 if not "%YUE2_EXIT%"=="0" (

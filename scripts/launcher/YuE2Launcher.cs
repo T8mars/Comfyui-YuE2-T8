@@ -39,9 +39,13 @@ internal static class YuE2Launcher
         if (!File.Exists(runtime))
             return Finish(3, "[启动失败] 运行环境不完整，请确认压缩包已完整解压。", noPause);
 
+        string powerShell = ResolvePowerShell(Environment.GetFolderPath(Environment.SpecialFolder.Windows));
+        if (powerShell == null)
+            return Finish(6, "[启动失败] 找不到 Windows PowerShell 系统组件（Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe）。请修复系统组件后重试；不需要修改 PATH 或重新下载音乐模型。", noPause);
+
         Console.WriteLine("[YuE2] 正在启动本地工作室，请稍候...");
         ProcessStartInfo startInfo = new ProcessStartInfo();
-        startInfo.FileName = "powershell.exe";
+        startInfo.FileName = powerShell;
         startInfo.Arguments = "-NoProfile -ExecutionPolicy Bypass -File \"" + script + "\"" + (noBrowser ? " -NoBrowser" : "") + " -Port " + port + (noSwitch ? " -NoSwitch" : "");
         startInfo.WorkingDirectory = kitRoot;
         startInfo.UseShellExecute = false;
@@ -70,6 +74,18 @@ internal static class YuE2Launcher
         // successful launch so Windows does not keep YuE2-T8.exe locked while the
         // browser installs a code update.  Failures still pause for readability.
         return Finish(0, null, true);
+    }
+
+    private static string ResolvePowerShell(string windowsDirectory)
+    {
+        if (string.IsNullOrEmpty(windowsDirectory)) return null;
+        // Sysnative reaches native PowerShell from a 32-bit launcher on 64-bit Windows.
+        foreach (string system in new string[] { "Sysnative", "System32" })
+        {
+            string executable = Path.Combine(windowsDirectory, system, "WindowsPowerShell", "v1.0", "powershell.exe");
+            if (File.Exists(executable)) return executable;
+        }
+        return null;
     }
 
     private static bool HasArgument(string[] args, string expected)
