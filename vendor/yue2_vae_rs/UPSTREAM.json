@@ -1,0 +1,12 @@
+{
+  "repository": "https://huggingface.co/goldhub/YuE2-RS-Finetunes",
+  "revision": "b371be93fe7320c7084813b4f5967a6820756a06",
+  "path": "VAE-RS/kit",
+  "license": "Apache-2.0",
+  "files": {
+    "yue2_vae_rs.py": "b7fd8baeddbe1f8c5dd9940cc071d9e4dd4a0f137ef695cb8f301396ecfb21a1",
+    "LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+    "NOTICE": "ef584660d21b41808ecb81f91a2d0156a9ff6eb3597fd01f90fcd510cae91a10"
+  },
+  "scope": "Unmodified YuE2-VAE-RS x3 decoder loader; used only to decode YuE2 latents when a VAE-RS decoder is selected"
+}

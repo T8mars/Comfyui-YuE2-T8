@@ -76,6 +76,8 @@ def build(output):
                          "app/yue2_app/midi_api.py", "app/yue2_app/midi_document.py",
                          "app/yue2_app/midi_extract_worker.py", "app/yue2_app/transcription_timing.py",
                          "app/yue2_app/model_repair.py", "检查修复VAE模型.bat", "app/web/random_seed.js",
+                         "app/yue2_app/vae_decoders.py", "vendor/yue2_vae_rs/yue2_vae_rs.py",
+                         "vendor/yue2_vae_rs/NOTICE", "vendor/yue2_vae_rs/LICENSE",
                          "app/web/training_cleanup.js", "app/yue2_app/training_cleanup.py",
                          "app/web/vendor/bootstrap-icons.css",
                          "app/web/vendor/fonts/bootstrap-icons.woff2",

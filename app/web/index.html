@@ -227,6 +227,8 @@
           <label class="check"><input name="offload_ar" type="checkbox" checked>声学合成时释放闲置模型显存</label>
           <label>声学计算块<input name="nar_query_chunk_size" type="number" min="1" max="1024" step="1" value="256"></label>
           <label>声学后端<select name="nar_attention"><option value="sdpa">自动（显存保护）</option><option value="math">兼容模式</option><option value="cudnn">cuDNN</option></select></label>
+          <label>音频解码器<select name="vae_decoder" data-vae-decoder><option value="standard">原版 YuE2-Vae（默认）</option><option value="rs_x3_v1" data-label="YuE2-VAE-RS x3 v1">YuE2-VAE-RS x3 v1</option><option value="rs_x3_v2" data-label="YuE2-VAE-RS x3 v2">YuE2-VAE-RS x3 v2</option></select></label>
+          <p class="meta wide">VAE-RS x3 只替换最后一步音频解码，读取同一组潜变量；需另行下载到模型库的 YuE2-VAE-RS 文件夹（Ruach Studio，CC BY-NC 4.0）。解码更慢，占用更多显存。</p>
         </div></details>
         <button id="create-button" class="primary wide" type="submit" data-idle-label="生成歌曲">生成歌曲</button>
       </form>

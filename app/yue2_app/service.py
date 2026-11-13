@@ -37,6 +37,7 @@ from .retention import RetentionManager, _tree_size
 from .settings import model_directory, save_model_directory, settings_info
 from .memory import clear_current_process_cuda, memory_snapshot
 from . import assistant_data
+from . import vae_decoders
 from . import updater
 from .asset_library import AssetLibrary
 from .windows_runtime import powershell_executable
@@ -529,6 +530,14 @@ class JobStore:
                     vae_frames = generation["vae_core_frames"]
                     if type(vae_frames) is not int or vae_frames not in {128, 256, 512, 1024}:
                         raise ValueError("VAE 解码分块必须是 128、256、512 或 1024")
+                if "vae_decoder" in generation:
+                    # Presence and size before queueing; the job verifies SHA-256 again before and at decode.
+                    decoder = vae_decoders.normalize(generation["vae_decoder"])
+                    if decoder != vae_decoders.STANDARD:
+                        try:
+                            vae_decoders.resolve(ROOT, decoder, verify=False)
+                        except FileNotFoundError as exc:
+                            raise ValueError(str(exc)) from exc
             raw_budget = generation.get("memory_budget_gib", 23.5)
             try:
                 if isinstance(raw_budget, bool):
@@ -645,7 +654,7 @@ class JobStore:
             request = dict(job["request"])
             overrides = dict(data or {})
             runtime_keys = {"memory_budget_gib", "backend", "model_loading", "offload_ar", "nar_attention",
-                            "nar_query_chunk_size", "vae_core_frames"}
+                            "nar_query_chunk_size", "vae_core_frames", "vae_decoder"}
             unexpected = set(overrides) - runtime_keys
             if unexpected:
                 raise ValueError("恢复参数包含不支持的字段：" + "、".join(sorted(unexpected)))

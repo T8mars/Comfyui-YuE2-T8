@@ -376,6 +376,17 @@ ComfyUI/custom_nodes/yue2-t8/models/MULACOVER_MODEL_MANIFEST.json
 .\install_runtime.bat -ModelsDirectory "D:\AI\YuE2-models"
 ```
 
+#### 可选：YuE2-VAE-RS x3 音频解码器
+
+[YuE2-VAE-RS x3](https://huggingface.co/goldhub/YuE2-RS-Finetunes/tree/main/VAE-RS) v1 / v2 是 Ruach Studio 在 m-a-p YuE2-Vae 标准解码器基础上扩大三倍、用音乐继续训练的解码器，读取同一组潜变量，只替换最后一步音频解码。需要时把文件下载到模型库的 `YuE2-VAE-RS` 文件夹，不放入 `MODEL_MANIFEST.json`：
+
+```text
+models/YuE2-VAE-RS/YuE2-VAE-RS-x3_v1.safetensors
+models/YuE2-VAE-RS/YuE2-VAE-RS-x3_v2.safetensors
+```
+
+也接受同名的 `-full` 文件（标准编码器加该解码器）。歌曲创作“高级设置”的“音频解码器”、ComfyUI YuE2 模型加载节点的 `vae_decoder` 和 API 的 `vae_decoder`（`standard`、`rs_x3_v1`、`rs_x3_v2`）选择解码器；默认 `standard` 与以前完全相同。任务开始和解码前都按固定 SHA-256 校验文件，半精度、缺张量或放错版本的文件会说明原因后拒绝。x3 只以 float32 解码，关闭 TF32，分块两侧各读 60 帧上下文；解码更慢、占用更多显存。权重为 CC BY-NC 4.0（署名 YuE2、m-a-p 与 Ruach Studio），加载代码 `vendor/yue2_vae_rs` 为 Apache-2.0，DOI [10.5281/zenodo.24167962](https://doi.org/10.5281/zenodo.24167962)。
+
 ### 社区训练示例
 
 [CSD Korean Female v1](https://huggingface.co/t8star/YuE2-Comfy/tree/main/Community-Models/CSD-Korean-Female-v1) 提供一个可导入的 RVC 歌声音色包、一个 YuE2 AR 风格 LoRA、固定 NAR 配套文件和三段试听。RVC 使用 46 段共 68.5 分钟录音训练 100 轮；YuE2 LoRA 完成 800 步，并按歌曲隔离验证集后选用第 200 步的最低验证损失检查点。新版完整整合包已预装这两个训练示例。
@@ -432,6 +443,8 @@ Install it with `comfy node install yue2-t8`, then run `install_runtime.bat` onc
 The node pack supports Chinese and English lyrics, editable ABC plans, multi-candidate generation, SheetSage2 transcription, melody remake, MuLaCover audio/MIDI remixing, Seed-VC and RVC voice conversion, YuE2 style LoRA and RVC training, staged inference, per-task cancellation, history, and artifact export. Training datasets and rights review are prepared in the local studio; native ComfyUI nodes run the checked project and can connect the resulting model directly to generation or voice conversion. MuLaCover results include playable audio and extracted melody, chord and drum MIDI, and can be sent directly to voice conversion. A separate native, in-process node package is available at [Comfyui-Mulacover-T8](https://github.com/T8mars/Comfyui-Mulacover-T8).
 
 The model root is shared by the WebUI, ComfyUI nodes and native MuLaCover nodes. Keep the twelve model directories (`YuE2-3B`, `YuE2-Vae`, `MuLaCover`, `HeartCodec-oss`, `Qwen3-Embedding-0.6B`, `SymbolicTranscriptor`, `SheetSage2`, `MERT-v2-FullSong`, `Demucs`, `Seed-VC`, `RVC`, and `YuE2-training`) plus `MODEL_MANIFEST.json`, `VOICE_MODEL_MANIFEST.json` and `MULACOVER_MODEL_MANIFEST.json`. YuE2 style training also requires `YuE2-training/regularizer-safe-v1/codec.npy`, `offsets.npy` and `metadata.json`; the installer is pinned to the verified model commit that contains these files.
+
+Optional YuE2-VAE-RS x3 decoders (v1, v2, by Ruach Studio, CC BY-NC 4.0) decode the same latents with a larger decoder. Download them into `<models>/YuE2-VAE-RS/` and choose `vae_decoder` (`standard`, `rs_x3_v1`, `rs_x3_v2`) in the WebUI advanced settings, the ComfyUI model loader or the API; `standard` stays the default and is unchanged. Files are checked against pinned SHA-256 values when a job starts and again before decoding; float16, partial or swapped copies are refused with a reason.
 
 The standalone v1.5 studio uses one CPython 3.12.10 runtime for music, transcription, Seed-VC, RVC, YuE2 style training and optional GGUF. Its project workspace and content-addressed asset library connect source songs, stems, lyrics, scores, generated versions, voices and trained models. YuE2 AR LoRA training uses immutable train/validation snapshots, pinned Mothersuperior v4 companion resources, loss tracking, resumable checkpoints and an in-page audio preview. Version 1.4.11 samples reproducible 768-token semantic windows (about 30 seconds) from complete songs, while validation checks fixed start, middle and end windows with song-disjoint groups. Trained adapters are currently enabled only for the validated direct-generation mode. The updater migrates legacy runtimes and rolls back a failed startup.
 

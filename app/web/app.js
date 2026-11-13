@@ -586,6 +586,9 @@ function renderHealth(data) {
   if (data.ready.settings_error) missing.unshift('模型路径配置有误');
   $('#health-detail').textContent = `${missing.length ? missing.join(' · ') : '歌曲生成与音频转谱可用'} · ${voice} · ${renderer}`;
   $('#model-path-summary').textContent = `共享模型库 · ${data.ready.model_directory}（可跨应用版本复用）`;
+  for (const option of $$('[data-vae-decoder] option[data-label]')) {
+    option.textContent = `${option.dataset.label}${data.ready.vae_decoders?.[option.value] ? '' : '（未下载）'}`;
+  }
   if (!modelSettingsInitialized) {
     $('#model-settings').open = Boolean(data.ready.settings_error || !data.ready.capabilities?.generation);
     modelSettingsInitialized = true;

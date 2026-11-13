@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .model_verify import PINNED_MODELS
 from .settings import model_directory, settings_info
+from .vae_decoders import readiness as vae_decoder_readiness
 
 
 def kit_root() -> Path:
@@ -138,6 +139,7 @@ def runtime_ready(root: Path | None = None) -> dict[str, object]:
         "ffmpeg": _nonempty(runtime / "ffmpeg" / "ffmpeg.exe"),
         "renderer": renderer,
         "models": models,
+        "vae_decoders": vae_decoder_readiness(base),
         "voice_models": voice_models,
         "voice_source": voice_source,
         "upstream_source": all(_nonempty(source / filename) for filename in ("__init__.py", "pipeline.py")),
