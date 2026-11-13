@@ -123,7 +123,7 @@ class YuE2Pipeline:
                  backend="torch", generation_config=None, verify_hashes=True,
                  vae_core_frames=None, quantization="none", offload_ar=True, progress=True,
                  nar_attention="sdpa", nar_query_chunk_size=256, on_stage_progress=None,
-                 on_memory=None, model_loading="auto"):
+                 on_memory=None, model_loading="auto", vae_decoder=None):
         if not isinstance(progress, bool):
             raise TypeError("progress must be True or False")
         self.progress = progress
@@ -142,6 +142,11 @@ class YuE2Pipeline:
             raise ValueError("memory_budget_gib must be positive")
         if vae_core_frames is not None and (type(vae_core_frames) is not int or vae_core_frames <= 0):
             raise ValueError("vae_core_frames must be a positive integer")
+        # Optional YuE2-VAE-RS decoder file: decode only; encode and model identity keep the pinned VAE.
+        if vae_decoder is not None and (not isinstance(vae_decoder, dict)
+                                        or not {"release", "path", "sha256", "halo_frames"} <= set(vae_decoder)):
+            raise ValueError("vae_decoder must be a resolved YuE2-VAE-RS file identity")
+        self.vae_decoder = dict(vae_decoder) if vae_decoder is not None else None
         if device == "auto":
             device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
         self.device = torch.device(device)
@@ -358,7 +363,15 @@ class YuE2Pipeline:
                 self._model.to("cpu")
             if self.device.type == "cuda":
                 torch.cuda.empty_cache()
-            if vae is not None:
+            decoder = self.vae_decoder if vae is None else None
+            if decoder is not None:
+                # Hash again at decode time: a file replaced after the job was verified is refused, never trusted.
+                path = Path(decoder["path"])
+                if path.is_symlink() or not path.is_file() or sha256_file(path) != decoder["sha256"]:
+                    raise ValueError(f"YuE2-VAE-RS decoder file changed after verification: {path}")
+                from yue2_vae_rs import load_decoder
+                model = load_decoder(path, device=self.device, allow_standard=False)
+            elif vae is not None:
                 model = YuE2VAE.from_pretrained(vae, decoder_only=True, device=self.device)
             else:
                 if self._vae is None:
@@ -383,7 +396,8 @@ class YuE2Pipeline:
                         audio = model.decode(z.to(self.device)).cpu()
                         status.update(1)
                     else:
-                        audio = model.decode_tiled(z, core_frames=self.vae_core_frames, halo_frames=16,
+                        halo = 16 if decoder is None else int(decoder["halo_frames"])
+                        audio = model.decode_tiled(z, core_frames=self.vae_core_frames, halo_frames=halo,
                                                    output_device="cpu", on_progress=report)
                 if not torch.isfinite(audio).all():
                     raise ValueError("VAE produced non-finite audio")
@@ -402,18 +416,26 @@ class YuE2Pipeline:
         overrides = {k: v for k, v in config.items() if defaults.get(k) != v}
         if request.guidance != (1.01 if request.cot == "off" else 1.0):
             overrides["cfg_scale"] = request.guidance
-        return {"generation": config, "overrides": overrides,
-                "cot": request.cot, "cfg_scale": request.guidance,
-                "cfg_negative": "instruction_only" if request.cot == "off" else "same_instruction_and_exact_abc",
-                "backend": self.backend, "quantization": self.quantization,
-                "model_loading": "cpu-offload" if self.cpu_offload_enabled else "gpu",
-                "model_dtype": "bfloat16", "vae_dtype": "float32", "vae_decode": "halo_crop",
-                "vae_core_frames": self.vae_core_frames, "vae_halo_frames": 16,
-                "device": str(self.device), "memory_budget_gib": self.memory_budget_gib,
-                "offload_ar": self.offload_ar, "runtime_sha256": self.runtime_sha256,
-                "nar_attention": self.nar_attention, "nar_query_chunk_size": self.nar_query_chunk_size,
-                "decoder_release": json.loads((self.vae_dir / "config.json").read_text()).get("release_variant"),
-                "validation_status": "unvalidated"}
+        result = {"generation": config, "overrides": overrides,
+                  "cot": request.cot, "cfg_scale": request.guidance,
+                  "cfg_negative": "instruction_only" if request.cot == "off" else "same_instruction_and_exact_abc",
+                  "backend": self.backend, "quantization": self.quantization,
+                  "model_loading": "cpu-offload" if self.cpu_offload_enabled else "gpu",
+                  "model_dtype": "bfloat16", "vae_dtype": "float32", "vae_decode": "halo_crop",
+                  "vae_core_frames": self.vae_core_frames, "vae_halo_frames": 16,
+                  "device": str(self.device), "memory_budget_gib": self.memory_budget_gib,
+                  "offload_ar": self.offload_ar, "runtime_sha256": self.runtime_sha256,
+                  "nar_attention": self.nar_attention, "nar_query_chunk_size": self.nar_query_chunk_size,
+                  "decoder_release": json.loads((self.vae_dir / "config.json").read_text()).get("release_variant"),
+                  "validation_status": "unvalidated"}
+        if self.vae_decoder is not None:
+            # Only a selected VAE-RS decoder adds keys, so standard request identities stay unchanged.
+            result.update(vae_halo_frames=int(self.vae_decoder["halo_frames"]),
+                          decoder_release=self.vae_decoder["release"],
+                          vae_decoder={key: self.vae_decoder[key] for key in
+                                       ("release", "file", "bytes", "sha256", "source", "revision")
+                                       if key in self.vae_decoder})
+        return result
 
     def __call__(self, style=None, lyrics=None, *, tags=None, abc_sampling=None,
                  semantic_sampling=None, cancelled=None, on_token=None, **kwargs):

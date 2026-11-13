@@ -1,0 +1,14 @@
+YuE2-VAE-RS integration code
+Copyright 2026 Viktor Zhuromskyy, Ruach Studio
+https://github.com/igrbible/Ruach_Studio
+
+This product includes software developed by Ruach Studio and Viktor Zhuromskyy:
+yue2_vae_rs.py, verify.py, the ComfyUI node pack comfyui-yue2-vae-rs, comfyui-native.patch and yue2_infer-pipeline.patch.
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use these files except in compliance with the License. You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0. Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions and limitations under the License.
+
+Attribution. Under section 4 (d) of the License, any redistribution of this code or of a work derived from it must include this NOTICE, and must credit "Ruach Studio and Viktor Zhuromskyy" in its NOTICE file, in its documentation, or where such third-party notices normally appear.
+
+Third-party notices. The SnakeBeta activation and the Oobleck decoder layout follow stable-audio-tools (Stability AI, MIT License) and NVIDIA's BigVGAN (MIT License); their notices are shipped by m-a-p in YuE2-Vae/licenses/ and go along with this code.
+
+The model weights are not covered by this NOTICE or by the Apache License. YuE2-VAE-RS-x3_v1 and YuE2-VAE-RS-x3_v2 are adaptations of m-a-p's YuE2-Vae and are licensed under CC BY-NC 4.0, as m-a-p's YuE2-3B and YuE2-Vae: non-commercial use; credit YuE2 and m-a-p, and Ruach Studio for VAE-RS.

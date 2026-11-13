@@ -22,6 +22,7 @@ from .artifacts import (
 )
 from .config import model_paths, upstream_path
 from .io import atomic_json, within
+from .vae_decoders import resolve as resolve_vae_decoder
 from .worker_common import JobContext, configure_environment
 
 
@@ -72,6 +73,7 @@ def create_pipe(root: Path, request: dict):
         nar_query_chunk_size=int(request.get("nar_query_chunk_size", 256)),
         verify_hashes=bool(request.get("verify_hashes", False)), progress=False,
         vae_core_frames=vae_core_frames_for(request),
+        vae_decoder=resolve_vae_decoder(root, request.get("vae_decoder")),
     )
     model_asset_id = str(request.get("style_model_asset_id", "")).strip()
     if model_asset_id:
@@ -467,6 +469,15 @@ def run_synthesize(root: Path, ctx: JobContext, request: dict) -> dict:
         ctx.memory("pipeline_closed")
 
 
+def decoder_record(pipe) -> dict:
+    """The selected YuE2-VAE-RS release for decode manifests; nothing for the pinned YuE2-Vae decoder."""
+    decoder = getattr(pipe, "vae_decoder", None)
+    if not isinstance(decoder, dict):
+        return {}
+    return {"vae_decoder": {key: decoder[key] for key in ("release", "file", "bytes", "sha256", "source", "revision")},
+            "vae_halo_frames": decoder["halo_frames"]}
+
+
 def run_decode(root: Path, ctx: JobContext, request: dict) -> dict:
     import soundfile as sf
 
@@ -504,7 +515,8 @@ def run_decode(root: Path, ctx: JobContext, request: dict) -> dict:
             destination, "decode_manifest.json", "yue2-decode-v1",
             ["audio.flac"], models=generation_provenance(root, pipe.weights),
             source={"latent_manifest": manifest_reference(latent_manifest_path)},
-            config={"sample_rate": 48000, "vae_decode": "halo_crop"},
+            config={"sample_rate": 48000, "vae_decode": "halo_crop",
+                    **decoder_record(pipe)},
         )
         return {"audio": str(path), "artifact_dir": str(destination),
                 "sample_rate": 48000, "audio_seconds": len(audio) / 48000,

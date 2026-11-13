@@ -60,12 +60,19 @@ def _selected_id(value: str, label: str) -> str:
     return match.group(1)
 
 
+VAE_DECODERS = ["standard", "rs_x3_v1", "rs_x3_v2"]
+
+
 def base_request(model: dict) -> dict:
-    return {"backend": model["backend"], "memory_budget_gib": model["memory_budget_gib"],
-            "offload_ar": model.get("offload_ar", True),
-            "model_loading": model.get("model_loading", "auto"),
-            "nar_attention": model.get("nar_attention", "sdpa"),
-            "nar_query_chunk_size": model.get("nar_query_chunk_size", 256)}
+    request = {"backend": model["backend"], "memory_budget_gib": model["memory_budget_gib"],
+               "offload_ar": model.get("offload_ar", True),
+               "model_loading": model.get("model_loading", "auto"),
+               "nar_attention": model.get("nar_attention", "sdpa"),
+               "nar_query_chunk_size": model.get("nar_query_chunk_size", 256)}
+    # Old workflows and the default keep the pinned YuE2-Vae decoder and send exactly the previous request.
+    if model.get("vae_decoder", "standard") != "standard":
+        request["vae_decoder"] = model["vae_decoder"]
+    return request
 
 
 def audio_value(path: str):
@@ -113,13 +120,15 @@ class YuE2ModelLoader:
             "model_loading": (["auto", "cpu-offload", "gpu"], {"default": "auto"}),
             "nar_attention": (["sdpa", "math", "cudnn"], {"default": "sdpa"}),
             "nar_query_chunk_size": ("INT", {"default": 256, "min": 1, "max": 1024}),
+            "vae_decoder": (VAE_DECODERS, {"default": "standard"}),
         }}
     RETURN_TYPES = ("YUE2_MODEL", "STRING")
     RETURN_NAMES = ("model", "status")
     FUNCTION = "load"
     CATEGORY = CATEGORY
 
-    def load(self, backend, memory_budget_gib, offload_ar, nar_attention="sdpa", nar_query_chunk_size=256, model_loading="auto"):
+    def load(self, backend, memory_budget_gib, offload_ar, nar_attention="sdpa", nar_query_chunk_size=256, model_loading="auto",
+             vae_decoder="standard"):
         health = client.ensure_service()
         ready = health["ready"]
         missing = [name for name in ("model", "vae") if not ready["models"].get(name)]
@@ -135,6 +144,13 @@ class YuE2ModelLoader:
         handle = {"backend": backend, "memory_budget_gib": float(memory_budget_gib),
                   "offload_ar": bool(offload_ar), "service": client.SERVICE, "model_loading": model_loading,
                   "nar_attention": nar_attention, "nar_query_chunk_size": int(nar_query_chunk_size)}
+        if vae_decoder != "standard":
+            if vae_decoder not in VAE_DECODERS:
+                raise ValueError("音频解码器必须是 " + "、".join(VAE_DECODERS))
+            if not ready.get("vae_decoders", {}).get(vae_decoder):
+                raise RuntimeError(f"未找到音频解码器 {vae_decoder}：请下载 YuE2-VAE-RS 解码器到模型库的 YuE2-VAE-RS 文件夹"
+                                   "（https://huggingface.co/goldhub/YuE2-RS-Finetunes/tree/main/VAE-RS）")
+            handle["vae_decoder"] = vae_decoder
         return (handle, json.dumps(health, ensure_ascii=False))
 
 

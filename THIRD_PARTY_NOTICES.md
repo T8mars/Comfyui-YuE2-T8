@@ -14,6 +14,12 @@ These notices cover the identified source code and retain its original licenses.
 The YuE2 model checkpoint weights are separately licensed under CC BY-NC 4.0;
 see MODEL_LICENSE for the scope and full terms. This does not relicense third-party code.
 
+The optional YuE2-VAE-RS decoder loader in `vendor/yue2_vae_rs` is unmodified code by Ruach Studio and
+Viktor Zhuromskyy (https://github.com/igrbible/Ruach_Studio), Apache-2.0; its `LICENSE`, `NOTICE` and
+`UPSTREAM.json` (source revision and SHA-256) are kept beside it. The YuE2-VAE-RS x3 weights are not
+included; they are adaptations of m-a-p's YuE2-Vae under CC BY-NC 4.0 (credit YuE2, m-a-p and Ruach Studio):
+https://huggingface.co/goldhub/YuE2-RS-Finetunes/tree/main/VAE-RS, DOI 10.5281/zenodo.24167962.
+
 Reference-voice support also uses the following upstream projects and models:
 
 - Seed-VC source, Copyright (c) Plachtaa and contributors, GPL-3.0. The vendored
